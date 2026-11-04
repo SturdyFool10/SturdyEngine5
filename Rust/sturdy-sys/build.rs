@@ -288,10 +288,10 @@ fn configure(
 
     let shim_sources = shim_sources(manifest, bridge_cc)
         .into_iter()
-        .map(|p| p.display().to_string())
+        .map(|p| cmake_path(&p))
         .collect::<Vec<_>>()
         .join(";");
-    let include_dirs = format!("{};{}", manifest.join("cpp").display(), gen_dir.display());
+    let include_dirs = format!("{};{}", cmake_path(&manifest.join("cpp")), cmake_path(gen_dir));
 
     let mut cmd = Command::new("cmake");
     cmd.arg("-S").arg(engine_src).arg("-B").arg(build_dir).args(["-G", "Ninja"]);
@@ -346,9 +346,9 @@ fn configure(
         .args(feature_cmake_args())
         // Keep the source tree pristine: the dependency cache lives in OUT_DIR, unless STURDY_RS_DEPS_DIR points at a
         // shared (or pre-populated, for offline builds) directory.
-        .arg(format!("-DSTURDY_DEPS_CACHE_DIR={}", deps_dir(out).display()))
-        .arg(format!("-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={}", manifest.join("cmake/hook.cmake").display()))
-        .arg(format!("-DSTURDY_RS_SHIM_CMAKE={}", manifest.join("cmake/shim.cmake").display()))
+        .arg(format!("-DSTURDY_DEPS_CACHE_DIR={}", cmake_path(&deps_dir(out))))
+        .arg(format!("-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={}", cmake_path(&manifest.join("cmake/hook.cmake"))))
+        .arg(format!("-DSTURDY_RS_SHIM_CMAKE={}", cmake_path(&manifest.join("cmake/shim.cmake"))))
         .arg(format!("-DSTURDY_RS_SHIM_SOURCES={shim_sources}"))
         .arg(format!("-DSTURDY_RS_SHIM_INCLUDE_DIRS={include_dirs}"));
     if env::var_os("STURDY_RS_OFFLINE").is_some_and(|v| v != "0") {
@@ -644,4 +644,10 @@ fn shared_library_name(token: &str) -> Option<String> {
     // `libfoo.so.1`, or macOS `libfoo.1.dylib` / `libfoo.dylib`.
     let end = stem.find(".so").or_else(|| stem.ends_with(".dylib").then(|| stem.find('.')).flatten())?;
     Some(stem[..end].to_owned())
+}
+
+/// A path as CMake should see it: forward slashes only. CMake reads `\` in a `-D` value as an escape (`\U` in
+/// `C:\Users` is a syntax error once the value lands in a list), and accepts `/` on every platform.
+fn cmake_path(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
 }

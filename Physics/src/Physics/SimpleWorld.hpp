@@ -25,6 +25,8 @@ namespace SFT::Physics {
 
         void add_box(const Box &box) { boxes_.push_back(box); }
         void add_plane(const Plane &plane) { planes_.push_back(plane); }
+        [[nodiscard]] usize box_count() const noexcept { return boxes_.size(); }
+        [[nodiscard]] usize plane_count() const noexcept { return planes_.size(); }
         /// Moves a box (a platform) by `delta`.
         void move_box(usize index, const glm::vec3 &delta) {
             if (index < boxes_.size()) {

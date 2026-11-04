@@ -78,11 +78,32 @@ namespace SFT::Engine {
     /// the next frame starts clean. Fails (and closes the frame) when an element was left open.
     [[nodiscard]] ForeignUiResult<void> end_foreign_ui_frame(Engine &engine, RenderFrameParameters *frame);
 
+    /// Makes `context` this thread's open UI frame while it lives, so a UI tree's builder can use the same element, text and query calls
+    /// (`begin_foreign_ui_element`, ...) as a window frame. The destructor closes whatever the builder left open. Must be created and
+    /// destroyed on the thread running the builder, and not while another frame is open on it.
+    class ForeignUiContextBinding {
+      public:
+        ForeignUiContextBinding(UI::Context &context, glm::vec2 viewport);
+        ~ForeignUiContextBinding();
+        ForeignUiContextBinding(const ForeignUiContextBinding &) = delete;
+        ForeignUiContextBinding &operator=(const ForeignUiContextBinding &) = delete;
+
+        /// True when another frame was already open (the binding did nothing).
+        [[nodiscard]] bool rejected() const noexcept { return rejected_; }
+        /// True when every element the builder opened is closed again.
+        [[nodiscard]] bool balanced() const noexcept;
+
+      private:
+        bool rejected_ = false;
+    };
+
     /// Abandons the open frame (and any elements left open) without finishing it. For an error path that cannot reach the engine; a normal
     /// frame ends with `end_foreign_ui_frame`. Does nothing when no frame is open.
     void discard_foreign_ui_frame() noexcept;
 
     [[nodiscard]] ForeignUiResult<void> begin_foreign_ui_element(const ForeignUiElement &element);
+    /// Opens an element from a ready-made declaration (a dock panel's content region, say); close it with `end_foreign_ui_element`.
+    [[nodiscard]] ForeignUiResult<void> begin_foreign_ui_declared_element(const UI::ElementDecl &declaration);
     [[nodiscard]] ForeignUiResult<void> end_foreign_ui_element();
     [[nodiscard]] ForeignUiResult<void> foreign_ui_text(std::string_view text, const ForeignUiTextStyle &style);
     [[nodiscard]] ForeignUiResult<bool> foreign_ui_hovered(std::string_view id);

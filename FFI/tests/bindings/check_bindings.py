@@ -63,8 +63,8 @@ def main():
         print("SKIP: clang is needed to read the header")
         return 0
 
+    # The JSON description is an untracked intermediate (see .gitignore): it is regenerated below but not compared.
     committed = {
-        "api": ffi / "api" / "sturdy_abi.json",
         "python": ffi / "bindings" / "python" / "sturdy.py",
         "java": ffi / "bindings" / "java" / "dev" / "sturdy" / "Sturdy.java",
         "csharp": ffi / "bindings" / "csharp" / "Sturdy.cs",

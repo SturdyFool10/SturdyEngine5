@@ -85,6 +85,13 @@ out/
 *.gcno
 *.gcov
 
+# Rust build outputs outside a crate's own target/ directory, and Visual Studio per-user state.
+*.rlib
+*.rmeta
+.vs/
+*.suo
+*.user
+
 # Runtime dumps and logs
 *.log
 *.dmp
@@ -97,6 +104,10 @@ perf.data
 perf.data.old
 *.folded
 flamegraph*.svg
+
+# Machine-readable ABI description: an intermediate (Sturdy.h --describe_abi.py--> this --gen_bindings.py--> the bindings) that nothing
+# reads at runtime. Regenerate with FFI/tools/describe_abi.py; FfiBindingsTest rebuilds it in a temp directory.
+FFI/api/sturdy_abi.json
 
 # Python bytecode caches (written next to the generator scripts whenever they run).
 __pycache__/

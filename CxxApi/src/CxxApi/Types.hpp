@@ -7,6 +7,7 @@
 #include <CxxApi/Types/Common.hpp>
 #include <CxxApi/Types/Ecs.hpp>
 #include <CxxApi/Types/Log.hpp>
+#include <CxxApi/Types/Physics.hpp>
 #include <CxxApi/Types/Render.hpp>
 #include <CxxApi/Types/Runtime.hpp>
 #include <CxxApi/Types/Scene.hpp>

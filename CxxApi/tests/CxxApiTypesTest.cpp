@@ -30,6 +30,11 @@ namespace {
                   BodyRigDesc, BodyRigPose,
                   // Ui
                   UiSizing, UiDirection, UiScaleMode, UiElement, UiTextStyle,
+                  // Physics
+                  PhysicsPose, PhysicsBox, PhysicsPlane, PhysicsSweepHit, PhysicsCharacterSettings, PhysicsMoveResult, PhysicsCharacterState,
+                  PhysicsContactPoint, PhysicsContactEvent, PhysicsContactConfig, PhysicsSurfaceMaterial, PhysicsProjectile, PhysicsImpactResult,
+                  PhysicsSurfaceHit, PhysicsShotImpact, PhysicsShotOptions, PhysicsClothParams, PhysicsClothSphere, PhysicsClothCapsule,
+                  PhysicsClothPlane, PhysicsSwingTwistLimits, PhysicsSwingTwist,
                   // Ecs and log
                   FieldKind, ComponentFieldDesc, AccessMode, ComponentAccess, LayoutFingerprint, ResourceId, ResourceAccess, LogLevel,
                   // Window

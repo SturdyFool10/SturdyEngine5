@@ -364,6 +364,62 @@ set_target_properties(copy_slang_headers PROPERTIES FOLDER "generated")]=])
     file(WRITE "${_slang_cmake}" "${_slang_cmake_contents}")
 endfunction()
 
+# Boost (Asio, Beast, Process) for Async. The official CMake release archive carries every Boost library plus a superproject
+# CMakeLists, so nothing needs to be installed by hand (the Windows pain point): a system Boost is used when find_package finds
+# one, otherwise this archive is downloaded and only the libraries Async needs (and their dependencies) are built.
+set(STURDY_BOOST_VERSION "1.86.0" CACHE STRING "Boost release to download when no suitable system Boost is found.")
+function(sturdy_fetch_boost)
+    set(BOOST_INCLUDE_LIBRARIES "asio;beast;process" CACHE STRING "" FORCE)
+    set(BOOST_ENABLE_MPI OFF CACHE BOOL "" FORCE)
+    set(BOOST_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF)
+    set(_cache_dirs)
+    if(STURDY_SHARED_DEPS_CACHE)
+        set(_cache_dirs
+            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/Boost-${STURDY_BOOST_VERSION}-src"
+            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/Boost-${STURDY_BOOST_VERSION}-subbuild"
+        )
+    endif()
+    set(_find_package_args)
+    if(STURDY_PREFER_SYSTEM_DEPENDENCIES)
+        set(_find_package_args FIND_PACKAGE_ARGS 1.74 CONFIG QUIET)
+    endif()
+    FetchContent_Declare(Boost
+        URL "https://github.com/boostorg/boost/releases/download/boost-${STURDY_BOOST_VERSION}/boost-${STURDY_BOOST_VERSION}-cmake.tar.xz"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        EXCLUDE_FROM_ALL
+        SYSTEM
+        ${_cache_dirs}
+        ${_find_package_args}
+    )
+    FetchContent_MakeAvailable(Boost)
+endfunction()
+
+# OpenSSL for Async's TLS. OpenSSL has no CMake build of its own, so when no system copy is found it is built from source through
+# jimmy-park/openssl-cmake, which needs Perl (Windows: also NASM unless assembly is disabled, done below; Git for Windows ships a Perl).
+set(STURDY_OPENSSL_CMAKE_TAG "4.1.0" CACHE STRING "jimmy-park/openssl-cmake tag used to build OpenSSL when no system OpenSSL is found.")
+set(STURDY_OPENSSL_VERSION "3.5.4" CACHE STRING "OpenSSL release built when no system OpenSSL is found (3.5 is the current LTS; Async needs 3.0+).")
+function(sturdy_fetch_openssl)
+    # Probe only when a system copy is acceptable: a found system OpenSSL defines imported OpenSSL:: targets, which would clash with
+    # the ones openssl-cmake defines if both ran.
+    if(STURDY_PREFER_SYSTEM_DEPENDENCIES)
+        find_package(OpenSSL 3.0 QUIET)
+        if(OpenSSL_FOUND)
+            return()
+        endif()
+    endif()
+    set(OPENSSL_TARGET_VERSION "${STURDY_OPENSSL_VERSION}" CACHE STRING "" FORCE)
+    if(STURDY_OS STREQUAL "Windows")
+        set(OPENSSL_CONFIGURE_OPTIONS "no-asm;no-tests;no-docs" CACHE STRING "" FORCE)
+    endif()
+    set(OPENSSL_INSTALL OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(openssl-cmake
+        GIT_REPOSITORY https://github.com/jimmy-park/openssl-cmake.git
+        GIT_TAG ${STURDY_OPENSSL_CMAKE_TAG}
+    )
+    FetchContent_MakeAvailable(openssl-cmake)
+endfunction()
+
 function(sturdy_configure_dependencies)
     # Vulkan is the desktop (Windows/MacOS/Linux/FreeBSD) graphics API. Web gets WebGPU only —
     # see sturdy_configure_webgpu() below — so it never finds/links Vulkan at all.
@@ -372,6 +428,10 @@ function(sturdy_configure_dependencies)
     endif()
 
     if(STURDY_FETCH_DEPENDENCIES)
+        if(NOT STURDY_OS STREQUAL "Web")
+            sturdy_fetch_boost()
+            sturdy_fetch_openssl()
+        endif()
         sturdy_fetch_glm()
         sturdy_fetch_vma()
         sturdy_fetch_volk()

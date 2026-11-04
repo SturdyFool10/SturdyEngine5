@@ -43,6 +43,7 @@ pub mod ecs;
 pub mod geometry;
 pub mod hot_reload;
 pub mod images;
+pub mod physics;
 pub mod reflection;
 pub mod render;
 pub mod rhi;

@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 42;
+pub const ABI_VERSION_MINOR: u32 = 43;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -33,6 +33,11 @@ pub const STURDY_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL: SturdyAccelerationStruct
 pub type SturdyAccessMode = i32;
 pub const STURDY_ACCESS_READ: SturdyAccessMode = 0;
 pub const STURDY_ACCESS_WRITE: SturdyAccessMode = 1;
+
+pub type SturdyAdapterPresentable = i32;
+pub const STURDY_ADAPTER_PRESENTABLE_UNKNOWN: SturdyAdapterPresentable = 0;
+pub const STURDY_ADAPTER_PRESENTABLE_YES: SturdyAdapterPresentable = 1;
+pub const STURDY_ADAPTER_PRESENTABLE_NO: SturdyAdapterPresentable = 2;
 
 /// Selects which of the adapter's text fields `sturdy_rhi_adapter_string` returns.
 pub type SturdyAdapterString = i32;
@@ -151,6 +156,15 @@ pub const STURDY_BORDER_COLOR_TRANSPARENT_BLACK: SturdyBorderColor = 0;
 pub const STURDY_BORDER_COLOR_OPAQUE_BLACK: SturdyBorderColor = 1;
 pub const STURDY_BORDER_COLOR_OPAQUE_WHITE: SturdyBorderColor = 2;
 
+pub type SturdyChangeText = i32;
+pub const STURDY_CHANGE_TEXT_INSERTED: SturdyChangeText = 0;
+pub const STURDY_CHANGE_TEXT_DELETED: SturdyChangeText = 1;
+
+pub type SturdyCharClass = i32;
+pub const STURDY_CHAR_CLASS_WHITESPACE: SturdyCharClass = 0;
+pub const STURDY_CHAR_CLASS_WORD: SturdyCharClass = 1;
+pub const STURDY_CHAR_CLASS_PUNCTUATION: SturdyCharClass = 2;
+
 /// Swapchain color space, including real display HDR transfer functions. Matches `RHI::ColorSpace`. `STURDY_COLOR_SPACE_DOLBY_VISION` is declared for completeness but not implemented by either backend yet; requesting it will not succeed.
 pub type SturdyColorSpace = i32;
 pub const STURDY_COLOR_SPACE_SRGB_NONLINEAR: SturdyColorSpace = 0;
@@ -213,6 +227,24 @@ pub const STURDY_CURSOR_ICON_RESIZE_SW: SturdyCursorIcon = 19;
 pub const STURDY_CURSOR_ICON_RESIZE_W: SturdyCursorIcon = 20;
 pub const STURDY_CURSOR_ICON_RESIZE_NW: SturdyCursorIcon = 21;
 
+pub type SturdyDeviceChangeKind = i32;
+pub const STURDY_DEVICE_CHANGE_SWITCHING: SturdyDeviceChangeKind = 0;
+pub const STURDY_DEVICE_CHANGE_SWITCHED: SturdyDeviceChangeKind = 1;
+pub const STURDY_DEVICE_CHANGE_RECOVERED: SturdyDeviceChangeKind = 2;
+pub const STURDY_DEVICE_CHANGE_LOST_UNRECOVERABLE: SturdyDeviceChangeKind = 3;
+
+pub type SturdyDevicePreference = i32;
+pub const STURDY_DEVICE_PREFERENCE_DEFAULT: SturdyDevicePreference = 0;
+pub const STURDY_DEVICE_PREFERENCE_HIGH_PERFORMANCE: SturdyDevicePreference = 1;
+pub const STURDY_DEVICE_PREFERENCE_LOW_POWER: SturdyDevicePreference = 2;
+pub const STURDY_DEVICE_PREFERENCE_DISCRETE_ONLY: SturdyDevicePreference = 3;
+pub const STURDY_DEVICE_PREFERENCE_INTEGRATED_ONLY: SturdyDevicePreference = 4;
+
+pub type SturdyDeviceSwitchOutcome = i32;
+pub const STURDY_DEVICE_SWITCH_SWITCHED: SturdyDeviceSwitchOutcome = 0;
+pub const STURDY_DEVICE_SWITCH_FALLBACK: SturdyDeviceSwitchOutcome = 1;
+pub const STURDY_DEVICE_SWITCH_FAILED: SturdyDeviceSwitchOutcome = 2;
+
 /// Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists.
 pub type SturdyDeviceType = i32;
 pub const STURDY_DEVICE_TYPE_OTHER: SturdyDeviceType = 0;
@@ -227,6 +259,25 @@ pub const STURDY_DISPLAY_ORIENTATION_LANDSCAPE: SturdyDisplayOrientation = 1;
 pub const STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED: SturdyDisplayOrientation = 2;
 pub const STURDY_DISPLAY_ORIENTATION_PORTRAIT: SturdyDisplayOrientation = 3;
 pub const STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED: SturdyDisplayOrientation = 4;
+
+pub type SturdyDockZone = i32;
+pub const STURDY_DOCK_ZONE_CENTER: SturdyDockZone = 0;
+pub const STURDY_DOCK_ZONE_LEFT: SturdyDockZone = 1;
+pub const STURDY_DOCK_ZONE_RIGHT: SturdyDockZone = 2;
+pub const STURDY_DOCK_ZONE_TOP: SturdyDockZone = 3;
+pub const STURDY_DOCK_ZONE_BOTTOM: SturdyDockZone = 4;
+
+pub type SturdyDropKind = i32;
+pub const STURDY_DROP_BEGIN: SturdyDropKind = 0;
+pub const STURDY_DROP_HOVER: SturdyDropKind = 1;
+pub const STURDY_DROP_FILE: SturdyDropKind = 2;
+pub const STURDY_DROP_TEXT: SturdyDropKind = 3;
+pub const STURDY_DROP_COMPLETE: SturdyDropKind = 4;
+
+pub type SturdyEditKind = i32;
+pub const STURDY_EDIT_STANDALONE: SturdyEditKind = 0;
+pub const STURDY_EDIT_TYPING: SturdyEditKind = 1;
+pub const STURDY_EDIT_DELETION: SturdyEditKind = 2;
 
 /// The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change.
 pub type SturdyFieldKind = i32;
@@ -315,6 +366,10 @@ pub const STURDY_FORMAT_BC7_UNORM_SRGB: SturdyFormat = 47;
 pub type SturdyFrameCodec = i32;
 pub const STURDY_FRAME_LENGTH_DELIMITED: SturdyFrameCodec = 0;
 pub const STURDY_FRAME_LINES: SturdyFrameCodec = 1;
+
+pub type SturdyFrameMode = i32;
+pub const STURDY_FRAME_MODE_CONTINUOUS: SturdyFrameMode = 0;
+pub const STURDY_FRAME_MODE_ON_DEMAND: SturdyFrameMode = 1;
 
 /// The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`.
 pub type SturdyFrameRateLimitMode = i32;
@@ -473,6 +528,10 @@ pub const STURDY_LATENCY_MODE_NORMAL: SturdyLatencyMode = 0;
 pub const STURDY_LATENCY_MODE_LOW: SturdyLatencyMode = 1;
 pub const STURDY_LATENCY_MODE_ULTRA: SturdyLatencyMode = 2;
 
+pub type SturdyLineEnding = i32;
+pub const STURDY_LINE_ENDING_LF: SturdyLineEnding = 0;
+pub const STURDY_LINE_ENDING_CRLF: SturdyLineEnding = 1;
+
 /// Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.
 pub type SturdyLinuxBlurProtocol = i32;
 pub const STURDY_LINUX_BLUR_AUTOMATIC: SturdyLinuxBlurProtocol = 0;
@@ -581,6 +640,15 @@ pub type SturdyOpacityMicromapFormat = i32;
 pub const STURDY_OPACITY_MICROMAP_FORMAT_TWO_STATE: SturdyOpacityMicromapFormat = 0;
 pub const STURDY_OPACITY_MICROMAP_FORMAT_FOUR_STATE: SturdyOpacityMicromapFormat = 1;
 
+pub type SturdyPhysicsContactKind = i32;
+pub const STURDY_PHYSICS_CONTACT_IMPACT: SturdyPhysicsContactKind = 0;
+pub const STURDY_PHYSICS_CONTACT_SCRAPE: SturdyPhysicsContactKind = 1;
+
+pub type SturdyPhysicsImpactOutcome = i32;
+pub const STURDY_PHYSICS_IMPACT_STOPPED: SturdyPhysicsImpactOutcome = 0;
+pub const STURDY_PHYSICS_IMPACT_PENETRATED: SturdyPhysicsImpactOutcome = 1;
+pub const STURDY_PHYSICS_IMPACT_RICOCHETED: SturdyPhysicsImpactOutcome = 2;
+
 /// Outcome of a platform-level display/HDR query, distinct from `SturdyResult`: the call itself succeeded (a device and surface exist), but the platform may still have nothing useful to report. Matches `RHI::PlatformQueryStatus`.
 pub type SturdyPlatformQueryStatus = i32;
 pub const STURDY_PLATFORM_QUERY_STATUS_OK: SturdyPlatformQueryStatus = 0;
@@ -672,6 +740,10 @@ pub const STURDY_QUEUE_CLASS_SPARSE: SturdyQueueClass = 3;
 pub const STURDY_QUEUE_CLASS_VIDEO_DECODE: SturdyQueueClass = 4;
 pub const STURDY_QUEUE_CLASS_VIDEO_ENCODE: SturdyQueueClass = 5;
 
+pub type SturdyRagdollJointKind = i32;
+pub const STURDY_RAGDOLL_JOINT_BALL: SturdyRagdollJointKind = 0;
+pub const STURDY_RAGDOLL_JOINT_HINGE: SturdyRagdollJointKind = 1;
+
 /// Matches `RHI::RayTracingShaderGroupType`.
 pub type SturdyRayTracingShaderGroupType = i32;
 pub const STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL: SturdyRayTracingShaderGroupType = 0;
@@ -696,6 +768,33 @@ pub const STURDY_RENDER_FEATURE_FRAME_TIMINGS: SturdyRenderFeature = 6;
 pub const STURDY_RENDER_FEATURE_DEBUG_OVERLAY: SturdyRenderFeature = 6;
 pub const STURDY_RENDER_FEATURE_RESTIR_GI: SturdyRenderFeature = 7;
 pub const STURDY_RENDER_FEATURE_MOTION_BLUR: SturdyRenderFeature = 8;
+
+pub type SturdyRenderTargetAddressMode = i32;
+pub const STURDY_RENDER_TARGET_ADDRESS_CLAMP_TO_EDGE: SturdyRenderTargetAddressMode = 0;
+pub const STURDY_RENDER_TARGET_ADDRESS_REPEAT: SturdyRenderTargetAddressMode = 1;
+pub const STURDY_RENDER_TARGET_ADDRESS_MIRRORED_REPEAT: SturdyRenderTargetAddressMode = 2;
+
+pub type SturdyRenderTargetFeature = i32;
+pub const STURDY_RENDER_TARGET_FEATURE_AUTO: SturdyRenderTargetFeature = 0;
+pub const STURDY_RENDER_TARGET_FEATURE_OFF: SturdyRenderTargetFeature = 1;
+pub const STURDY_RENDER_TARGET_FEATURE_IF_SUPPORTED: SturdyRenderTargetFeature = 2;
+pub const STURDY_RENDER_TARGET_FEATURE_REQUIRED: SturdyRenderTargetFeature = 3;
+
+pub type SturdyRenderTargetFilter = i32;
+pub const STURDY_RENDER_TARGET_FILTER_LINEAR: SturdyRenderTargetFilter = 0;
+pub const STURDY_RENDER_TARGET_FILTER_NEAREST: SturdyRenderTargetFilter = 1;
+
+pub type SturdyRenderTargetFormat = i32;
+pub const STURDY_RENDER_TARGET_FORMAT_AUTO: SturdyRenderTargetFormat = 0;
+pub const STURDY_RENDER_TARGET_FORMAT_BGRA8_SRGB: SturdyRenderTargetFormat = 1;
+pub const STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB: SturdyRenderTargetFormat = 2;
+pub const STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT: SturdyRenderTargetFormat = 3;
+pub const STURDY_RENDER_TARGET_FORMAT_RGB10A2: SturdyRenderTargetFormat = 4;
+
+pub type SturdyRenderTargetUse = i32;
+pub const STURDY_RENDER_TARGET_USE_SCREEN: SturdyRenderTargetUse = 0;
+pub const STURDY_RENDER_TARGET_USE_WORLD: SturdyRenderTargetUse = 1;
+pub const STURDY_RENDER_TARGET_USE_COMPUTE: SturdyRenderTargetUse = 2;
 
 /// Denoiser resolving ReSTIR GI's raw reservoir output. `DLSS_RAY_RECONSTRUCTION`/`FSR_REDSTONE` are reserved for future vendor-SDK integrations; selecting either falls back to `SVGF` with a one-time engine warning until a real backend exists.
 pub type SturdyRestirGiDenoiser = i32;
@@ -738,6 +837,14 @@ pub const STURDY_RING_OK: SturdyRingStatus = 0;
 pub const STURDY_RING_FULL: SturdyRingStatus = 1;
 pub const STURDY_RING_EMPTY: SturdyRingStatus = 2;
 pub const STURDY_RING_TOO_LARGE: SturdyRingStatus = 3;
+
+pub type SturdyRuntimeSettingApplyMode = i32;
+pub const STURDY_RUNTIME_SETTING_NO_CHANGE: SturdyRuntimeSettingApplyMode = 0;
+pub const STURDY_RUNTIME_SETTING_HOT_APPLIED: SturdyRuntimeSettingApplyMode = 1;
+pub const STURDY_RUNTIME_SETTING_SURFACE_RECREATED: SturdyRuntimeSettingApplyMode = 2;
+pub const STURDY_RUNTIME_SETTING_DEVICE_RECREATED: SturdyRuntimeSettingApplyMode = 3;
+pub const STURDY_RUNTIME_SETTING_BACKEND_RECREATED: SturdyRuntimeSettingApplyMode = 4;
+pub const STURDY_RUNTIME_SETTING_UNSUPPORTED: SturdyRuntimeSettingApplyMode = 5;
 
 /// Rendering path the scene stage evaluates.
 pub type SturdySceneIntegrator = i32;
@@ -927,6 +1034,11 @@ pub const STURDY_UI_GRAPH_TYPE_BAR: SturdyUiGraphType = 2;
 pub const STURDY_UI_GRAPH_TYPE_SCATTER: SturdyUiGraphType = 3;
 pub const STURDY_UI_GRAPH_TYPE_PIE: SturdyUiGraphType = 4;
 
+pub type SturdyUiRebuildPolicy = i32;
+pub const STURDY_UI_REBUILD_EVERY_UPDATE: SturdyUiRebuildPolicy = 0;
+pub const STURDY_UI_REBUILD_ON_DIRTY: SturdyUiRebuildPolicy = 1;
+pub const STURDY_UI_REBUILD_FIXED_RATE: SturdyUiRebuildPolicy = 2;
+
 /// How UI units map onto the framebuffer.
 pub type SturdyUiScaleMode = i32;
 pub const STURDY_UI_SCALE_MODE_CONTENT_SCALE: SturdyUiScaleMode = 0;
@@ -938,6 +1050,11 @@ pub const STURDY_UI_SIZING_FIT: SturdyUiSizing = 0;
 pub const STURDY_UI_SIZING_GROW: SturdyUiSizing = 1;
 pub const STURDY_UI_SIZING_FIXED: SturdyUiSizing = 2;
 pub const STURDY_UI_SIZING_PERCENT: SturdyUiSizing = 3;
+
+pub type SturdyUiTreeTargetKind = i32;
+pub const STURDY_UI_TREE_TARGET_WINDOW: SturdyUiTreeTargetKind = 0;
+pub const STURDY_UI_TREE_TARGET_OFFSCREEN: SturdyUiTreeTargetKind = 1;
+pub const STURDY_UI_TREE_TARGET_HEADLESS: SturdyUiTreeTargetKind = 2;
 
 /// Presentation synchronization policy.
 pub type SturdyVSync = i32;
@@ -1149,6 +1266,12 @@ pub type SturdyAudioSinkCallback = unsafe extern "C" fn(*mut c_void, *const f32,
 /// One call crosses the language boundary for a whole archetype, so a system over 10,000 entities costs a few calls instead of 10,000: use this for anything per-frame over many entities.
 pub type SturdyChunkSystemFn = unsafe extern "C" fn(*const SturdyEntity, u32, *mut *mut c_void, SturdyCommands, *mut c_void);
 
+/// Called at the start of an update, on the thread that updates. `engine` is valid only for the call.
+pub type SturdyDeferredAction = unsafe extern "C" fn(SturdyEngine, *mut c_void);
+
+/// Called for every device change, including `SWITCHING` while the old device is still alive (release GPU objects tied to it now). Runs on the thread making the change and must not call `sturdy_engine_switch_device`. `event` is valid only for the call.
+pub type SturdyDeviceObserver = unsafe extern "C" fn(SturdyEngine, *const SturdyDeviceChangeEvent, *mut c_void);
+
 /// Receives one matching entity during `sturdy_ecs_for_each`.
 ///
 /// `components` points at an array parallel to the component ids you asked to match, each entry addressing that component's storage for this entity. Write through them to mutate in place. The pointers are valid only for the duration of this call.
@@ -1186,6 +1309,9 @@ pub type SturdyParReduceI64Fn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i
 
 /// Body of `sturdy_par_scope`; `scope` ("par_scope") is valid until `sturdy_par_scope` returns.
 pub type SturdyParScopeFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject);
+
+/// Casts a ray and reports the nearest hit within `max_distance`: write `out_hit` and return nonzero, or return zero for no hit.
+pub type SturdyPhysicsRayQuery = unsafe extern "C" fn(*mut c_void, SturdyVec3, SturdyVec3, f32, *mut SturdyPhysicsSurfaceHit) -> u8;
 
 /// The one function a plugin exports, under the name `sturdy_plugin_entry`. Return `STURDY_OK` to accept the load; anything else aborts it, destroys any modules already added, and `UNLOAD` is *not* called. For `UNLOAD`, `host->context` is valid but `add_module` is refused, and `state` carries what the plugin stored.
 pub type SturdyPluginEntryFn = unsafe extern "C" fn(*const SturdyPluginHost, i32, *mut c_void) -> i32;
@@ -1254,6 +1380,14 @@ pub type SturdyTaskWorkFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject,
 
 /// Called on the main thread when a tray menu entry is clicked; `id` is the entry's `id`.
 pub type SturdyTrayCallback = unsafe extern "C" fn(*mut c_void, u32);
+
+pub type SturdyUiTreeBuilder = unsafe extern "C" fn(SturdyEngine, *mut SturdyUiTreeFrame, *mut c_void);
+
+/// Called at the start of every update with the scaled delta (after queued boundary actions and the clocks advanced, before transforms propagate and the update schedule runs). Nothing else touches the world then, so a hook may spawn, destroy and change entities, and register or remove systems.
+pub type SturdyUpdateHook = unsafe extern "C" fn(SturdyEngine, f64, *mut c_void);
+
+/// Called inside `sturdy_render_target_render_view` to describe the view: fill the camera, lighting and render-graph settings of `frame` with the usual `sturdy_frame_*` setters. The frame starts as the standard pipeline with the camera viewport set to the target's size. Return false to skip rendering.
+pub type SturdyViewCallback = unsafe extern "C" fn(SturdyEngine, *const SturdyFrameInput, SturdyFrame, *mut c_void) -> u8;
 
 /// Called for each WebSocket upgraded on a path registered with `sturdy_http_server_on_websocket`, on a handler thread. `socket` is a new "websocket" object **you own** (release it when done; releasing closes the connection). `request` is valid only during the call.
 pub type SturdyWebSocketFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *const SturdyHttpRequest);
@@ -1538,6 +1672,35 @@ const _: () = assert!(core::mem::offset_of!(SturdyAccelerationStructureInstance,
 const _: () = assert!(core::mem::offset_of!(SturdyAccelerationStructureInstance, shader_binding_table_offset_and_flags) == 52);
 const _: () = assert!(core::mem::offset_of!(SturdyAccelerationStructureInstance, acceleration_structure_device_address) == 56);
 
+/// One physical GPU, as a settings screen lists it. Text is truncated to the field size and always null-terminated.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyAdapterDescription {
+    pub stable_id: [c_char; 32],
+    pub physical_device_id: [c_char; 96],
+    pub name: [c_char; 160],
+    pub vendor: [c_char; 64],
+    pub vendor_id: u32,
+    pub device_id: u32,
+    pub device_type: i32,
+    pub backend_count: u32,
+}
+impl Default for SturdyAdapterDescription {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyAdapterDescription>() == 368 && core::mem::align_of::<SturdyAdapterDescription>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, stable_id) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, physical_device_id) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, name) == 128);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, vendor) == 288);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, vendor_id) == 352);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, device_id) == 356);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, device_type) == 360);
+const _: () = assert!(core::mem::offset_of!(SturdyAdapterDescription, backend_count) == 364);
+
 /// Numeric identity of the adapter the engine selected.
 ///
 /// Text fields (name, vendor, driver version, API version, stable device id) are read separately through `sturdy_rhi_adapter_string`, following the string-output convention above.
@@ -1639,6 +1802,25 @@ const _: () = assert!(core::mem::offset_of!(SturdyAntiAliasingSettings, msaa_sam
 const _: () = assert!(core::mem::offset_of!(SturdyAntiAliasingSettings, post_process) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyAntiAliasingSettings, subpixel_quality) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyAntiAliasingSettings, edge_threshold) == 16);
+
+/// What an applied edit, undo or redo changed. The per-change details are read with `sturdy_document_change` / `sturdy_document_change_text` until the next edit.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyApplyResult {
+    pub revision_before: u64,
+    pub revision_after: u64,
+    pub change_count: u32,
+}
+impl Default for SturdyApplyResult {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyApplyResult>() == 24 && core::mem::align_of::<SturdyApplyResult>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyApplyResult, revision_before) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyApplyResult, revision_after) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyApplyResult, change_count) == 16);
 
 /// An engine asset — a shader, model or texture.
 ///
@@ -1816,6 +1998,29 @@ const _: () = assert!(core::mem::offset_of!(SturdyAutoExposureSettings, max_expo
 const _: () = assert!(core::mem::offset_of!(SturdyAutoExposureSettings, adapt_up_speed) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyAutoExposureSettings, adapt_down_speed) == 44);
 const _: () = assert!(core::mem::offset_of!(SturdyAutoExposureSettings, center_weight) == 48);
+
+/// One graphics API an adapter can be driven through.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyBackendOffer {
+    pub backend: i32,
+    pub driver_version: [c_char; 64],
+    pub api_version: [c_char; 32],
+    pub presentable: i32,
+    pub active: u8,
+}
+impl Default for SturdyBackendOffer {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyBackendOffer>() == 108 && core::mem::align_of::<SturdyBackendOffer>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyBackendOffer, backend) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyBackendOffer, driver_version) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyBackendOffer, api_version) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyBackendOffer, presentable) == 100);
+const _: () = assert!(core::mem::offset_of!(SturdyBackendOffer, active) == 104);
 
 /// Handle to a bind group. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
@@ -2122,6 +2327,22 @@ const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, texture_z) 
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_width) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_height) == 44);
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_depth_or_layers) == 48);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+impl Default for SturdyByteRange {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyByteRange>() == 16 && core::mem::align_of::<SturdyByteRange>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyByteRange, start) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyByteRange, end) == 8);
 
 /// Where a stream callback writes the item it produces (copied immediately).
 #[repr(C)]
@@ -2687,6 +2908,26 @@ const _: () = assert!(core::mem::offset_of!(SturdyD3D12Handles, adapter) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdyD3D12Handles, device) == 24);
 const _: () = assert!(core::mem::offset_of!(SturdyD3D12Handles, graphics_queue) == 32);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDebugDrawSettings {
+    pub struct_size: u32,
+    pub depth_test: u8,
+    pub occluded_alpha: f32,
+    pub max_lines: u32,
+}
+impl Default for SturdyDebugDrawSettings {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDebugDrawSettings>() == 16 && core::mem::align_of::<SturdyDebugDrawSettings>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDebugDrawSettings, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDebugDrawSettings, depth_test) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDebugDrawSettings, occluded_alpha) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDebugDrawSettings, max_lines) == 12);
+
 /// Depth of field (since 0.34): the thin-lens blur of everything away from the focal plane, with the aperture's polygon as the bokeh. With `from_camera` set the engine overwrites the lens fields from the camera every frame.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2817,6 +3058,28 @@ const _: () = assert!(core::mem::offset_of!(SturdyDepthStencilState, reserved2) 
 const _: () = assert!(core::mem::offset_of!(SturdyDepthStencilState, stencil_front) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdyDepthStencilState, stencil_back) == 32);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDeviceChangeEvent {
+    pub kind: i32,
+    pub backend: i32,
+    pub generation: u64,
+    pub adapter_name: [c_char; 160],
+    pub message: [c_char; 256],
+}
+impl Default for SturdyDeviceChangeEvent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDeviceChangeEvent>() == 432 && core::mem::align_of::<SturdyDeviceChangeEvent>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceChangeEvent, kind) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceChangeEvent, backend) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceChangeEvent, generation) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceChangeEvent, adapter_name) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceChangeEvent, message) == 176);
+
 /// Hardware limits of the active device.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2869,6 +3132,54 @@ const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, timestamp_period
 const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, supports_minimum_depth_resolve) == 76);
 const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, supports_bc_texture_compression) == 77);
 const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, reserved) == 78);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDeviceRequest {
+    pub struct_size: u32,
+    pub backend: i32,
+    pub adapter_id: *const c_char,
+    pub preference: i32,
+    pub force_recreate: u8,
+}
+impl Default for SturdyDeviceRequest {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDeviceRequest>() == 24 && core::mem::align_of::<SturdyDeviceRequest>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceRequest, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceRequest, backend) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceRequest, adapter_id) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceRequest, preference) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceRequest, force_recreate) == 20);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDeviceSwitchResult {
+    pub outcome: i32,
+    pub backend: i32,
+    pub generation: u64,
+    pub rolled_back: u8,
+    pub reason: [c_char; 256],
+    pub adapter_name: [c_char; 160],
+    pub adapter_stable_id: [c_char; 32],
+}
+impl Default for SturdyDeviceSwitchResult {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDeviceSwitchResult>() == 472 && core::mem::align_of::<SturdyDeviceSwitchResult>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, outcome) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, backend) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, generation) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, rolled_back) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, reason) == 17);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, adapter_name) == 273);
+const _: () = assert!(core::mem::offset_of!(SturdyDeviceSwitchResult, adapter_stable_id) == 433);
 
 /// An integer rectangle in window or desktop coordinates (origin top-left).
 #[repr(C)]
@@ -2951,6 +3262,157 @@ const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, physical_width_mm
 const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, physical_height_mm) == 76);
 const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, orientation) == 80);
 
+/// What one frame asked for. The workspace does not act on these itself: a tear-off means "the user dragged this panel out", a close request "the user clicked its close button"; the caller decides.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDockEvents {
+    pub tear_off_count: u32,
+    pub close_request_count: u32,
+}
+impl Default for SturdyDockEvents {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDockEvents>() == 8 && core::mem::align_of::<SturdyDockEvents>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockEvents, tear_off_count) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDockEvents, close_request_count) == 4);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDockPanelInfo {
+    pub closable: u8,
+    pub title_length: u32,
+}
+impl Default for SturdyDockPanelInfo {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDockPanelInfo>() == 8 && core::mem::align_of::<SturdyDockPanelInfo>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockPanelInfo, closable) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDockPanelInfo, title_length) == 4);
+
+/// Where a panel goes. `has_placement` false lets the workspace pick (the focused leaf, else the root).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDockPlacement {
+    pub has_placement: u8,
+    pub target_node: u32,
+    pub zone: i32,
+}
+impl Default for SturdyDockPlacement {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDockPlacement>() == 12 && core::mem::align_of::<SturdyDockPlacement>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockPlacement, has_placement) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDockPlacement, target_node) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockPlacement, zone) == 8);
+
+/// A tab drag in progress.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDockTabDrag {
+    pub source_leaf: u32,
+    pub pointer_x: f32,
+    pub pointer_y: f32,
+    pub panel_length: u32,
+}
+impl Default for SturdyDockTabDrag {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDockTabDrag>() == 16 && core::mem::align_of::<SturdyDockTabDrag>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockTabDrag, source_leaf) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDockTabDrag, pointer_x) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDockTabDrag, pointer_y) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDockTabDrag, panel_length) == 12);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDockWorkspace {
+    pub token: u64,
+}
+impl Default for SturdyDockWorkspace {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDockWorkspace>() == 8 && core::mem::align_of::<SturdyDockWorkspace>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDockWorkspace, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDocument {
+    pub token: u64,
+}
+impl Default for SturdyDocument {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDocument>() == 8 && core::mem::align_of::<SturdyDocument>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDocument, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDocumentChange {
+    pub old_range: SturdyByteRange,
+    pub new_range: SturdyByteRange,
+}
+impl Default for SturdyDocumentChange {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDocumentChange>() == 32 && core::mem::align_of::<SturdyDocumentChange>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentChange, old_range) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentChange, new_range) == 16);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDocumentStats {
+    pub logical_bytes: u64,
+    pub backing_storage_bytes: u64,
+    pub tree_nodes: u64,
+    pub pieces: u64,
+    pub maximum_tree_depth: u64,
+    pub undo_revisions: u64,
+    pub redo_revisions: u64,
+    pub scalars: u64,
+    pub utf16_code_units: u64,
+    pub newlines: u64,
+    pub ascii: u8,
+}
+impl Default for SturdyDocumentStats {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDocumentStats>() == 88 && core::mem::align_of::<SturdyDocumentStats>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, logical_bytes) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, backing_storage_bytes) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, tree_nodes) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, pieces) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, maximum_tree_depth) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, undo_revisions) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, redo_revisions) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, scalars) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, utf16_code_units) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, newlines) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyDocumentStats, ascii) == 80);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SturdyDrawArgs {
@@ -3011,6 +3473,28 @@ const _: () = assert!(core::mem::size_of::<SturdyDrawMeshTasksArgs>() == 12 && c
 const _: () = assert!(core::mem::offset_of!(SturdyDrawMeshTasksArgs, group_count_x) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyDrawMeshTasksArgs, group_count_y) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyDrawMeshTasksArgs, group_count_z) == 8);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDropEvent {
+    pub window: u64,
+    pub kind: i32,
+    pub x: f32,
+    pub y: f32,
+    pub data_length: u32,
+}
+impl Default for SturdyDropEvent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDropEvent>() == 24 && core::mem::align_of::<SturdyDropEvent>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDropEvent, window) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDropEvent, kind) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDropEvent, x) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyDropEvent, y) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyDropEvent, data_length) == 20);
 
 /// Borrowed reference to the live engine, valid only inside the callback that received it.
 ///
@@ -3897,6 +4381,22 @@ const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_s
 const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_subprotocol_count) == 176);
 const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_websockets) == 184);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyIndentStyle {
+    pub tabs: u8,
+    pub width: u64,
+}
+impl Default for SturdyIndentStyle {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyIndentStyle>() == 16 && core::mem::align_of::<SturdyIndentStyle>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyIndentStyle, tabs) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyIndentStyle, width) == 8);
+
 /// A name/value pair (HTTP headers, environment variables). Both strings are null-terminated.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -3943,6 +4443,26 @@ const _: () = assert!(core::mem::offset_of!(SturdyLightingSettings, cluster_max_
 const _: () = assert!(core::mem::offset_of!(SturdyLightingSettings, max_lights) == 20);
 const _: () = assert!(core::mem::offset_of!(SturdyLightingSettings, max_lights_per_cluster) == 24);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyLineIndent {
+    pub whitespace_bytes: u64,
+    pub whitespace_scalars: u64,
+    pub has_tabs: u8,
+    pub has_spaces: u8,
+}
+impl Default for SturdyLineIndent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyLineIndent>() == 24 && core::mem::align_of::<SturdyLineIndent>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyLineIndent, whitespace_bytes) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyLineIndent, whitespace_scalars) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyLineIndent, has_tabs) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyLineIndent, has_spaces) == 17);
+
 /// Handle to a registered log sink, returned by `sturdy_log_add_sink`.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -3957,6 +4477,20 @@ impl Default for SturdyLogSink {
 }
 const _: () = assert!(core::mem::size_of::<SturdyLogSink>() == 8 && core::mem::align_of::<SturdyLogSink>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyLogSink, id) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyMat4 {
+    pub m: [f32; 16],
+}
+impl Default for SturdyMat4 {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyMat4>() == 64 && core::mem::align_of::<SturdyMat4>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyMat4, m) == 0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -4308,6 +4842,610 @@ const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, slider) == 48);
 const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, tangential_pressure) == 52);
 const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, buttons) == 56);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyVec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+impl Default for SturdyVec3 {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyVec3>() == 12 && core::mem::align_of::<SturdyVec3>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyVec3, x) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyVec3, y) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyVec3, z) == 8);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsBox {
+    pub min: SturdyVec3,
+    pub max: SturdyVec3,
+    pub object: u64,
+    pub velocity: SturdyVec3,
+}
+impl Default for SturdyPhysicsBox {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsBox>() == 48 && core::mem::align_of::<SturdyPhysicsBox>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsBox, min) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsBox, max) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsBox, object) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsBox, velocity) == 32);
+
+/// A kinematic capsule character mover.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsCharacter {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsCharacter {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsCharacter>() == 8 && core::mem::align_of::<SturdyPhysicsCharacter>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacter, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsCharacterSettings {
+    pub struct_size: u32,
+    pub radius: f32,
+    pub standing_height: f32,
+    pub crouching_height: f32,
+    pub up: SturdyVec3,
+    pub gravity: f32,
+    pub slope_limit_degrees: f32,
+    pub step_height: f32,
+    pub snap_distance: f32,
+    pub skin_width: f32,
+    pub max_slides: u32,
+    pub jump_speed: f32,
+    pub terminal_speed: f32,
+}
+impl Default for SturdyPhysicsCharacterSettings {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsCharacterSettings>() == 60 && core::mem::align_of::<SturdyPhysicsCharacterSettings>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, radius) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, standing_height) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, crouching_height) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, up) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, gravity) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, slope_limit_degrees) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, step_height) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, snap_distance) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, skin_width) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, max_slides) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, jump_speed) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterSettings, terminal_speed) == 56);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsCharacterState {
+    pub position: SturdyVec3,
+    pub velocity: SturdyVec3,
+    pub ground_normal: SturdyVec3,
+    pub ground_object: u64,
+    pub height: f32,
+    pub grounded: u8,
+    pub crouching: u8,
+}
+impl Default for SturdyPhysicsCharacterState {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsCharacterState>() == 56 && core::mem::align_of::<SturdyPhysicsCharacterState>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, position) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, velocity) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, ground_normal) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, ground_object) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, height) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, grounded) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCharacterState, crouching) == 53);
+
+/// Position-based-dynamics cloth.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsCloth {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsCloth {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsCloth>() == 8 && core::mem::align_of::<SturdyPhysicsCloth>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsCloth, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsClothCapsule {
+    pub a: SturdyVec3,
+    pub b: SturdyVec3,
+    pub radius: f32,
+}
+impl Default for SturdyPhysicsClothCapsule {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsClothCapsule>() == 28 && core::mem::align_of::<SturdyPhysicsClothCapsule>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothCapsule, a) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothCapsule, b) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothCapsule, radius) == 24);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsClothColliders {
+    pub spheres: *const SturdyPhysicsClothSphere,
+    pub sphere_count: u32,
+    pub capsules: *const SturdyPhysicsClothCapsule,
+    pub capsule_count: u32,
+    pub planes: *const SturdyPhysicsClothPlane,
+    pub plane_count: u32,
+}
+impl Default for SturdyPhysicsClothColliders {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsClothColliders>() == 48 && core::mem::align_of::<SturdyPhysicsClothColliders>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, spheres) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, sphere_count) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, capsules) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, capsule_count) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, planes) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothColliders, plane_count) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsClothParams {
+    pub struct_size: u32,
+    pub gravity: SturdyVec3,
+    pub stretch_compliance: f32,
+    pub bend_compliance: f32,
+    pub damping: f32,
+    pub substeps: u32,
+    pub collision_thickness: f32,
+    pub friction: f32,
+    pub wind: SturdyVec3,
+    pub drag: f32,
+}
+impl Default for SturdyPhysicsClothParams {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsClothParams>() == 56 && core::mem::align_of::<SturdyPhysicsClothParams>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, gravity) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, stretch_compliance) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, bend_compliance) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, damping) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, substeps) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, collision_thickness) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, friction) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, wind) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothParams, drag) == 52);
+
+/// Plane through `normal * offset` facing `normal`; particles are kept on the positive side.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsClothPlane {
+    pub normal: SturdyVec3,
+    pub offset: f32,
+}
+impl Default for SturdyPhysicsClothPlane {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsClothPlane>() == 16 && core::mem::align_of::<SturdyPhysicsClothPlane>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothPlane, normal) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothPlane, offset) == 12);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsClothSphere {
+    pub center: SturdyVec3,
+    pub radius: f32,
+}
+impl Default for SturdyPhysicsClothSphere {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsClothSphere>() == 16 && core::mem::align_of::<SturdyPhysicsClothSphere>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothSphere, center) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsClothSphere, radius) == 12);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsContactConfig {
+    pub struct_size: u32,
+    pub min_impulse: f32,
+    pub min_speed: f32,
+    pub pair_cooldown_seconds: f32,
+    pub merge_radius: f32,
+    pub max_events_per_frame: u32,
+    pub full_intensity_impulse: f32,
+}
+impl Default for SturdyPhysicsContactConfig {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsContactConfig>() == 28 && core::mem::align_of::<SturdyPhysicsContactConfig>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, min_impulse) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, min_speed) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, pair_cooldown_seconds) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, merge_radius) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, max_events_per_frame) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactConfig, full_intensity_impulse) == 24);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsContactPoint {
+    pub body_a: u64,
+    pub body_b: u64,
+    pub point: SturdyVec3,
+    pub normal: SturdyVec3,
+    pub normal_impulse: f32,
+    pub approach_speed: f32,
+    pub slide_speed: f32,
+    pub material_a: u32,
+    pub material_b: u32,
+}
+impl Default for SturdyPhysicsContactPoint {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsContactPoint>() == 64 && core::mem::align_of::<SturdyPhysicsContactPoint>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, body_a) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, body_b) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, point) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, normal) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, normal_impulse) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, approach_speed) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, slide_speed) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, material_a) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactPoint, material_b) == 56);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsContactEvent {
+    pub contact: SturdyPhysicsContactPoint,
+    pub kind: i32,
+    pub intensity: f32,
+}
+impl Default for SturdyPhysicsContactEvent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsContactEvent>() == 72 && core::mem::align_of::<SturdyPhysicsContactEvent>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactEvent, contact) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactEvent, kind) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactEvent, intensity) == 68);
+
+/// Turns a solver's contact stream into a sparse, budgeted event list.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsContactFilter {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsContactFilter {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsContactFilter>() == 8 && core::mem::align_of::<SturdyPhysicsContactFilter>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsContactFilter, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsImpactResult {
+    pub outcome: i32,
+    pub point: SturdyVec3,
+    pub direction: SturdyVec3,
+    pub remaining_energy: f32,
+    pub depth: f32,
+}
+impl Default for SturdyPhysicsImpactResult {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsImpactResult>() == 36 && core::mem::align_of::<SturdyPhysicsImpactResult>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsImpactResult, outcome) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsImpactResult, point) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsImpactResult, direction) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsImpactResult, remaining_energy) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsImpactResult, depth) == 32);
+
+/// Named collision layers and their symmetric collision matrix (up to 64 layers).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsLayers {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsLayers {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsLayers>() == 8 && core::mem::align_of::<SturdyPhysicsLayers>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsLayers, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsMoveResult {
+    pub displacement: SturdyVec3,
+    pub grounded: u8,
+    pub hit_ceiling: u8,
+    pub stepped_up: u8,
+    pub jumped: u8,
+    pub landed: u8,
+    pub landing_speed: f32,
+}
+impl Default for SturdyPhysicsMoveResult {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsMoveResult>() == 24 && core::mem::align_of::<SturdyPhysicsMoveResult>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, displacement) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, grounded) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, hit_ceiling) == 13);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, stepped_up) == 14);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, jumped) == 15);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, landed) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsMoveResult, landing_speed) == 20);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsPlane {
+    pub normal: SturdyVec3,
+    pub offset: f32,
+    pub object: u64,
+}
+impl Default for SturdyPhysicsPlane {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsPlane>() == 24 && core::mem::align_of::<SturdyPhysicsPlane>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsPlane, normal) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsPlane, offset) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsPlane, object) == 16);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsProjectile {
+    pub position: SturdyVec3,
+    pub direction: SturdyVec3,
+    pub energy: f32,
+}
+impl Default for SturdyPhysicsProjectile {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsProjectile>() == 28 && core::mem::align_of::<SturdyPhysicsProjectile>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsProjectile, position) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsProjectile, direction) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsProjectile, energy) == 24);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsSurfaceHit {
+    pub point: SturdyVec3,
+    pub normal: SturdyVec3,
+    pub distance: f32,
+    pub thickness: f32,
+    pub material: u32,
+    pub object: u64,
+}
+impl Default for SturdyPhysicsSurfaceHit {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsSurfaceHit>() == 48 && core::mem::align_of::<SturdyPhysicsSurfaceHit>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, point) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, normal) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, distance) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, thickness) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, material) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceHit, object) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsShotImpact {
+    pub hit: SturdyPhysicsSurfaceHit,
+    pub result: SturdyPhysicsImpactResult,
+}
+impl Default for SturdyPhysicsShotImpact {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsShotImpact>() == 88 && core::mem::align_of::<SturdyPhysicsShotImpact>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotImpact, hit) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotImpact, result) == 48);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsShotOptions {
+    pub struct_size: u32,
+    pub max_distance: f32,
+    pub max_impacts: u32,
+    pub minimum_energy: f32,
+    pub seed: u64,
+}
+impl Default for SturdyPhysicsShotOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsShotOptions>() == 24 && core::mem::align_of::<SturdyPhysicsShotOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotOptions, max_distance) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotOptions, max_impacts) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotOptions, minimum_energy) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsShotOptions, seed) == 16);
+
+/// Fixed-timestep accumulator.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsStepper {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsStepper {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsStepper>() == 8 && core::mem::align_of::<SturdyPhysicsStepper>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsStepper, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsSurfaceMaterial {
+    pub struct_size: u32,
+    pub name: *const c_char,
+    pub penetration_resistance: f32,
+    pub ricochet_angle_degrees: f32,
+    pub ricochet_energy_retained: f32,
+    pub ricochet_scatter: f32,
+    pub exit_deflection: f32,
+}
+impl Default for SturdyPhysicsSurfaceMaterial {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsSurfaceMaterial>() == 40 && core::mem::align_of::<SturdyPhysicsSurfaceMaterial>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, penetration_resistance) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, ricochet_angle_degrees) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, ricochet_energy_retained) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, ricochet_scatter) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaceMaterial, exit_deflection) == 32);
+
+/// Indexed surface-material table shared by bullet penetration, impact sounds and effects.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsSurfaces {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsSurfaces {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsSurfaces>() == 8 && core::mem::align_of::<SturdyPhysicsSurfaces>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSurfaces, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsSweepHit {
+    pub fraction: f32,
+    pub normal: SturdyVec3,
+    pub point: SturdyVec3,
+    pub object: u64,
+    pub object_velocity: SturdyVec3,
+}
+impl Default for SturdyPhysicsSweepHit {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsSweepHit>() == 56 && core::mem::align_of::<SturdyPhysicsSweepHit>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSweepHit, fraction) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSweepHit, normal) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSweepHit, point) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSweepHit, object) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSweepHit, object_velocity) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsSwingTwistLimits {
+    pub axis: SturdyVec3,
+    pub swing_y: f32,
+    pub swing_z: f32,
+    pub twist_min: f32,
+    pub twist_max: f32,
+}
+impl Default for SturdyPhysicsSwingTwistLimits {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsSwingTwistLimits>() == 28 && core::mem::align_of::<SturdyPhysicsSwingTwistLimits>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSwingTwistLimits, axis) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSwingTwistLimits, swing_y) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSwingTwistLimits, swing_z) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSwingTwistLimits, twist_min) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsSwingTwistLimits, twist_max) == 24);
+
+/// A minimal analytic collision world (boxes and planes) for characters and tools.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPhysicsWorld {
+    pub token: u64,
+}
+impl Default for SturdyPhysicsWorld {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPhysicsWorld>() == 8 && core::mem::align_of::<SturdyPhysicsWorld>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPhysicsWorld, token) == 0);
+
 /// Describes a pipeline layout to create.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -4461,6 +5599,47 @@ const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, gateway_port) 
 const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, ssdp_host) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, ssdp_port) == 48);
 
+/// Display-clock feedback for a surface (refresh cycle, fixed or variable refresh, measured display intervals). `available` false: the backend cannot report presentation timing and everything else is unknown.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPresentTimingFeedback {
+    pub available: u8,
+    pub has_refresh_duration: u8,
+    pub has_variable_refresh: u8,
+    pub variable_refresh_active: u8,
+    pub refresh_duration_seconds: f64,
+    pub sample_count: u32,
+    pub mean_display_interval: f64,
+    pub display_interval_jitter: f64,
+    pub max_display_interval: f64,
+    pub missed_refreshes: u64,
+    pub presents_reported: u64,
+    pub last_present_id: u64,
+    pub last_display_time_ns: u64,
+    pub frame_to_display_estimate: f64,
+}
+impl Default for SturdyPresentTimingFeedback {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPresentTimingFeedback>() == 88 && core::mem::align_of::<SturdyPresentTimingFeedback>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, available) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, has_refresh_duration) == 1);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, has_variable_refresh) == 2);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, variable_refresh_active) == 3);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, refresh_duration_seconds) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, sample_count) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, mean_display_interval) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, display_interval_jitter) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, max_display_interval) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, missed_refreshes) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, presents_reported) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, last_present_id) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, last_display_time_ns) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyPresentTimingFeedback, frame_to_display_estimate) == 80);
+
 /// What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -4601,6 +5780,26 @@ const _: () = assert!(core::mem::offset_of!(SturdyPushConstantRange, offset) == 
 const _: () = assert!(core::mem::offset_of!(SturdyPushConstantRange, size) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyPushConstantRange, shader_register) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyPushConstantRange, register_space) == 16);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyQuat {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+impl Default for SturdyQuat {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyQuat>() == 16 && core::mem::align_of::<SturdyQuat>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyQuat, x) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyQuat, y) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyQuat, z) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyQuat, w) == 12);
 
 /// Handle to a query set. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
@@ -4778,6 +5977,105 @@ const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, port) == 15
 const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, max_connections) == 160);
 const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, max_connections_per_address) == 168);
 const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, no_address_validation) == 176);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRagdoll {
+    pub token: u64,
+}
+impl Default for SturdyRagdoll {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRagdoll>() == 8 && core::mem::align_of::<SturdyRagdoll>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdoll, token) == 0);
+
+/// One rigid capsule. Its frame is its skeleton joint's frame, so a solver can start it at `rest_rotation` and read its world rotation straight back.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRagdollBody {
+    pub joint: u32,
+    pub parent_body: u32,
+    pub humanoid_bone: u32,
+    pub mass: f32,
+    pub radius: f32,
+    pub length: f32,
+    pub center_offset: SturdyVec3,
+    pub axis: SturdyVec3,
+    pub rest_position: SturdyVec3,
+    pub rest_rotation: SturdyQuat,
+}
+impl Default for SturdyRagdollBody {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRagdollBody>() == 76 && core::mem::align_of::<SturdyRagdollBody>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, joint) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, parent_body) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, humanoid_bone) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, mass) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, radius) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, length) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, center_offset) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, axis) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, rest_position) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollBody, rest_rotation) == 60);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRagdollJoint {
+    pub body: u32,
+    pub parent_body: u32,
+    pub kind: i32,
+    pub anchor_in_parent: SturdyVec3,
+    pub limits: SturdyPhysicsSwingTwistLimits,
+    pub hinge_axis: SturdyVec3,
+    pub hinge_min: f32,
+    pub hinge_max: f32,
+    pub drive_stiffness: f32,
+    pub drive_damping: f32,
+}
+impl Default for SturdyRagdollJoint {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRagdollJoint>() == 80 && core::mem::align_of::<SturdyRagdollJoint>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, body) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, parent_body) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, kind) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, anchor_in_parent) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, limits) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, hinge_axis) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, hinge_min) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, hinge_max) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, drive_stiffness) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollJoint, drive_damping) == 76);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRagdollOptions {
+    pub struct_size: u32,
+    pub total_mass: f32,
+    pub limb_radius_ratio: f32,
+    pub torso_radius_ratio: f32,
+}
+impl Default for SturdyRagdollOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRagdollOptions>() == 16 && core::mem::align_of::<SturdyRagdollOptions>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollOptions, total_mass) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollOptions, limb_radius_ratio) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRagdollOptions, torso_radius_ratio) == 12);
 
 /// Rasterizer fixed-function state.
 #[repr(C)]
@@ -5151,6 +6449,25 @@ impl Default for SturdyRenderBundleEncoder {
 const _: () = assert!(core::mem::size_of::<SturdyRenderBundleEncoder>() == 8 && core::mem::align_of::<SturdyRenderBundleEncoder>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyRenderBundleEncoder, token) == 0);
 
+/// What frame rendering has done since startup. The frame callback keeps running when a frame fails, so an app that just switched device compares two snapshots (or watches `consecutive_failures`) to learn that nothing is being drawn, and rolls back.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRenderHealth {
+    pub frames_rendered: u64,
+    pub frames_failed: u64,
+    pub consecutive_failures: u64,
+}
+impl Default for SturdyRenderHealth {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRenderHealth>() == 24 && core::mem::align_of::<SturdyRenderHealth>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderHealth, frames_rendered) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderHealth, frames_failed) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderHealth, consecutive_failures) == 16);
+
 /// Describes a render pass to begin.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -5256,6 +6573,91 @@ const _: () = assert!(core::mem::offset_of!(SturdyRenderPipelineDesc, color_targ
 const _: () = assert!(core::mem::offset_of!(SturdyRenderPipelineDesc, label) == 192);
 const _: () = assert!(core::mem::offset_of!(SturdyRenderPipelineDesc, task) == 200);
 const _: () = assert!(core::mem::offset_of!(SturdyRenderPipelineDesc, mesh) == 224);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRenderTarget {
+    pub value: u64,
+}
+impl Default for SturdyRenderTarget {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRenderTarget>() == 8 && core::mem::align_of::<SturdyRenderTarget>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTarget, value) == 0);
+
+/// What the request resolved to on the current device.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRenderTargetConfig {
+    pub width: u32,
+    pub height: u32,
+    pub format: i32,
+    pub mip_levels: u32,
+    pub filter: i32,
+    pub address: i32,
+    pub max_anisotropy: f32,
+    pub storage: u8,
+    pub msaa_samples: u32,
+    pub adjustment_count: u32,
+}
+impl Default for SturdyRenderTargetConfig {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRenderTargetConfig>() == 40 && core::mem::align_of::<SturdyRenderTargetConfig>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, width) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, height) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, format) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, mip_levels) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, filter) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, address) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, max_anisotropy) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, storage) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, msaa_samples) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetConfig, adjustment_count) == 36);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRenderTargetDesc {
+    pub struct_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub label: *const c_char,
+    pub format: i32,
+    pub filter: i32,
+    pub address: i32,
+    pub max_anisotropy: f32,
+    pub mip_levels: u32,
+    pub storage: i32,
+    pub msaa_samples: u32,
+    pub r#use: i32,
+    pub strict: u8,
+}
+impl Default for SturdyRenderTargetDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRenderTargetDesc>() == 64 && core::mem::align_of::<SturdyRenderTargetDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, width) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, height) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, label) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, format) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, filter) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, address) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, max_anisotropy) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, mip_levels) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, storage) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, msaa_samples) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, r#use) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyRenderTargetDesc, strict) == 56);
 
 /// Describes a texture built directly from raw pixels, for `sturdy_render_create_texture`.
 ///
@@ -5399,6 +6801,22 @@ const _: () = assert!(core::mem::offset_of!(SturdyRuntimeConfig, enable_shader_d
 const _: () = assert!(core::mem::offset_of!(SturdyRuntimeConfig, enable_native_access) == 54);
 const _: () = assert!(core::mem::offset_of!(SturdyRuntimeConfig, reserved_features) == 55);
 const _: () = assert!(core::mem::offset_of!(SturdyRuntimeConfig, physical_device_id) == 64);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRuntimeSettingsResult {
+    pub mode: i32,
+    pub message: [c_char; 256],
+}
+impl Default for SturdyRuntimeSettingsResult {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRuntimeSettingsResult>() == 260 && core::mem::align_of::<SturdyRuntimeSettingsResult>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyRuntimeSettingsResult, mode) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRuntimeSettingsResult, message) == 4);
 
 /// Describes a sampler to create.
 #[repr(C)]
@@ -6091,6 +7509,25 @@ impl Default for SturdyTaskOutput {
 const _: () = assert!(core::mem::size_of::<SturdyTaskOutput>() == 8 && core::mem::align_of::<SturdyTaskOutput>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyTaskOutput, internal) == 0);
 
+/// One edit: replace `range` with `replacement` (`replacement_size` bytes of UTF-8, no terminator needed).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTextEdit {
+    pub range: SturdyByteRange,
+    pub replacement: *const c_char,
+    pub replacement_size: u64,
+}
+impl Default for SturdyTextEdit {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTextEdit>() == 32 && core::mem::align_of::<SturdyTextEdit>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTextEdit, range) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTextEdit, replacement) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTextEdit, replacement_size) == 24);
+
 /// Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -6136,6 +7573,22 @@ const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, r#type) == 4
 const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, capitalization) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, autocorrect) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, multiline) == 13);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTextPoint {
+    pub line: u64,
+    pub column: u64,
+}
+impl Default for SturdyTextPoint {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTextPoint>() == 16 && core::mem::align_of::<SturdyTextPoint>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTextPoint, line) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTextPoint, column) == 8);
 
 /// Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
@@ -6762,6 +8215,147 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, font_id) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, font_size) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, reserved) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, color) == 16);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiTreeTarget {
+    pub kind: i32,
+    pub window: u64,
+    pub target: SturdyRenderTarget,
+    pub headless_width: u32,
+    pub headless_height: u32,
+}
+impl Default for SturdyUiTreeTarget {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeTarget>() == 32 && core::mem::align_of::<SturdyUiTreeTarget>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeTarget, kind) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeTarget, window) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeTarget, target) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeTarget, headless_width) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeTarget, headless_height) == 28);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiTreeDesc {
+    pub struct_size: u32,
+    pub name: *const c_char,
+    pub target: SturdyUiTreeTarget,
+    pub rebuild: i32,
+    pub rebuild_hz: f32,
+    pub layer: i32,
+    pub scale_mode: i32,
+    pub content_scale: f32,
+    pub hdr_reference_white_scale: f32,
+    pub window_input: u8,
+    pub clear_color: [f32; 4],
+    pub build_budget_ms: f32,
+    pub builder: Option<SturdyUiTreeBuilder>,
+    pub user: *mut c_void,
+    pub release_user: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+impl Default for SturdyUiTreeDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeDesc>() == 120 && core::mem::align_of::<SturdyUiTreeDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, target) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, rebuild) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, rebuild_hz) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, layer) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, scale_mode) == 60);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, content_scale) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, hdr_reference_white_scale) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, window_input) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, clear_color) == 76);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, build_budget_ms) == 92);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, builder) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, user) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, release_user) == 112);
+
+/// What a builder is handed each time its tree is laid out. Valid only inside the builder.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiTreeFrame {
+    pub struct_size: u32,
+    pub entity: SturdyEntity,
+    pub width: f32,
+    pub height: f32,
+    pub delta_seconds: f32,
+    pub build_index: u64,
+    pub request_rebuild: u8,
+}
+impl Default for SturdyUiTreeFrame {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeFrame>() == 40 && core::mem::align_of::<SturdyUiTreeFrame>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, entity) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, width) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, height) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, delta_seconds) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, build_index) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeFrame, request_rebuild) == 32);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiTreeStats {
+    pub builds: u64,
+    pub skipped: u64,
+    pub over_budget: u64,
+    pub failed_builds: u64,
+    pub target_renders: u64,
+    pub last_build_ms: f64,
+    pub max_build_ms: f64,
+    pub last_width: f32,
+    pub last_height: f32,
+}
+impl Default for SturdyUiTreeStats {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeStats>() == 64 && core::mem::align_of::<SturdyUiTreeStats>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, builds) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, skipped) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, over_budget) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, failed_builds) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, target_renders) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, last_build_ms) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, max_build_ms) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, last_width) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeStats, last_height) == 60);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyVec4 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+impl Default for SturdyVec4 {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyVec4>() == 16 && core::mem::align_of::<SturdyVec4>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyVec4, x) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyVec4, y) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyVec4, z) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyVec4, w) == 12);
 
 /// One vertex of a custom mesh. Matches the engine's own vertex layout field for field.
 #[repr(C)]
@@ -7536,6 +9130,32 @@ unsafe extern "C" {
     /// "a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).
     pub fn sturdy_cookie_jar_header_for(jar: SturdyAsyncObject, host: *const c_char, path: *const c_char, https: u8, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     pub fn sturdy_cookie_jar_store_from_response(jar: SturdyAsyncObject, host: *const c_char, path: *const c_char, https: u8, response_headers: *const SturdyKeyValue, header_count: u32) -> i32;
+    /// `head_size` 0 picks a size from the arrow's length.
+    pub fn sturdy_debug_draw_arrow(engine: SturdyEngine, from: SturdyVec3, to: SturdyVec3, color: SturdyVec4, head_size: f32, seconds: f32) -> i32;
+    /// Red / green / blue axes of `transform`.
+    pub fn sturdy_debug_draw_axes(engine: SturdyEngine, transform: SturdyMat4, size: f32, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_box(engine: SturdyEngine, min: SturdyVec3, max: SturdyVec3, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_capsule(engine: SturdyEngine, a: SturdyVec3, b: SturdyVec3, radius: f32, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_circle(engine: SturdyEngine, center: SturdyVec3, normal: SturdyVec3, radius: f32, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_clear(engine: SturdyEngine) -> i32;
+    pub fn sturdy_debug_draw_cone(engine: SturdyEngine, apex: SturdyVec3, direction: SturdyVec3, length: f32, half_angle_radians: f32, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_cross(engine: SturdyEngine, point: SturdyVec3, size: f32, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_enabled(engine: SturdyEngine, out_enabled: *mut u8) -> i32;
+    pub fn sturdy_debug_draw_frustum(engine: SturdyEngine, inverse_view_projection: SturdyMat4, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_grid(engine: SturdyEngine, center: SturdyVec3, axis_u: SturdyVec3, axis_v: SturdyVec3, half_cells: u32, cell_size: f32, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_line(engine: SturdyEngine, a: SturdyVec3, b: SturdyVec3, color: SturdyVec4, seconds: f32) -> i32;
+    /// How many segments are alive now.
+    pub fn sturdy_debug_draw_line_count(engine: SturdyEngine, out_count: *mut u64) -> i32;
+    pub fn sturdy_debug_draw_oriented_box(engine: SturdyEngine, transform: SturdyMat4, half_extents: SturdyVec3, color: SturdyVec4, seconds: f32) -> i32;
+    pub fn sturdy_debug_draw_polyline(engine: SturdyEngine, points: *const SturdyVec3, point_count: u32, color: SturdyVec4, closed: u8, seconds: f32) -> i32;
+    /// Master switch; with it off, calls are ignored and nothing is drawn.
+    pub fn sturdy_debug_draw_set_enabled(engine: SturdyEngine, enabled: u8) -> i32;
+    pub fn sturdy_debug_draw_set_settings(engine: SturdyEngine, settings: *const SturdyDebugDrawSettings) -> i32;
+    /// Line width, in pixels, of the shapes drawn after this call.
+    pub fn sturdy_debug_draw_set_width(engine: SturdyEngine, width_pixels: f32) -> i32;
+    pub fn sturdy_debug_draw_settings(engine: SturdyEngine, out_settings: *mut SturdyDebugDrawSettings) -> i32;
+    pub fn sturdy_debug_draw_settings_init(settings: *mut SturdyDebugDrawSettings) -> i32;
+    pub fn sturdy_debug_draw_sphere(engine: SturdyEngine, center: SturdyVec3, radius: f32, color: SturdyVec4, seconds: f32) -> i32;
     /// A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
     pub fn sturdy_dedicated_thread_create(name: *const c_char, out_thread: *mut SturdyAsyncObject) -> i32;
     pub fn sturdy_dedicated_thread_pin_to_core(thread: SturdyAsyncObject, core_index: u32, out_pinned: *mut u8) -> i32;
@@ -7552,6 +9172,7 @@ unsafe extern "C" {
     pub fn sturdy_desktop_show_file_dialog(engine: SturdyEngine, options: *const SturdyFileDialogOptions, callback: Option<SturdyFileDialogCallback>, user: *mut c_void) -> i32;
     /// Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.
     pub fn sturdy_desktop_show_message_box(engine: SturdyEngine, options: *const SturdyMessageBoxOptions, out_button: *mut i32) -> i32;
+    pub fn sturdy_device_request_init(request: *mut SturdyDeviceRequest) -> i32;
     /// Walks a directory entry by entry. Object "dir_iter".
     pub fn sturdy_dir_iter_create(path: *const c_char, recursive: u8, out_iter: *mut SturdyAsyncObject) -> i32;
     /// Number: 1 and text: the next path, or number 0 at the end.
@@ -7565,6 +9186,82 @@ unsafe extern "C" {
     pub fn sturdy_display_name(engine: SturdyEngine, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Resolves a host name. Fields: one `address` per result (numeric text).
     pub fn sturdy_dns_resolve(host: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// `STURDY_ERROR_NOT_AVAILABLE` when no tab is being dragged.
+    pub fn sturdy_dock_active_tab_drag(workspace: SturdyDockWorkspace, out_drag: *mut SturdyDockTabDrag) -> i32;
+    pub fn sturdy_dock_active_tab_drag_panel(workspace: SturdyDockWorkspace, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Adds a panel (a tab). `STURDY_ERROR_COMPONENT_PRESENT` when `id` is already there, `STURDY_ERROR_INVALID_ARGUMENT` for an invalid placement.
+    pub fn sturdy_dock_add_panel(workspace: SturdyDockWorkspace, id: *const c_char, title: *const c_char, closable: u8, placement: *const SturdyDockPlacement) -> i32;
+    /// Lays out and draws the chrome into the rectangle (`x`, `y`, `width`, `height`, in the open UI layout's coordinate space) and processes this frame's tab and divider drags. Needs an open UI frame (`STURDY_ERROR_BUSY` otherwise) and must come before any `sturdy_dock_begin_panel_content`.
+    pub fn sturdy_dock_begin_frame(workspace: SturdyDockWorkspace, x: f32, y: f32, width: f32, height: f32, delta_seconds: f32) -> i32;
+    /// Opens an element covering panel `id`'s content region (only if it is the active tab of its leaf this frame); add content as children and close it with `sturdy_ui_end_element`. `STURDY_ERROR_NOT_AVAILABLE` (opening nothing) for a hidden or unknown panel.
+    pub fn sturdy_dock_begin_panel_content(workspace: SturdyDockWorkspace, id: *const c_char) -> i32;
+    pub fn sturdy_dock_clear_foreign_drag_preview(workspace: SturdyDockWorkspace) -> i32;
+    pub fn sturdy_dock_close_request(workspace: SturdyDockWorkspace, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// `id_prefix` namespaces the element ids the workspace's chrome generates (tabs, dividers, close buttons): distinct per workspace. May be null.
+    pub fn sturdy_dock_create(id_prefix: *const c_char, out_workspace: *mut SturdyDockWorkspace) -> i32;
+    pub fn sturdy_dock_destroy(workspace: SturdyDockWorkspace) -> i32;
+    /// Finishes the frame (drop guides, deferred drops) and keeps its events for `sturdy_dock_tear_off` / `sturdy_dock_close_request` until the next frame ends.
+    pub fn sturdy_dock_end_frame(workspace: SturdyDockWorkspace, out_events: *mut SturdyDockEvents) -> i32;
+    /// The focused leaf's node id; `STURDY_ERROR_NOT_AVAILABLE` if none.
+    pub fn sturdy_dock_focused_leaf(workspace: SturdyDockWorkspace, out_node: *mut u32) -> i32;
+    pub fn sturdy_dock_has_panel(workspace: SturdyDockWorkspace, id: *const c_char, out_has: *mut u8) -> i32;
+    pub fn sturdy_dock_is_empty(workspace: SturdyDockWorkspace, out_empty: *mut u8) -> i32;
+    pub fn sturdy_dock_panel_info(workspace: SturdyDockWorkspace, id: *const c_char, out_info: *mut SturdyDockPanelInfo) -> i32;
+    pub fn sturdy_dock_panel_title(workspace: SturdyDockWorkspace, id: *const c_char, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Previews (and on `released`, drops) `foreign_panel` at the pointer. `out_applied` says whether the drop was applied.
+    pub fn sturdy_dock_preview_foreign_drag(workspace: SturdyDockWorkspace, foreign_panel: *const c_char, local_x: f32, local_y: f32, released: u8, out_applied: *mut u8) -> i32;
+    /// Drag preview of a panel dragged out of ANOTHER workspace over this one, inside an open UI frame. `local_pointer` is workspace-local. Reports the placement the pointer currently targets (drawing the drop guide); `STURDY_ERROR_NOT_AVAILABLE` when it targets none.
+    pub fn sturdy_dock_preview_foreign_drag_target(workspace: SturdyDockWorkspace, local_x: f32, local_y: f32, out_placement: *mut SturdyDockPlacement) -> i32;
+    pub fn sturdy_dock_remove_panel(workspace: SturdyDockWorkspace, id: *const c_char) -> i32;
+    pub fn sturdy_dock_restore_layout(workspace: SturdyDockWorkspace, layout: *const c_char) -> i32;
+    /// Saves the layout as text (string-output convention) and restores one. `restore` fails with `STURDY_ERROR_INVALID_ARGUMENT` for malformed text or a layout that refers to panels the workspace does not have.
+    pub fn sturdy_dock_save_layout(workspace: SturdyDockWorkspace, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Straight-alpha sRGB.
+    pub fn sturdy_dock_set_content_background(workspace: SturdyDockWorkspace, rgba: *const f32) -> i32;
+    /// Panel id of tear-off `index` and the workspace-local drop position.
+    pub fn sturdy_dock_tear_off(workspace: SturdyDockWorkspace, index: u32, out_x: *mut f32, out_y: *mut f32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Moves panel `id` from `origin` into `target` (as the window coordinator does between two windows' workspaces): accepted by `target` at `placement`, then removed from `origin`. Nothing changes when `origin` lacks the panel or `target` rejects it.
+    pub fn sturdy_dock_transfer_panel(origin: SturdyDockWorkspace, target: SturdyDockWorkspace, id: *const c_char, placement: *const SturdyDockPlacement) -> i32;
+    /// Applies `edit_count` replacements as one transaction (ranges in the current text, non-overlapping). On failure (invalid range or boundary, overlap, invalid UTF-8) nothing changes and the error text names the reason.
+    pub fn sturdy_document_apply(document: SturdyDocument, edits: *const SturdyTextEdit, edit_count: u32, kind: i32, out_result: *mut SturdyApplyResult) -> i32;
+    pub fn sturdy_document_change(document: SturdyDocument, index: u32, out_change: *mut SturdyDocumentChange) -> i32;
+    pub fn sturdy_document_change_text(document: SturdyDocument, index: u32, which: i32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_document_char_class_at(document: SturdyDocument, offset: u64, out_class: *mut i32) -> i32;
+    /// Snaps `offset` to a character boundary (after = round up, otherwise down) and into the text.
+    pub fn sturdy_document_clip_offset(document: SturdyDocument, offset: u64, after: u8, out_offset: *mut u64) -> i32;
+    /// `initial` may be null for an empty document. `STURDY_ERROR_INVALID_ARGUMENT` when it is not valid UTF-8.
+    pub fn sturdy_document_create(initial: *const c_char, initial_size: u64, out_document: *mut SturdyDocument) -> i32;
+    pub fn sturdy_document_destroy(document: SturdyDocument) -> i32;
+    pub fn sturdy_document_detect_indent(document: SturdyDocument, out_style: *mut SturdyIndentStyle) -> i32;
+    pub fn sturdy_document_detect_line_ending(document: SturdyDocument, out_ending: *mut i32) -> i32;
+    /// Searches from `from` forward or backward; `STURDY_ERROR_NOT_AVAILABLE` when there is no match.
+    pub fn sturdy_document_find(document: SturdyDocument, pattern: *const c_char, from: u64, forward: u8, case_sensitive: u8, out_range: *mut SturdyByteRange) -> i32;
+    /// Every non-overlapping match. Writes up to `capacity` ranges and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more.
+    pub fn sturdy_document_find_all(document: SturdyDocument, pattern: *const c_char, case_sensitive: u8, out_ranges: *mut SturdyByteRange, capacity: u32, out_count: *mut u32) -> i32;
+    pub fn sturdy_document_is_line_blank(document: SturdyDocument, line: u64, out_blank: *mut u8) -> i32;
+    pub fn sturdy_document_line_count(document: SturdyDocument, out_count: *mut u64) -> i32;
+    pub fn sturdy_document_line_indent(document: SturdyDocument, line: u64, out_indent: *mut SturdyLineIndent) -> i32;
+    /// Byte range of `line` (without its terminator); `STURDY_ERROR_OUT_OF_RANGE` past the last line.
+    pub fn sturdy_document_line_range(document: SturdyDocument, line: u64, out_range: *mut SturdyByteRange) -> i32;
+    /// The bracket matching the one at `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+    pub fn sturdy_document_matching_bracket(document: SturdyDocument, offset: u64, out_offset: *mut u64) -> i32;
+    pub fn sturdy_document_next_word_boundary(document: SturdyDocument, offset: u64, out_offset: *mut u64) -> i32;
+    pub fn sturdy_document_offset_to_point(document: SturdyDocument, offset: u64, out_point: *mut SturdyTextPoint) -> i32;
+    pub fn sturdy_document_offset_to_utf16(document: SturdyDocument, offset: u64, out_point: *mut SturdyTextPoint) -> i32;
+    /// `STURDY_ERROR_OUT_OF_RANGE` for a position past the end of the line or document.
+    pub fn sturdy_document_point_to_offset(document: SturdyDocument, point: SturdyTextPoint, out_offset: *mut u64) -> i32;
+    pub fn sturdy_document_previous_word_boundary(document: SturdyDocument, offset: u64, out_offset: *mut u64) -> i32;
+    pub fn sturdy_document_redo(document: SturdyDocument, out_result: *mut SturdyApplyResult) -> i32;
+    pub fn sturdy_document_revision(document: SturdyDocument, out_revision: *mut u64) -> i32;
+    pub fn sturdy_document_slice(document: SturdyDocument, range: SturdyByteRange, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_document_stats(document: SturdyDocument, out_stats: *mut SturdyDocumentStats) -> i32;
+    /// The whole text / a byte range of it (string-output convention; the text may contain NUL bytes, `out_length` counts them).
+    pub fn sturdy_document_text(document: SturdyDocument, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// `STURDY_ERROR_NOT_AVAILABLE` when there is nothing to undo / redo.
+    pub fn sturdy_document_undo(document: SturdyDocument, out_result: *mut SturdyApplyResult) -> i32;
+    pub fn sturdy_document_utf16_to_offset(document: SturdyDocument, point: SturdyTextPoint, out_offset: *mut u64) -> i32;
+    /// The word around `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+    pub fn sturdy_document_word_range_at(document: SturdyDocument, offset: u64, out_range: *mut SturdyByteRange) -> i32;
     /// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
     pub fn sturdy_ecs_add_chunk_system_ex(engine: SturdyEngine, access: *const SturdySystemAccess, access_count: u32, resource_access: *const SturdySystemResourceAccess, resource_access_count: u32, system: Option<SturdyChunkSystemFn>, user_data: *mut c_void, out_system: *mut SturdySystem) -> i32;
     /// Attaches a component to an existing entity.
@@ -7691,6 +9388,22 @@ unsafe extern "C" {
     pub fn sturdy_ecs_set_system_enabled(engine: SturdyEngine, system: SturdySystem, enabled: u8) -> i32;
     /// Creates an entity carrying the supplied components.
     pub fn sturdy_ecs_spawn(engine: SturdyEngine, components: *const SturdyComponentInit, component_count: u32, out_entity: *mut SturdyEntity) -> i32;
+    /// Backend `offer_index` of adapter `adapter_index` (` < backend_count`).
+    pub fn sturdy_engine_adapter_backend(engine: SturdyEngine, adapter_index: u32, offer_index: u32, out_offer: *mut SturdyBackendOffer) -> i32;
+    pub fn sturdy_engine_adapter_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_engine_adapter_description(engine: SturdyEngine, adapter_index: u32, out_adapter: *mut SturdyAdapterDescription) -> i32;
+    pub fn sturdy_engine_add_device_observer(engine: SturdyEngine, observer: Option<SturdyDeviceObserver>, user: *mut c_void, release_user: Option<unsafe extern "C" fn(*mut c_void)>, out_observer: *mut u64) -> i32;
+    /// Registers a hook; hooks run in registration order. Callable from any thread and from inside a hook (the new hook first runs next update). `release_user` (may be null) runs with `user` once the hook is removed and can never run again.
+    pub fn sturdy_engine_add_update_hook(engine: SturdyEngine, hook: Option<SturdyUpdateHook>, user: *mut c_void, release_user: Option<unsafe extern "C" fn(*mut c_void)>, out_hook: *mut u64) -> i32;
+    /// Applies the engine-level fields of `config` to the running engine, taking the cheapest route that works (hot-apply, recreate the surface, the device or the backend). Uses `graphics_backend`, `physical_device_id`, `enable_raytracing`, `enable_shader_disk_cache`, `enable_native_access`, `shaders_directory` and `app_name`; window fields are ignored. `surface` names the primary surface.
+    pub fn sturdy_engine_apply_runtime_settings(engine: SturdyEngine, surface: SturdySurface, config: *const SturdyRuntimeConfig, out_result: *mut SturdyRuntimeSettingsResult) -> i32;
+    /// The graphics APIs at least one discovered adapter can be driven through (reads the startup inventory; creates no device). Writes up to `capacity` entries and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more. `out_backends` may be null to count only.
+    pub fn sturdy_engine_available_backends(engine: SturdyEngine, out_backends: *mut i32, capacity: u32, out_count: *mut u32) -> i32;
+    /// Queues `action` to run at the start of the next update, on the updating thread and before the update schedule runs, so it can do what is forbidden while systems run (remove a system, replace a module, spawn or destroy entities from a UI builder). Callable from any thread, including from inside a system or a frame callback. Actions run in the order queued; one queued by another action runs in the following update. `release_user` (may be null) runs with `user` after the action ran.
+    pub fn sturdy_engine_defer(engine: SturdyEngine, action: Option<SturdyDeferredAction>, user: *mut c_void, release_user: Option<unsafe extern "C" fn(*mut c_void)>) -> i32;
+    /// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery). GPU objects created through the raw RHI stop being valid when it changes.
+    pub fn sturdy_engine_device_generation(engine: SturdyEngine, out_generation: *mut u64) -> i32;
+    pub fn sturdy_engine_frame_mode(engine: SturdyEngine, out_mode: *mut i32) -> i32;
     /// Reports whether a key is currently held.
     pub fn sturdy_engine_key_down(engine: SturdyEngine, key: i32, out_down: *mut u8) -> i32;
     /// Reports whether a key transitioned to held during this tick.
@@ -7705,6 +9418,24 @@ unsafe extern "C" {
     pub fn sturdy_engine_mouse_down(engine: SturdyEngine, button: i32, out_down: *mut u8) -> i32;
     /// Reads the cursor position in window coordinates.
     pub fn sturdy_engine_mouse_position(engine: SturdyEngine, out_x: *mut f32, out_y: *mut f32) -> i32;
+    /// Pops the oldest device change (switch, rollback, automatic device-loss recovery) in order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting.
+    pub fn sturdy_engine_next_device_change(engine: SturdyEngine, out_event: *mut SturdyDeviceChangeEvent) -> i32;
+    /// Pops the oldest drag-and-drop step in arrival order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting. The data (file path or text) of the event is written into `data_buffer` (string-output convention; may be null with capacity 0 to skip it). When the buffer is too small the call fails with `STURDY_ERROR_BUFFER_TOO_SMALL`, `out_event->data_length` and `out_length` say how much is needed, and the event stays queued.
+    pub fn sturdy_engine_next_drop_event(engine: SturdyEngine, out_event: *mut SturdyDropEvent, data_buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_engine_present_timing_feedback(engine: SturdyEngine, surface: SturdySurface, out_feedback: *mut SturdyPresentTimingFeedback) -> i32;
+    pub fn sturdy_engine_remove_device_observer(engine: SturdyEngine, observer: u64) -> i32;
+    /// Removes a hook; safe from inside the hook itself. `STURDY_ERROR_NOT_AVAILABLE` for an unknown id.
+    pub fn sturdy_engine_remove_update_hook(engine: SturdyEngine, hook: u64) -> i32;
+    pub fn sturdy_engine_render_health(engine: SturdyEngine, out_health: *mut SturdyRenderHealth) -> i32;
+    /// Message of the most recent frame failure (string-output convention); empty until one happens.
+    pub fn sturdy_engine_render_health_last_error(engine: SturdyEngine, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Renders a frame as soon as possible (`STURDY_FRAME_MODE_ON_DEMAND`; a no-op in continuous mode).
+    pub fn sturdy_engine_request_redraw(engine: SturdyEngine) -> i32;
+    /// Renders a frame no later than `delay_nanoseconds` from now (the earliest of all pending requests wins).
+    pub fn sturdy_engine_request_redraw_after(engine: SturdyEngine, delay_nanoseconds: u64) -> i32;
+    pub fn sturdy_engine_set_frame_mode(engine: SturdyEngine, mode: i32) -> i32;
+    /// Replaces the graphics device (API and/or adapter) while the app keeps running. Engine-managed handles (meshes, textures, materials, render targets, window surfaces) are re-created in place; GPU objects created through the raw RHI are not (watch `sturdy_engine_device_generation`). Must be called from the thread that owns frame submission, between frames - not from inside a render callback.
+    pub fn sturdy_engine_switch_device(engine: SturdyEngine, request: *const SturdyDeviceRequest, out_result: *mut SturdyDeviceSwitchResult) -> i32;
     /// Reads scroll-wheel movement accumulated during this tick.
     pub fn sturdy_engine_wheel_delta(engine: SturdyEngine, out_x: *mut f32, out_y: *mut f32) -> i32;
     /// Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.
@@ -7930,6 +9661,14 @@ unsafe extern "C" {
     pub fn sturdy_input_gamepad_event_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
     pub fn sturdy_input_gamepad_event_get(engine: SturdyEngine, index: u32, out_event: *mut SturdyGamepadEvent) -> i32;
     pub fn sturdy_input_gamepad_get(engine: SturdyEngine, index: u32, out_frame: *mut SturdyGamepadFrame) -> i32;
+    /// Synthetic input. Each call builds a platform-shaped window event and queues it exactly as a real device event, so the ECS input events, `InputState` and the UI see it on the next update. Meant for replay, tests, remote control and scripting. `modifiers` / `buttons` use the engine's modifier and mouse-button bit masks (the same values `SturdyWindowEvent` reports).
+    pub fn sturdy_input_inject_key(engine: SturdyEngine, surface: SturdySurface, key: i32, pressed: u8, modifiers: u32, repeat: u8) -> i32;
+    pub fn sturdy_input_inject_mouse_button(engine: SturdyEngine, surface: SturdySurface, button: i32, pressed: u8, x: f32, y: f32, clicks: u8) -> i32;
+    pub fn sturdy_input_inject_mouse_move(engine: SturdyEngine, surface: SturdySurface, x: f32, y: f32, delta_x: f32, delta_y: f32, buttons: u32) -> i32;
+    /// `x` / `y` are the scroll deltas, with the pointer at (`mouse_x`, `mouse_y`).
+    pub fn sturdy_input_inject_mouse_wheel(engine: SturdyEngine, surface: SturdySurface, x: f32, y: f32, mouse_x: f32, mouse_y: f32) -> i32;
+    /// Committed text (what a text-input method delivers after composition), UTF-8.
+    pub fn sturdy_input_inject_text(engine: SturdyEngine, surface: SturdySurface, utf8: *const c_char) -> i32;
     pub fn sturdy_input_pen_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
     pub fn sturdy_input_pen_get(engine: SturdyEngine, index: u32, out_point: *mut SturdyPenPoint) -> i32;
     /// Starts (or stops) sampling gamepads every tick. Off by default.
@@ -8152,6 +9891,118 @@ unsafe extern "C" {
     pub fn sturdy_permit_forget(permit: SturdyAsyncObject) -> i32;
     /// Returns the permits now.
     pub fn sturdy_permit_release(permit: SturdyAsyncObject) -> i32;
+    pub fn sturdy_physics_character_add_impulse(character: SturdyPhysicsCharacter, velocity_change: SturdyVec3) -> i32;
+    /// `settings` null selects the defaults.
+    pub fn sturdy_physics_character_create(settings: *const SturdyPhysicsCharacterSettings, feet: SturdyVec3, out_character: *mut SturdyPhysicsCharacter) -> i32;
+    pub fn sturdy_physics_character_destroy(character: SturdyPhysicsCharacter) -> i32;
+    /// Moves for `dt` seconds toward `desired_velocity` (horizontal, world space) against `world`; `jump` launches when grounded.
+    pub fn sturdy_physics_character_move(character: SturdyPhysicsCharacter, world: SturdyPhysicsWorld, desired_velocity: SturdyVec3, dt: f32, jump: u8, out_result: *mut SturdyPhysicsMoveResult) -> i32;
+    /// Crouches at once; standing up succeeds only with headroom. `out_crouching` (may be null) receives the resulting state.
+    pub fn sturdy_physics_character_set_crouching(character: SturdyPhysicsCharacter, world: SturdyPhysicsWorld, crouching: u8, out_crouching: *mut u8) -> i32;
+    /// Fills `settings` with the engine defaults and the correct `struct_size`.
+    pub fn sturdy_physics_character_settings_init(settings: *mut SturdyPhysicsCharacterSettings) -> i32;
+    pub fn sturdy_physics_character_state(character: SturdyPhysicsCharacter, out_state: *mut SturdyPhysicsCharacterState) -> i32;
+    pub fn sturdy_physics_character_teleport(character: SturdyPhysicsCharacter, feet: SturdyVec3) -> i32;
+    /// The closest rotation to `rotation` that satisfies `limits`.
+    pub fn sturdy_physics_clamp_to_limits(rotation: SturdyQuat, limits: *const SturdyPhysicsSwingTwistLimits, out_rotation: *mut SturdyQuat) -> i32;
+    pub fn sturdy_physics_cloth_constraint_counts(cloth: SturdyPhysicsCloth, out_stretch: *mut u32, out_bend: *mut u32) -> i32;
+    /// Any triangle mesh: `positions` (vertex_count vec3) and `indices` (index_count, a multiple of 3).
+    pub fn sturdy_physics_cloth_create_from_triangles(positions: *const SturdyVec3, vertex_count: u32, indices: *const u32, index_count: u32, total_mass: f32, out_cloth: *mut SturdyPhysicsCloth) -> i32;
+    /// A `columns x rows` sheet `spacing` apart from `origin`, extending along unit vectors `right` and `down`.
+    pub fn sturdy_physics_cloth_create_grid(columns: u32, rows: u32, spacing: f32, origin: SturdyVec3, right: SturdyVec3, down: SturdyVec3, total_mass: f32, out_cloth: *mut SturdyPhysicsCloth) -> i32;
+    pub fn sturdy_physics_cloth_destroy(cloth: SturdyPhysicsCloth) -> i32;
+    /// Copies the triangle indices (capacity entries); `out_count` (may be null) receives the index count.
+    pub fn sturdy_physics_cloth_indices(cloth: SturdyPhysicsCloth, out_indices: *mut u32, capacity: u32, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_cloth_is_pinned(cloth: SturdyPhysicsCloth, particle: u32, out_pinned: *mut u8) -> i32;
+    /// Moves a pinned particle (an attachment point following an animated body).
+    pub fn sturdy_physics_cloth_move_pinned(cloth: SturdyPhysicsCloth, particle: u32, position: SturdyVec3) -> i32;
+    /// Smooth per-particle normals into `out_normals` (capacity vec3s); `out_count` (may be null) receives the particle count.
+    pub fn sturdy_physics_cloth_normals(cloth: SturdyPhysicsCloth, out_normals: *mut SturdyVec3, capacity: u32, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_cloth_params_init(params: *mut SturdyPhysicsClothParams) -> i32;
+    pub fn sturdy_physics_cloth_particle_count(cloth: SturdyPhysicsCloth, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_cloth_pin(cloth: SturdyPhysicsCloth, particle: u32, pinned: u8) -> i32;
+    /// Copies particle positions into `out_positions` (capacity vec3s); `out_count` (may be null) receives the particle count.
+    pub fn sturdy_physics_cloth_positions(cloth: SturdyPhysicsCloth, out_positions: *mut SturdyVec3, capacity: u32, out_count: *mut u32) -> i32;
+    /// Advances by `dt` seconds. `params` null selects the defaults; `colliders` may be null.
+    pub fn sturdy_physics_cloth_step(cloth: SturdyPhysicsCloth, dt: f32, params: *const SturdyPhysicsClothParams, colliders: *const SturdyPhysicsClothColliders) -> i32;
+    pub fn sturdy_physics_contact_config_init(config: *mut SturdyPhysicsContactConfig) -> i32;
+    /// Clears last frame's events and sets the clock used for cooldowns.
+    pub fn sturdy_physics_contact_filter_begin_frame(filter: SturdyPhysicsContactFilter, time_seconds: f64) -> i32;
+    /// `config` null selects the defaults.
+    pub fn sturdy_physics_contact_filter_create(config: *const SturdyPhysicsContactConfig, out_filter: *mut SturdyPhysicsContactFilter) -> i32;
+    pub fn sturdy_physics_contact_filter_destroy(filter: SturdyPhysicsContactFilter) -> i32;
+    pub fn sturdy_physics_contact_filter_event(filter: SturdyPhysicsContactFilter, index: u32, out_event: *mut SturdyPhysicsContactEvent) -> i32;
+    pub fn sturdy_physics_contact_filter_event_count(filter: SturdyPhysicsContactFilter, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_contact_filter_set_config(filter: SturdyPhysicsContactFilter, config: *const SturdyPhysicsContactConfig) -> i32;
+    /// Offers a contact; `out_accepted` (may be null) says whether it became (or replaced) an event.
+    pub fn sturdy_physics_contact_filter_submit(filter: SturdyPhysicsContactFilter, contact: *const SturdyPhysicsContactPoint, out_accepted: *mut u8) -> i32;
+    /// Splits `rotation` into swing and twist about the unit `axis` (`rotation == swing * twist`).
+    pub fn sturdy_physics_decompose_swing_twist(rotation: SturdyQuat, axis: SturdyVec3, out_swing: *mut SturdyQuat, out_twist: *mut SturdyQuat) -> i32;
+    /// The pose to draw between two simulation states: positions lerp, rotations slerp the short way.
+    pub fn sturdy_physics_interpolate_pose(previous_position: SturdyVec3, previous_rotation: SturdyQuat, current_position: SturdyVec3, current_rotation: SturdyQuat, alpha: f32, out_position: *mut SturdyVec3, out_rotation: *mut SturdyQuat) -> i32;
+    /// Registers `name` (idempotent) and returns its index; `STURDY_ERROR_NOT_AVAILABLE` when all 64 are taken. A new layer collides with every layer.
+    pub fn sturdy_physics_layers_add(layers: SturdyPhysicsLayers, name: *const c_char, out_index: *mut u32) -> i32;
+    /// Every registered layer.
+    pub fn sturdy_physics_layers_all(layers: SturdyPhysicsLayers, out_mask: *mut u64) -> i32;
+    pub fn sturdy_physics_layers_collides(layers: SturdyPhysicsLayers, a: u32, b: u32, out_collides: *mut u8) -> i32;
+    /// The layers `layer` collides with, ready to hand to a solver as a filter mask.
+    pub fn sturdy_physics_layers_collision_mask(layers: SturdyPhysicsLayers, layer: u32, out_mask: *mut u64) -> i32;
+    pub fn sturdy_physics_layers_count(layers: SturdyPhysicsLayers, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_layers_create(out_layers: *mut SturdyPhysicsLayers) -> i32;
+    pub fn sturdy_physics_layers_destroy(layers: SturdyPhysicsLayers) -> i32;
+    /// `STURDY_ERROR_NOT_AVAILABLE` for an unregistered name.
+    pub fn sturdy_physics_layers_find(layers: SturdyPhysicsLayers, name: *const c_char, out_index: *mut u32) -> i32;
+    /// Union of the named layers' bits (unknown names are ignored).
+    pub fn sturdy_physics_layers_mask_of(layers: SturdyPhysicsLayers, names: *const *const c_char, name_count: u32, out_mask: *mut u64) -> i32;
+    /// Layer name (string-output convention); empty for an unregistered index.
+    pub fn sturdy_physics_layers_name(layers: SturdyPhysicsLayers, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Symmetric. Indices past the registered layers are `STURDY_ERROR_INVALID_ARGUMENT`.
+    pub fn sturdy_physics_layers_set_collides(layers: SturdyPhysicsLayers, a: u32, b: u32, collides: u8) -> i32;
+    /// Active-ragdoll PD drive: the angular velocity (rad/s, parent frame) that pulls a joint from `current` toward `target`.
+    pub fn sturdy_physics_pd_drive(current: SturdyQuat, target: SturdyQuat, angular_velocity: SturdyVec3, stiffness: f32, damping: f32, out_velocity: *mut SturdyVec3) -> i32;
+    /// Resolves one entry into one surface. `normal` faces the projectile; `thickness` is the distance the straight ray spends inside (very large for terrain); `random` is two uniform values in [0, 1) for scatter (pass fixed values for deterministic replays).
+    pub fn sturdy_physics_resolve_impact(projectile: *const SturdyPhysicsProjectile, material: *const SturdyPhysicsSurfaceMaterial, entry_point: SturdyVec3, normal: SturdyVec3, thickness: f32, random_x: f32, random_y: f32, out_result: *mut SturdyPhysicsImpactResult) -> i32;
+    pub fn sturdy_physics_shot_options_init(options: *mut SturdyPhysicsShotOptions) -> i32;
+    /// Adds `delta_seconds` and reports how many fixed steps are now due (beyond the per-frame cap time is dropped).
+    pub fn sturdy_physics_stepper_advance(stepper: SturdyPhysicsStepper, delta_seconds: f64, out_steps: *mut u32) -> i32;
+    /// Interpolation factor in [0, 1) after `advance`.
+    pub fn sturdy_physics_stepper_alpha(stepper: SturdyPhysicsStepper, out_alpha: *mut f64) -> i32;
+    /// `step_seconds` < = 0 selects 1/60; `max_steps_per_frame` 0 selects 8.
+    pub fn sturdy_physics_stepper_create(step_seconds: f64, max_steps_per_frame: u32, out_stepper: *mut SturdyPhysicsStepper) -> i32;
+    pub fn sturdy_physics_stepper_destroy(stepper: SturdyPhysicsStepper) -> i32;
+    pub fn sturdy_physics_stepper_dropped_seconds(stepper: SturdyPhysicsStepper, out_seconds: *mut f64) -> i32;
+    pub fn sturdy_physics_stepper_reset(stepper: SturdyPhysicsStepper) -> i32;
+    pub fn sturdy_physics_stepper_set_step(stepper: SturdyPhysicsStepper, step_seconds: f64) -> i32;
+    pub fn sturdy_physics_stepper_simulated_time(stepper: SturdyPhysicsStepper, out_seconds: *mut f64) -> i32;
+    pub fn sturdy_physics_stepper_step(stepper: SturdyPhysicsStepper, out_step_seconds: *mut f64) -> i32;
+    pub fn sturdy_physics_stepper_total_steps(stepper: SturdyPhysicsStepper, out_steps: *mut u64) -> i32;
+    pub fn sturdy_physics_surface_material_init(material: *mut SturdyPhysicsSurfaceMaterial) -> i32;
+    /// Appends a material and returns its id.
+    pub fn sturdy_physics_surfaces_add(surfaces: SturdyPhysicsSurfaces, material: *const SturdyPhysicsSurfaceMaterial, out_id: *mut u32) -> i32;
+    pub fn sturdy_physics_surfaces_count(surfaces: SturdyPhysicsSurfaces, out_count: *mut u32) -> i32;
+    pub fn sturdy_physics_surfaces_create(out_surfaces: *mut SturdyPhysicsSurfaces) -> i32;
+    pub fn sturdy_physics_surfaces_destroy(surfaces: SturdyPhysicsSurfaces) -> i32;
+    /// `STURDY_ERROR_NOT_AVAILABLE` for an unknown name.
+    pub fn sturdy_physics_surfaces_find(surfaces: SturdyPhysicsSurfaces, name: *const c_char, out_id: *mut u32) -> i32;
+    /// Fills `out_material` (its `name` is null here; use `sturdy_physics_surfaces_name`).
+    pub fn sturdy_physics_surfaces_get(surfaces: SturdyPhysicsSurfaces, id: u32, out_material: *mut SturdyPhysicsSurfaceMaterial) -> i32;
+    pub fn sturdy_physics_surfaces_name(surfaces: SturdyPhysicsSurfaces, id: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Traces a projectile through the world (ray, impact, continue from the exit or ricochet). Writes up to `capacity` impacts and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` (with the first `capacity` filled) when there were more. `out_impacts` may be null to count only.
+    pub fn sturdy_physics_trace_shot(surfaces: SturdyPhysicsSurfaces, projectile: *const SturdyPhysicsProjectile, options: *const SturdyPhysicsShotOptions, query: Option<SturdyPhysicsRayQuery>, user: *mut c_void, out_impacts: *mut SturdyPhysicsShotImpact, capacity: u32, out_count: *mut u32) -> i32;
+    /// Signed twist angle in (-pi, pi] about `axis`.
+    pub fn sturdy_physics_twist_angle(rotation: SturdyQuat, axis: SturdyVec3, out_angle: *mut f32) -> i32;
+    pub fn sturdy_physics_within_limits(rotation: SturdyQuat, limits: *const SturdyPhysicsSwingTwistLimits, out_within: *mut u8) -> i32;
+    /// Appends a box; `out_index` (may be null) receives its index for `sturdy_physics_world_move_box`.
+    pub fn sturdy_physics_world_add_box(world: SturdyPhysicsWorld, r#box: *const SturdyPhysicsBox, out_index: *mut u32) -> i32;
+    pub fn sturdy_physics_world_add_plane(world: SturdyPhysicsWorld, plane: *const SturdyPhysicsPlane) -> i32;
+    pub fn sturdy_physics_world_create(out_world: *mut SturdyPhysicsWorld) -> i32;
+    pub fn sturdy_physics_world_destroy(world: SturdyPhysicsWorld) -> i32;
+    /// Moves a box (a platform) by `delta`; an index past the boxes is `STURDY_ERROR_INVALID_ARGUMENT`.
+    pub fn sturdy_physics_world_move_box(world: SturdyPhysicsWorld, index: u32, delta: SturdyVec3) -> i32;
+    /// True when a vertical capsule (feet at `feet`) overlaps solid geometry.
+    pub fn sturdy_physics_world_overlaps_capsule(world: SturdyPhysicsWorld, feet: SturdyVec3, radius: f32, height: f32, out_overlaps: *mut u8) -> i32;
+    /// Sweeps a vertical capsule by `delta`. `out_hit_something` says whether `out_hit` (may be null) was filled.
+    pub fn sturdy_physics_world_sweep_capsule(world: SturdyPhysicsWorld, feet: SturdyVec3, radius: f32, height: f32, delta: SturdyVec3, out_hit_something: *mut u8, out_hit: *mut SturdyPhysicsSweepHit) -> i32;
     /// The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
     pub fn sturdy_plugin_language(plugin: SturdyPlugin, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Opens a plugin library and runs its entry point with `STURDY_PLUGIN_LOAD`, collecting its modules (nothing is started).
@@ -8243,6 +10094,21 @@ unsafe extern "C" {
     /// Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).
     pub fn sturdy_quic_stream_send(stream: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
     pub fn sturdy_quic_stream_stop_sending(stream: SturdyAsyncObject, error_code: u64) -> i32;
+    /// Writes simulated body orientations (model space, one per body) into the entity's current pose: every driven joint takes its body's rotation relative to its skeleton parent, the others keep the animation's. The result is local joint rotations, one per skeleton joint, in `out_joint_rotations`.
+    pub fn sturdy_ragdoll_apply_body_rotations(engine: SturdyEngine, ragdoll: SturdyRagdoll, entity: SturdyEntity, body_rotations: *const SturdyQuat, body_count: u32, out_joint_rotations: *mut SturdyQuat, capacity: u32, out_joint_count: *mut u32) -> i32;
+    pub fn sturdy_ragdoll_body(ragdoll: SturdyRagdoll, index: u32, out_body: *mut SturdyRagdollBody) -> i32;
+    pub fn sturdy_ragdoll_body_count(ragdoll: SturdyRagdoll, out_count: *mut u32) -> i32;
+    /// The body driving skeleton joint `joint`; `STURDY_ERROR_NOT_AVAILABLE` when none does.
+    pub fn sturdy_ragdoll_body_for_joint(ragdoll: SturdyRagdoll, joint: u32, out_body: *mut u32) -> i32;
+    /// Builds a definition for the humanoid skeleton of an animated entity (a skeleton animator or an animation-graph player). Fails with `STURDY_ERROR_NOT_AVAILABLE` when the entity has no skeleton or the rig has no usable humanoid mapping (hips, both legs and both arms).
+    pub fn sturdy_ragdoll_build(engine: SturdyEngine, entity: SturdyEntity, options: *const SturdyRagdollOptions, out_ragdoll: *mut SturdyRagdoll) -> i32;
+    pub fn sturdy_ragdoll_destroy(ragdoll: SturdyRagdoll) -> i32;
+    pub fn sturdy_ragdoll_joint(ragdoll: SturdyRagdoll, index: u32, out_joint: *mut SturdyRagdollJoint) -> i32;
+    pub fn sturdy_ragdoll_joint_count(ragdoll: SturdyRagdoll, out_count: *mut u32) -> i32;
+    pub fn sturdy_ragdoll_options_init(options: *mut SturdyRagdollOptions) -> i32;
+    /// Model-space orientation each body should have to match the entity's current animation pose, one per body: the targets a drive or a kinematic follow tracks. Writes up to `capacity` and reports the body count in `out_count`.
+    pub fn sturdy_ragdoll_target_body_rotations(engine: SturdyEngine, ragdoll: SturdyRagdoll, entity: SturdyEntity, out_rotations: *mut SturdyQuat, capacity: u32, out_count: *mut u32) -> i32;
+    pub fn sturdy_ragdoll_total_mass(ragdoll: SturdyRagdoll, out_mass: *mut f32) -> i32;
     /// A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".
     pub fn sturdy_rate_limiter_create(rate_per_second: f64, burst: f64, max_keys: u64, out_limiter: *mut SturdyAsyncObject) -> i32;
     /// Milliseconds until `key` could take `cost` tokens (0 if it could now).
@@ -8384,6 +10250,24 @@ unsafe extern "C" {
     ///
     /// Follow with `sturdy_render_set_transform` to place it and `sturdy_render_set_model` or one of the light setters to give it something to contribute.
     pub fn sturdy_render_spawn(engine: SturdyEngine, out_entity: *mut SturdyEntity) -> i32;
+    pub fn sturdy_render_target_adjustment(engine: SturdyEngine, target: SturdyRenderTarget, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_render_target_config(engine: SturdyEngine, target: SturdyRenderTarget, out_config: *mut SturdyRenderTargetConfig) -> i32;
+    /// Creates a target. On failure the error text says why (unsupported format, zero size, `strict` request the device cannot meet).
+    pub fn sturdy_render_target_create(engine: SturdyEngine, desc: *const SturdyRenderTargetDesc, out_target: *mut SturdyRenderTarget) -> i32;
+    /// Fills `desc` with the defaults (auto everything) and the correct `struct_size`.
+    pub fn sturdy_render_target_desc_init(desc: *mut SturdyRenderTargetDesc) -> i32;
+    /// The description the target was last given. `out_desc->label` is null here; read it with `sturdy_render_target_label`.
+    pub fn sturdy_render_target_description(engine: SturdyEngine, target: SturdyRenderTarget, out_desc: *mut SturdyRenderTargetDesc) -> i32;
+    pub fn sturdy_render_target_destroy(engine: SturdyEngine, target: SturdyRenderTarget) -> i32;
+    pub fn sturdy_render_target_label(engine: SturdyEngine, target: SturdyRenderTarget, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Changes size, format and/or sampling in place; the handle and texture stay valid. On failure the target is left as it was.
+    pub fn sturdy_render_target_reconfigure(engine: SturdyEngine, target: SturdyRenderTarget, desc: *const SturdyRenderTargetDesc) -> i32;
+    /// Renders the ECS scene into `target` through the view `callback` describes, synchronously. Only renderables whose visibility mask intersects the camera's culling mask appear, which keeps a viewer scene out of the window's own view. The target keeps per-target camera history for motion vectors and blur. Needs the primary window to exist (the renderer's per-surface frame state is borrowed from it; nothing is presented to it).
+    pub fn sturdy_render_target_render_view(engine: SturdyEngine, target: SturdyRenderTarget, callback: Option<SturdyViewCallback>, user: *mut c_void) -> i32;
+    /// Resizes in place; the handle and its texture stay valid and the contents are cleared.
+    pub fn sturdy_render_target_resize(engine: SturdyEngine, target: SturdyRenderTarget, width: u32, height: u32) -> i32;
+    /// The target's backing texture (a renderer texture handle value, usable wherever the engine takes a texture, such as UI images). 0 for an unknown target.
+    pub fn sturdy_render_target_texture(engine: SturdyEngine, target: SturdyRenderTarget, out_texture: *mut u64) -> i32;
     /// Fills `desc` with engine defaults (linear color space, mipmaps and compression both on) and the correct `struct_size`. `width`, `height`, and `rgba8` are left for the caller to set.
     pub fn sturdy_render_texture_desc_init(desc: *mut SturdyRenderTextureDesc) -> i32;
     /// Unloads an asset — a model, shader, or texture previously created by `sturdy_render_load_shader`, `sturdy_render_create_shape_model`, `sturdy_render_create_mesh_model`, or `sturdy_render_load_texture`. This is the only way to release one; without it, every asset a long-running caller creates accumulates for the life of the engine.
@@ -9016,6 +10900,33 @@ unsafe extern "C" {
     pub fn sturdy_ui_text(engine: SturdyEngine, text: *const c_char, style: *const SturdyUiTextStyle) -> i32;
     /// Fills a text style with defaults: font 0, 16px, opaque white.
     pub fn sturdy_ui_text_style_init(style: *mut SturdyUiTextStyle) -> i32;
+    /// Types committed text (UTF-8) into the tree's focused field.
+    pub fn sturdy_ui_tree_add_text(engine: SturdyEngine, entity: SturdyEntity, utf8: *const c_char) -> i32;
+    /// How many trees the engine laid out at its last build.
+    pub fn sturdy_ui_tree_count(engine: SturdyEngine, out_count: *mut u64) -> i32;
+    pub fn sturdy_ui_tree_desc_init(desc: *mut SturdyUiTreeDesc) -> i32;
+    /// Message of the last failed build (string-output convention); empty if none.
+    pub fn sturdy_ui_tree_last_error(engine: SturdyEngine, entity: SturdyEntity, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_ui_tree_layer(engine: SturdyEngine, entity: SturdyEntity, out_layer: *mut i32) -> i32;
+    /// Points at the tree: `has_uv` false = the pointer is not on it (cancels a press in progress); otherwise `u` / `v` in [0, 1] across it. `down` is the primary button. The way to drive off-screen and headless trees.
+    pub fn sturdy_ui_tree_point_at(engine: SturdyEngine, entity: SturdyEntity, has_uv: u8, u: f32, v: f32, down: u8) -> i32;
+    /// Whether the pointer was over the tree (or dragging in it) at its last build: the "did the UI take this click" answer.
+    pub fn sturdy_ui_tree_pointer_consumed(engine: SturdyEngine, entity: SturdyEntity, out_consumed: *mut u8) -> i32;
+    /// Renders every off-screen tree that has a frame its target has not shown yet. The application loop does this after each update; an embedder driving frames itself calls it at the same point. `out_rendered` (may be null) receives how many targets were rendered.
+    pub fn sturdy_ui_tree_render_targets(engine: SturdyEngine, out_rendered: *mut u64) -> i32;
+    /// Lays the tree out at the next update whatever its policy. Any thread.
+    pub fn sturdy_ui_tree_request_rebuild(engine: SturdyEngine, entity: SturdyEntity) -> i32;
+    /// Scrolls the tree by `dx` / `dy`.
+    pub fn sturdy_ui_tree_scroll(engine: SturdyEngine, entity: SturdyEntity, dx: f32, dy: f32) -> i32;
+    /// Replaces the builder (and its `user` / `release_user`). The previous `release_user` runs once the old builder is no longer in use.
+    pub fn sturdy_ui_tree_set_builder(engine: SturdyEngine, entity: SturdyEntity, builder: Option<SturdyUiTreeBuilder>, user: *mut c_void, release_user: Option<unsafe extern "C" fn(*mut c_void)>) -> i32;
+    pub fn sturdy_ui_tree_set_layer(engine: SturdyEngine, entity: SturdyEntity, layer: i32) -> i32;
+    pub fn sturdy_ui_tree_set_rebuild_policy(engine: SturdyEngine, entity: SturdyEntity, policy: i32, rebuild_hz: f32) -> i32;
+    pub fn sturdy_ui_tree_set_target(engine: SturdyEngine, entity: SturdyEntity, target: *const SturdyUiTreeTarget) -> i32;
+    /// Spawns an entity whose only component is the tree. `STURDY_ERROR_INVALID_ARGUMENT` for a null builder. Not callable from inside a builder.
+    pub fn sturdy_ui_tree_spawn(engine: SturdyEngine, desc: *const SturdyUiTreeDesc, out_entity: *mut SturdyEntity) -> i32;
+    pub fn sturdy_ui_tree_stats(engine: SturdyEngine, entity: SturdyEntity, out_stats: *mut SturdyUiTreeStats) -> i32;
+    pub fn sturdy_ui_tree_target(engine: SturdyEngine, entity: SturdyEntity, out_target: *mut SturdyUiTreeTarget) -> i32;
     pub fn sturdy_voice_fade_volume(voice: SturdyVoice, target: f32, seconds: f32) -> i32;
     pub fn sturdy_voice_pause(voice: SturdyVoice) -> i32;
     pub fn sturdy_voice_release(voice: SturdyVoice) -> i32;

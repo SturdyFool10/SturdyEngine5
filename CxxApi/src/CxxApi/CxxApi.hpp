@@ -9,6 +9,7 @@
 #include <CxxApi/Ecs.hpp>
 #include <CxxApi/Engine.hpp>
 #include <CxxApi/Log.hpp>
+#include <CxxApi/Physics.hpp>
 #include <CxxApi/Render.hpp>
 #include <CxxApi/Runtime.hpp>
 #include <CxxApi/Scene.hpp>

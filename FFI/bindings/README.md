@@ -9,7 +9,7 @@ every language and no binding can disagree with another about a type.
 | Java 22+ | `java/dev/sturdy/Sturdy.java` | Panama (`java.lang.foreign`) | same, including every method-handle descriptor |
 | C# | `csharp/Sturdy.cs` | P/Invoke + function pointers (`unsafe`) | **generated only**: there is no .NET toolchain on the build machines |
 | Rust | `rust/sturdy_ffi.rs` | raw `extern "C"` declarations + `#[repr(C)]` structs | compiled with `rustc`; every struct carries const size/alignment/offset assertions |
-| any | `../api/sturdy_abi.json` | machine-readable description | regenerated and diffed |
+| any | `../api/sturdy_abi.json` | machine-readable description (**not committed**: gitignored, regenerate it) | regenerated in a temp directory by the test |
 
 The first-party Rust crates (`Rust/sturdy`) use `cxx` over `CxxApi/` (see `plans/cxx-api.md`). The Rust binding here exists for **native
 plugins** (`Rust/sturdy-plugin`, a safe layer over it, plus `Rust/sturdy-net`, the safe async networking / files / processes / parallelism
@@ -22,6 +22,10 @@ declares the C functions and leaves them undefined for the loader to resolve.
 Sturdy.h --clang AST--> api/sturdy_abi.json --gen_bindings.py--> python / java / csharp / rust
 ```
 
+* To regenerate after editing `Sturdy.h`: `python3 FFI/tools/describe_abi.py --header FFI/src/FFI/Sturdy.h --output FFI/api/sturdy_abi.json`, then
+  `gen_bindings.py --api FFI/api/sturdy_abi.json --python ... --java ... --csharp ... --rust ... --layout-check FFI/tools/layout_check.c`
+  (or just `python3 FFI/tests/bindings/check_bindings.py --repo . --update`, which does both in a temp directory and copies the results in).
+  The JSON is a gitignored intermediate; the generated bindings and `layout_check.c` stay committed because consumers use them directly.
 * `tools/describe_abi.py` asks clang for the header's AST and writes every enum, struct, callback type and function with its
   documentation as JSON. It never parses C by hand.
 * `tools/gen_bindings.py` turns that JSON into each language. Struct layout is computed from the C rules (natural alignment; the header

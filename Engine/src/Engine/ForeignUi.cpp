@@ -219,6 +219,15 @@ namespace SFT::Engine {
         return {};
     }
 
+    ForeignUiResult<void> begin_foreign_ui_declared_element(const UI::ElementDecl &declaration) {
+        auto context = require_session();
+        if (!context) {
+            return std::unexpected(context.error());
+        }
+        t_session.open_elements.push_back(std::make_unique<UI::ElementScope>((*context)->element(declaration)));
+        return {};
+    }
+
     ForeignUiResult<void> end_foreign_ui_element() {
         auto context = require_session();
         if (!context) {
@@ -277,6 +286,26 @@ namespace SFT::Engine {
     }
 
     void discard_foreign_ui_frame() noexcept { reset_session(); }
+
+    ForeignUiContextBinding::ForeignUiContextBinding(UI::Context &context, glm::vec2 viewport) {
+        if (t_session.open) {
+            rejected_ = true;
+            return;
+        }
+        t_session.open = true;
+        t_session.context = &context;
+        t_session.viewport = viewport;
+        // A tree owns its own context, so fonts registered through `register_foreign_ui_font` are replayed into it (idempotent).
+        apply_font_registrations(context);
+    }
+
+    ForeignUiContextBinding::~ForeignUiContextBinding() {
+        if (!rejected_) {
+            reset_session();
+        }
+    }
+
+    bool ForeignUiContextBinding::balanced() const noexcept { return rejected_ || t_session.open_elements.empty(); }
 
     ScreenUi &foreign_screen_ui(Engine &engine) { return screen_ui_for(engine); }
 

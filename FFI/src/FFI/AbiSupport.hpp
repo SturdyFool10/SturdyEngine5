@@ -104,6 +104,20 @@ namespace SFT::Ffi {
         HttpResponder = 21,
         /// Also owned: a tray icon. Lives until `sturdy_tray_destroy`.
         Tray = 22,
+        /// Also owned (physics): each lives until its `_destroy` call.
+        PhysicsStepper = 23,
+        PhysicsLayers = 24,
+        PhysicsWorld = 25,
+        PhysicsCharacter = 26,
+        PhysicsContactFilter = 27,
+        PhysicsSurfaces = 28,
+        PhysicsCloth = 29,
+        /// Also owned: a text document, until `sturdy_document_destroy`.
+        Document = 30,
+        /// Also owned: a dock workspace, until `sturdy_dock_destroy`.
+        DockWorkspace = 31,
+        /// Also owned: a ragdoll definition, until `sturdy_ragdoll_destroy`.
+        Ragdoll = 32,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 42)
+ABI_VERSION = (0, 43)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -39,6 +39,11 @@ class SturdyAccessMode(enum.IntEnum):
     """How a system intends to touch one component."""
     STURDY_ACCESS_READ = 0
     STURDY_ACCESS_WRITE = 1
+
+class SturdyAdapterPresentable(enum.IntEnum):
+    STURDY_ADAPTER_PRESENTABLE_UNKNOWN = 0
+    STURDY_ADAPTER_PRESENTABLE_YES = 1
+    STURDY_ADAPTER_PRESENTABLE_NO = 2
 
 class SturdyAdapterString(enum.IntEnum):
     """Selects which of the adapter's text fields `sturdy_rhi_adapter_string` returns."""
@@ -155,6 +160,15 @@ class SturdyBorderColor(enum.IntEnum):
     STURDY_BORDER_COLOR_OPAQUE_BLACK = 1
     STURDY_BORDER_COLOR_OPAQUE_WHITE = 2
 
+class SturdyChangeText(enum.IntEnum):
+    STURDY_CHANGE_TEXT_INSERTED = 0
+    STURDY_CHANGE_TEXT_DELETED = 1
+
+class SturdyCharClass(enum.IntEnum):
+    STURDY_CHAR_CLASS_WHITESPACE = 0
+    STURDY_CHAR_CLASS_WORD = 1
+    STURDY_CHAR_CLASS_PUNCTUATION = 2
+
 class SturdyColorSpace(enum.IntEnum):
     """Swapchain color space, including real display HDR transfer functions. Matches `RHI::ColorSpace`. `STURDY_COLOR_SPACE_DOLBY_VISION` is declared for completeness but not implemented by either backend yet; requesting it will not succeed."""
     STURDY_COLOR_SPACE_SRGB_NONLINEAR = 0
@@ -217,6 +231,24 @@ class SturdyCursorIcon(enum.IntEnum):
     STURDY_CURSOR_ICON_RESIZE_W = 20
     STURDY_CURSOR_ICON_RESIZE_NW = 21
 
+class SturdyDeviceChangeKind(enum.IntEnum):
+    STURDY_DEVICE_CHANGE_SWITCHING = 0
+    STURDY_DEVICE_CHANGE_SWITCHED = 1
+    STURDY_DEVICE_CHANGE_RECOVERED = 2
+    STURDY_DEVICE_CHANGE_LOST_UNRECOVERABLE = 3
+
+class SturdyDevicePreference(enum.IntEnum):
+    STURDY_DEVICE_PREFERENCE_DEFAULT = 0
+    STURDY_DEVICE_PREFERENCE_HIGH_PERFORMANCE = 1
+    STURDY_DEVICE_PREFERENCE_LOW_POWER = 2
+    STURDY_DEVICE_PREFERENCE_DISCRETE_ONLY = 3
+    STURDY_DEVICE_PREFERENCE_INTEGRATED_ONLY = 4
+
+class SturdyDeviceSwitchOutcome(enum.IntEnum):
+    STURDY_DEVICE_SWITCH_SWITCHED = 0
+    STURDY_DEVICE_SWITCH_FALLBACK = 1
+    STURDY_DEVICE_SWITCH_FAILED = 2
+
 class SturdyDeviceType(enum.IntEnum):
     """Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists."""
     STURDY_DEVICE_TYPE_OTHER = 0
@@ -231,6 +263,25 @@ class SturdyDisplayOrientation(enum.IntEnum):
     STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2
     STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3
     STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4
+
+class SturdyDockZone(enum.IntEnum):
+    STURDY_DOCK_ZONE_CENTER = 0
+    STURDY_DOCK_ZONE_LEFT = 1
+    STURDY_DOCK_ZONE_RIGHT = 2
+    STURDY_DOCK_ZONE_TOP = 3
+    STURDY_DOCK_ZONE_BOTTOM = 4
+
+class SturdyDropKind(enum.IntEnum):
+    STURDY_DROP_BEGIN = 0
+    STURDY_DROP_HOVER = 1
+    STURDY_DROP_FILE = 2
+    STURDY_DROP_TEXT = 3
+    STURDY_DROP_COMPLETE = 4
+
+class SturdyEditKind(enum.IntEnum):
+    STURDY_EDIT_STANDALONE = 0
+    STURDY_EDIT_TYPING = 1
+    STURDY_EDIT_DELETION = 2
 
 class SturdyFieldKind(enum.IntEnum):
     """The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change."""
@@ -317,6 +368,10 @@ class SturdyFormat(enum.IntEnum):
 class SturdyFrameCodec(enum.IntEnum):
     STURDY_FRAME_LENGTH_DELIMITED = 0
     STURDY_FRAME_LINES = 1
+
+class SturdyFrameMode(enum.IntEnum):
+    STURDY_FRAME_MODE_CONTINUOUS = 0
+    STURDY_FRAME_MODE_ON_DEMAND = 1
 
 class SturdyFrameRateLimitMode(enum.IntEnum):
     """The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`."""
@@ -475,6 +530,10 @@ class SturdyLatencyMode(enum.IntEnum):
     STURDY_LATENCY_MODE_LOW = 1
     STURDY_LATENCY_MODE_ULTRA = 2
 
+class SturdyLineEnding(enum.IntEnum):
+    STURDY_LINE_ENDING_LF = 0
+    STURDY_LINE_ENDING_CRLF = 1
+
 class SturdyLinuxBlurProtocol(enum.IntEnum):
     """Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes."""
     STURDY_LINUX_BLUR_AUTOMATIC = 0
@@ -583,6 +642,15 @@ class SturdyOpacityMicromapFormat(enum.IntEnum):
     STURDY_OPACITY_MICROMAP_FORMAT_TWO_STATE = 0
     STURDY_OPACITY_MICROMAP_FORMAT_FOUR_STATE = 1
 
+class SturdyPhysicsContactKind(enum.IntEnum):
+    STURDY_PHYSICS_CONTACT_IMPACT = 0
+    STURDY_PHYSICS_CONTACT_SCRAPE = 1
+
+class SturdyPhysicsImpactOutcome(enum.IntEnum):
+    STURDY_PHYSICS_IMPACT_STOPPED = 0
+    STURDY_PHYSICS_IMPACT_PENETRATED = 1
+    STURDY_PHYSICS_IMPACT_RICOCHETED = 2
+
 class SturdyPlatformQueryStatus(enum.IntEnum):
     """Outcome of a platform-level display/HDR query, distinct from `SturdyResult`: the call itself succeeded (a device and surface exist), but the platform may still have nothing useful to report. Matches `RHI::PlatformQueryStatus`."""
     STURDY_PLATFORM_QUERY_STATUS_OK = 0
@@ -674,6 +742,10 @@ class SturdyQueueClass(enum.IntEnum):
     STURDY_QUEUE_CLASS_VIDEO_DECODE = 4
     STURDY_QUEUE_CLASS_VIDEO_ENCODE = 5
 
+class SturdyRagdollJointKind(enum.IntEnum):
+    STURDY_RAGDOLL_JOINT_BALL = 0
+    STURDY_RAGDOLL_JOINT_HINGE = 1
+
 class SturdyRayTracingShaderGroupType(enum.IntEnum):
     """Matches `RHI::RayTracingShaderGroupType`."""
     STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL = 0
@@ -698,6 +770,33 @@ class SturdyRenderFeature(enum.IntEnum):
     STURDY_RENDER_FEATURE_DEBUG_OVERLAY = 6
     STURDY_RENDER_FEATURE_RESTIR_GI = 7
     STURDY_RENDER_FEATURE_MOTION_BLUR = 8
+
+class SturdyRenderTargetAddressMode(enum.IntEnum):
+    STURDY_RENDER_TARGET_ADDRESS_CLAMP_TO_EDGE = 0
+    STURDY_RENDER_TARGET_ADDRESS_REPEAT = 1
+    STURDY_RENDER_TARGET_ADDRESS_MIRRORED_REPEAT = 2
+
+class SturdyRenderTargetFeature(enum.IntEnum):
+    STURDY_RENDER_TARGET_FEATURE_AUTO = 0
+    STURDY_RENDER_TARGET_FEATURE_OFF = 1
+    STURDY_RENDER_TARGET_FEATURE_IF_SUPPORTED = 2
+    STURDY_RENDER_TARGET_FEATURE_REQUIRED = 3
+
+class SturdyRenderTargetFilter(enum.IntEnum):
+    STURDY_RENDER_TARGET_FILTER_LINEAR = 0
+    STURDY_RENDER_TARGET_FILTER_NEAREST = 1
+
+class SturdyRenderTargetFormat(enum.IntEnum):
+    STURDY_RENDER_TARGET_FORMAT_AUTO = 0
+    STURDY_RENDER_TARGET_FORMAT_BGRA8_SRGB = 1
+    STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2
+    STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3
+    STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4
+
+class SturdyRenderTargetUse(enum.IntEnum):
+    STURDY_RENDER_TARGET_USE_SCREEN = 0
+    STURDY_RENDER_TARGET_USE_WORLD = 1
+    STURDY_RENDER_TARGET_USE_COMPUTE = 2
 
 class SturdyRestirGiDenoiser(enum.IntEnum):
     """Denoiser resolving ReSTIR GI's raw reservoir output. `DLSS_RAY_RECONSTRUCTION`/`FSR_REDSTONE` are reserved for future vendor-SDK integrations; selecting either falls back to `SVGF` with a one-time engine warning until a real backend exists."""
@@ -738,6 +837,14 @@ class SturdyRingStatus(enum.IntEnum):
     STURDY_RING_FULL = 1
     STURDY_RING_EMPTY = 2
     STURDY_RING_TOO_LARGE = 3
+
+class SturdyRuntimeSettingApplyMode(enum.IntEnum):
+    STURDY_RUNTIME_SETTING_NO_CHANGE = 0
+    STURDY_RUNTIME_SETTING_HOT_APPLIED = 1
+    STURDY_RUNTIME_SETTING_SURFACE_RECREATED = 2
+    STURDY_RUNTIME_SETTING_DEVICE_RECREATED = 3
+    STURDY_RUNTIME_SETTING_BACKEND_RECREATED = 4
+    STURDY_RUNTIME_SETTING_UNSUPPORTED = 5
 
 class SturdySceneIntegrator(enum.IntEnum):
     """Rendering path the scene stage evaluates."""
@@ -925,6 +1032,11 @@ class SturdyUiGraphType(enum.IntEnum):
     STURDY_UI_GRAPH_TYPE_SCATTER = 3
     STURDY_UI_GRAPH_TYPE_PIE = 4
 
+class SturdyUiRebuildPolicy(enum.IntEnum):
+    STURDY_UI_REBUILD_EVERY_UPDATE = 0
+    STURDY_UI_REBUILD_ON_DIRTY = 1
+    STURDY_UI_REBUILD_FIXED_RATE = 2
+
 class SturdyUiScaleMode(enum.IntEnum):
     """How UI units map onto the framebuffer."""
     STURDY_UI_SCALE_MODE_CONTENT_SCALE = 0
@@ -936,6 +1048,11 @@ class SturdyUiSizing(enum.IntEnum):
     STURDY_UI_SIZING_GROW = 1
     STURDY_UI_SIZING_FIXED = 2
     STURDY_UI_SIZING_PERCENT = 3
+
+class SturdyUiTreeTargetKind(enum.IntEnum):
+    STURDY_UI_TREE_TARGET_WINDOW = 0
+    STURDY_UI_TREE_TARGET_OFFSCREEN = 1
+    STURDY_UI_TREE_TARGET_HEADLESS = 2
 
 class SturdyVSync(enum.IntEnum):
     """Presentation synchronization policy."""
@@ -1155,6 +1272,8 @@ class SturdyAccelerationStructureInstancesDesc(ctypes.Structure):
     """Top-level instance geometry within an acceleration structure build."""
 class SturdyAccelerationStructureTrianglesDesc(ctypes.Structure):
     """Triangle geometry within an acceleration structure build. `opacity_micromap` is a zero handle unless `Feature`-gated opacity micromaps are used (Vulkan only)."""
+class SturdyAdapterDescription(ctypes.Structure):
+    """One physical GPU, as a settings screen lists it. Text is truncated to the field size and always null-terminated."""
 class SturdyAdapterInfo(ctypes.Structure):
     """Numeric identity of the adapter the engine selected."""
 class SturdyAmbientOcclusionSettings(ctypes.Structure):
@@ -1163,6 +1282,8 @@ class SturdyAnimationSet(ctypes.Structure):
     """Animation loaded from a file on its own (BVH mocap, or glTF/FBX with no mesh such as Mixamo downloads). Owned: valid until `sturdy_animation_set_release`."""
 class SturdyAntiAliasingSettings(ctypes.Structure):
     pass
+class SturdyApplyResult(ctypes.Structure):
+    """What an applied edit, undo or redo changed. The per-change details are read with `sturdy_document_change` / `sturdy_document_change_text` until the next edit."""
 class SturdyAsset(ctypes.Structure):
     """An engine asset — a shader, model or texture."""
 class SturdyAsyncObject(ctypes.Structure):
@@ -1181,6 +1302,8 @@ class SturdyAudioStream(ctypes.Structure):
     pass
 class SturdyAutoExposureSettings(ctypes.Structure):
     pass
+class SturdyBackendOffer(ctypes.Structure):
+    """One graphics API an adapter can be driven through."""
 class SturdyBindGroup(ctypes.Structure):
     """Handle to a bind group. See the "RHI resources" section header for its lifetime rules."""
 class SturdyBindGroupDesc(ctypes.Structure):
@@ -1205,6 +1328,8 @@ class SturdyBufferDesc(ctypes.Structure):
     """Describes a buffer to create."""
 class SturdyBufferTextureCopy(ctypes.Structure):
     """Describes one buffer < ->texture copy region."""
+class SturdyByteRange(ctypes.Structure):
+    pass
 class SturdyBytesSink(ctypes.Structure):
     """Where a stream callback writes the item it produces (copied immediately)."""
 class SturdyBytesView(ctypes.Structure):
@@ -1251,24 +1376,50 @@ class SturdyCursorFrame(ctypes.Structure):
     """One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call)."""
 class SturdyD3D12Handles(ctypes.Structure):
     """The engine's raw D3D12 objects."""
+class SturdyDebugDrawSettings(ctypes.Structure):
+    pass
 class SturdyDepthOfFieldSettings(ctypes.Structure):
     """Depth of field (since 0.34): the thin-lens blur of everything away from the focal plane, with the aperture's polygon as the bokeh. With `from_camera` set the engine overwrites the lens fields from the camera every frame."""
 class SturdyDepthStencilAttachment(ctypes.Structure):
     """The depth/stencil attachment within a render pass. `has_view` false means the pass has no depth/stencil attachment and the rest of this struct is ignored."""
 class SturdyDepthStencilState(ctypes.Structure):
     """Depth/stencil fixed-function state. `format` names the attachment this pipeline targets; `STURDY_FORMAT_UNDEFINED` means the pipeline has no depth/stencil attachment."""
+class SturdyDeviceChangeEvent(ctypes.Structure):
+    pass
 class SturdyDeviceLimits(ctypes.Structure):
     """Hardware limits of the active device."""
+class SturdyDeviceRequest(ctypes.Structure):
+    pass
+class SturdyDeviceSwitchResult(ctypes.Structure):
+    pass
 class SturdyDisplayInfo(ctypes.Structure):
     """One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls."""
 class SturdyDisplayMode(ctypes.Structure):
     """One video mode of a display."""
+class SturdyDockEvents(ctypes.Structure):
+    """What one frame asked for. The workspace does not act on these itself: a tear-off means "the user dragged this panel out", a close request "the user clicked its close button"; the caller decides."""
+class SturdyDockPanelInfo(ctypes.Structure):
+    pass
+class SturdyDockPlacement(ctypes.Structure):
+    """Where a panel goes. `has_placement` false lets the workspace pick (the focused leaf, else the root)."""
+class SturdyDockTabDrag(ctypes.Structure):
+    """A tab drag in progress."""
+class SturdyDockWorkspace(ctypes.Structure):
+    pass
+class SturdyDocument(ctypes.Structure):
+    pass
+class SturdyDocumentChange(ctypes.Structure):
+    pass
+class SturdyDocumentStats(ctypes.Structure):
+    pass
 class SturdyDrawArgs(ctypes.Structure):
     pass
 class SturdyDrawIndexedArgs(ctypes.Structure):
     pass
 class SturdyDrawMeshTasksArgs(ctypes.Structure):
     """Dispatch dimensions for `sturdy_rhi_render_pass_draw_mesh_tasks`, matching `RHI::DrawMeshTasksArgs`."""
+class SturdyDropEvent(ctypes.Structure):
+    pass
 class SturdyEngine(ctypes.Structure):
     """Borrowed reference to the live engine, valid only inside the callback that received it."""
 class SturdyEntity(ctypes.Structure):
@@ -1333,12 +1484,18 @@ class SturdyHttpResponse(ctypes.Structure):
     """A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream."""
 class SturdyHttpServerOptions(ctypes.Structure):
     pass
+class SturdyIndentStyle(ctypes.Structure):
+    pass
 class SturdyKeyValue(ctypes.Structure):
     """A name/value pair (HTTP headers, environment variables). Both strings are null-terminated."""
 class SturdyLightingSettings(ctypes.Structure):
     """Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights."""
+class SturdyLineIndent(ctypes.Structure):
+    pass
 class SturdyLogSink(ctypes.Structure):
     """Handle to a registered log sink, returned by `sturdy_log_add_sink`."""
+class SturdyMat4(ctypes.Structure):
+    pass
 class SturdyMessageBoxOptions(ctypes.Structure):
     pass
 class SturdyMotionBlurSettings(ctypes.Structure):
@@ -1363,6 +1520,62 @@ class SturdyPeerOptions(ctypes.Structure):
     pass
 class SturdyPenPoint(ctypes.Structure):
     """One pen. Listed while in range, and for the tick it left range in."""
+class SturdyPhysicsBox(ctypes.Structure):
+    pass
+class SturdyPhysicsCharacter(ctypes.Structure):
+    """A kinematic capsule character mover."""
+class SturdyPhysicsCharacterSettings(ctypes.Structure):
+    pass
+class SturdyPhysicsCharacterState(ctypes.Structure):
+    pass
+class SturdyPhysicsCloth(ctypes.Structure):
+    """Position-based-dynamics cloth."""
+class SturdyPhysicsClothCapsule(ctypes.Structure):
+    pass
+class SturdyPhysicsClothColliders(ctypes.Structure):
+    pass
+class SturdyPhysicsClothParams(ctypes.Structure):
+    pass
+class SturdyPhysicsClothPlane(ctypes.Structure):
+    """Plane through `normal * offset` facing `normal`; particles are kept on the positive side."""
+class SturdyPhysicsClothSphere(ctypes.Structure):
+    pass
+class SturdyPhysicsContactConfig(ctypes.Structure):
+    pass
+class SturdyPhysicsContactEvent(ctypes.Structure):
+    pass
+class SturdyPhysicsContactFilter(ctypes.Structure):
+    """Turns a solver's contact stream into a sparse, budgeted event list."""
+class SturdyPhysicsContactPoint(ctypes.Structure):
+    pass
+class SturdyPhysicsImpactResult(ctypes.Structure):
+    pass
+class SturdyPhysicsLayers(ctypes.Structure):
+    """Named collision layers and their symmetric collision matrix (up to 64 layers)."""
+class SturdyPhysicsMoveResult(ctypes.Structure):
+    pass
+class SturdyPhysicsPlane(ctypes.Structure):
+    pass
+class SturdyPhysicsProjectile(ctypes.Structure):
+    pass
+class SturdyPhysicsShotImpact(ctypes.Structure):
+    pass
+class SturdyPhysicsShotOptions(ctypes.Structure):
+    pass
+class SturdyPhysicsStepper(ctypes.Structure):
+    """Fixed-timestep accumulator."""
+class SturdyPhysicsSurfaceHit(ctypes.Structure):
+    pass
+class SturdyPhysicsSurfaceMaterial(ctypes.Structure):
+    pass
+class SturdyPhysicsSurfaces(ctypes.Structure):
+    """Indexed surface-material table shared by bullet penetration, impact sounds and effects."""
+class SturdyPhysicsSweepHit(ctypes.Structure):
+    pass
+class SturdyPhysicsSwingTwistLimits(ctypes.Structure):
+    pass
+class SturdyPhysicsWorld(ctypes.Structure):
+    """A minimal analytic collision world (boxes and planes) for characters and tools."""
 class SturdyPipelineLayout(ctypes.Structure):
     """Handle to a pipeline layout. See the "RHI resources" section header for its lifetime rules."""
 class SturdyPipelineLayoutDesc(ctypes.Structure):
@@ -1377,6 +1590,8 @@ class SturdyPluginLoadDesc(ctypes.Structure):
     """How to load a plugin."""
 class SturdyPortMapOptions(ctypes.Structure):
     """Router port-mapping options. Zero means the default noted."""
+class SturdyPresentTimingFeedback(ctypes.Structure):
+    """Display-clock feedback for a surface (refresh cycle, fixed or variable refresh, measured display intervals). `available` false: the backend cannot report presentation timing and everything else is unknown."""
 class SturdyPresentationResolution(ctypes.Structure):
     """What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field."""
 class SturdyPresentationSettings(ctypes.Structure):
@@ -1385,6 +1600,8 @@ class SturdyProcessOptions(ctypes.Structure):
     pass
 class SturdyPushConstantRange(ctypes.Structure):
     """One push-constant range within a pipeline layout."""
+class SturdyQuat(ctypes.Structure):
+    pass
 class SturdyQuerySet(ctypes.Structure):
     """Handle to a query set. See the "RHI resources" section header for its lifetime rules."""
 class SturdyQuerySetDesc(ctypes.Structure):
@@ -1396,6 +1613,14 @@ class SturdyQuicClientOptions(ctypes.Structure):
 class SturdyQuicLimits(ctypes.Structure):
     """Limits both QUIC endpoints advertise. Zero means the default noted."""
 class SturdyQuicServerOptions(ctypes.Structure):
+    pass
+class SturdyRagdoll(ctypes.Structure):
+    pass
+class SturdyRagdollBody(ctypes.Structure):
+    """One rigid capsule. Its frame is its skeleton joint's frame, so a solver can start it at `rest_rotation` and read its world rotation straight back."""
+class SturdyRagdollJoint(ctypes.Structure):
+    pass
+class SturdyRagdollOptions(ctypes.Structure):
     pass
 class SturdyRasterizationState(ctypes.Structure):
     """Rasterizer fixed-function state."""
@@ -1429,6 +1654,8 @@ class SturdyRenderBundleDesc(ctypes.Structure):
     """Describes a render bundle to create. Bundles are format-only — they record against whatever render pass later executes them, matching it by attachment formats/sample count/view mask rather than by binding real attachments."""
 class SturdyRenderBundleEncoder(ctypes.Structure):
     """Owned handle to an in-progress bundle recording, borrowed from the engine's active device. Lives until `sturdy_rhi_render_bundle_encoder_finish` or `sturdy_rhi_render_bundle_encoder_release`."""
+class SturdyRenderHealth(ctypes.Structure):
+    """What frame rendering has done since startup. The frame callback keeps running when a frame fails, so an app that just switched device compares two snapshots (or watches `consecutive_failures`) to learn that nothing is being drawn, and rolls back."""
 class SturdyRenderPassDesc(ctypes.Structure):
     """Describes a render pass to begin."""
 class SturdyRenderPassEncoder(ctypes.Structure):
@@ -1437,6 +1664,12 @@ class SturdyRenderPipeline(ctypes.Structure):
     """Handle to a render pipeline. See the "RHI resources" section header for its lifetime rules."""
 class SturdyRenderPipelineDesc(ctypes.Structure):
     """Everything needed to build a raster pipeline against dynamic rendering (no render-pass object). Viewport/scissor are always dynamic, set per-draw on the render pass encoder, so they are not part of this description. All array fields are read synchronously during `sturdy_rhi_create_render_pipeline` and need not outlive the call."""
+class SturdyRenderTarget(ctypes.Structure):
+    pass
+class SturdyRenderTargetConfig(ctypes.Structure):
+    """What the request resolved to on the current device."""
+class SturdyRenderTargetDesc(ctypes.Structure):
+    pass
 class SturdyRenderTextureDesc(ctypes.Structure):
     """Describes a texture built directly from raw pixels, for `sturdy_render_create_texture`."""
 class SturdyResourceId(ctypes.Structure):
@@ -1445,6 +1678,8 @@ class SturdyRestirGiSettings(ctypes.Structure):
     pass
 class SturdyRuntimeConfig(ctypes.Structure):
     """Application and window configuration for `sturdy_runtime_run`."""
+class SturdyRuntimeSettingsResult(ctypes.Structure):
+    pass
 class SturdySampler(ctypes.Structure):
     """Handle to a sampler. See the "RHI resources" section header for its lifetime rules."""
 class SturdySamplerDesc(ctypes.Structure):
@@ -1509,10 +1744,14 @@ class SturdyTaskInput(ctypes.Structure):
     """What the previous stage of an execution chain produced."""
 class SturdyTaskOutput(ctypes.Structure):
     """Where a task's result is written from inside its callback (copied immediately)."""
+class SturdyTextEdit(ctypes.Structure):
+    """One edit: replace `range` with `replacement` (`replacement_size` bytes of UTF-8, no terminator needed)."""
 class SturdyTextInputArea(ctypes.Structure):
     """Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner."""
 class SturdyTextInputOptions(ctypes.Structure):
     """What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`."""
+class SturdyTextPoint(ctypes.Structure):
+    pass
 class SturdyTexture(ctypes.Structure):
     """Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules."""
 class SturdyTextureBarrier(ctypes.Structure):
@@ -1557,6 +1796,18 @@ class SturdyUiGraphSeriesRef(ctypes.Structure):
     """One data series bound to `sturdy_ui_graph_draw`."""
 class SturdyUiTextStyle(ctypes.Structure):
     """How text is drawn."""
+class SturdyUiTreeDesc(ctypes.Structure):
+    pass
+class SturdyUiTreeFrame(ctypes.Structure):
+    """What a builder is handed each time its tree is laid out. Valid only inside the builder."""
+class SturdyUiTreeStats(ctypes.Structure):
+    pass
+class SturdyUiTreeTarget(ctypes.Structure):
+    pass
+class SturdyVec3(ctypes.Structure):
+    pass
+class SturdyVec4(ctypes.Structure):
+    pass
 class SturdyVertex(ctypes.Structure):
     """One vertex of a custom mesh. Matches the engine's own vertex layout field for field."""
 class SturdyVertexAttribute(ctypes.Structure):
@@ -1601,6 +1852,8 @@ SturdyArcDestroyFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 SturdyAsyncOpFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncOp)
 SturdyAudioSinkCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32)
 SturdyChunkSystemFn = ctypes.CFUNCTYPE(None, ctypes.POINTER(SturdyEntity), ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p), SturdyCommands, ctypes.c_void_p)
+SturdyDeferredAction = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.c_void_p)
+SturdyDeviceObserver = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.POINTER(SturdyDeviceChangeEvent), ctypes.c_void_p)
 SturdyEcsVisitFn = ctypes.CFUNCTYPE(None, SturdyEntity, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)
 SturdyFileDialogCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p), ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint8, ctypes.c_char_p)
 SturdyHttpHandlerFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(SturdyHttpRequest), SturdyHttpResponder)
@@ -1614,6 +1867,7 @@ SturdyParPredicateFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.
 SturdyParReduceF64Fn = ctypes.CFUNCTYPE(ctypes.c_double, ctypes.c_void_p, ctypes.c_double, ctypes.c_double)
 SturdyParReduceI64Fn = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64)
 SturdyParScopeFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject)
+SturdyPhysicsRayQuery = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, SturdyVec3, SturdyVec3, ctypes.c_float, ctypes.POINTER(SturdyPhysicsSurfaceHit))
 SturdyPluginEntryFn = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(SturdyPluginHost), ctypes.c_int32, ctypes.c_void_p)
 SturdyReflectionCopyConstructFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
 SturdyReflectionDefaultConstructFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
@@ -1636,6 +1890,9 @@ SturdyTaskFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 SturdyTaskThenFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskInput), ctypes.POINTER(SturdyTaskOutput))
 SturdyTaskWorkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskOutput))
 SturdyTrayCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint32)
+SturdyUiTreeBuilder = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.POINTER(SturdyUiTreeFrame), ctypes.c_void_p)
+SturdyUpdateHook = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.c_double, ctypes.c_void_p)
+SturdyViewCallback = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.POINTER(SturdyFrameInput), SturdyFrame, ctypes.c_void_p)
 SturdyWebSocketFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyHttpRequest))
 
 # The callback slots inside structs get a type named after the slot (`SturdyGameLogic_on_shutdown_fn`), so you can wrap a Python
@@ -1658,6 +1915,7 @@ SturdyPluginHost_set_info_fn = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p,
 SturdyPluginHost_set_state_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
 SturdyScriptLanguage_load_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyScriptSource), ctypes.POINTER(SturdyScriptInstance), ctypes.POINTER(SturdyBytesSink))
 SturdyScriptLanguage_destroy_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+SturdyUiTreeDesc_release_user_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 
 # Any other unnamed function-pointer types.
 _FP0 = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.c_void_p)
@@ -1758,6 +2016,16 @@ SturdyAccelerationStructureInstance._fields_ = [
     ('shader_binding_table_offset_and_flags', ctypes.c_uint32),
     ('acceleration_structure_device_address', ctypes.c_uint64),
 ]
+SturdyAdapterDescription._fields_ = [
+    ('stable_id', (ctypes.c_char * 32)),
+    ('physical_device_id', (ctypes.c_char * 96)),
+    ('name', (ctypes.c_char * 160)),
+    ('vendor', (ctypes.c_char * 64)),
+    ('vendor_id', ctypes.c_uint32),
+    ('device_id', ctypes.c_uint32),
+    ('device_type', ctypes.c_int32),
+    ('backend_count', ctypes.c_uint32),
+]
 SturdyAdapterInfo._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('vendor_id', ctypes.c_uint32),
@@ -1790,6 +2058,11 @@ SturdyAntiAliasingSettings._fields_ = [
     ('post_process', ctypes.c_int32),
     ('subpixel_quality', ctypes.c_float),
     ('edge_threshold', ctypes.c_float),
+]
+SturdyApplyResult._fields_ = [
+    ('revision_before', ctypes.c_uint64),
+    ('revision_after', ctypes.c_uint64),
+    ('change_count', ctypes.c_uint32),
 ]
 SturdyAsset._fields_ = [
     ('opaque', (ctypes.c_uint64 * 4)),
@@ -1840,6 +2113,13 @@ SturdyAutoExposureSettings._fields_ = [
     ('adapt_up_speed', ctypes.c_float),
     ('adapt_down_speed', ctypes.c_float),
     ('center_weight', ctypes.c_float),
+]
+SturdyBackendOffer._fields_ = [
+    ('backend', ctypes.c_int32),
+    ('driver_version', (ctypes.c_char * 64)),
+    ('api_version', (ctypes.c_char * 32)),
+    ('presentable', ctypes.c_int32),
+    ('active', ctypes.c_uint8),
 ]
 SturdyBindGroup._fields_ = [
     ('id', ctypes.c_uint64),
@@ -1935,6 +2215,10 @@ SturdyBufferTextureCopy._fields_ = [
     ('extent_width', ctypes.c_uint32),
     ('extent_height', ctypes.c_uint32),
     ('extent_depth_or_layers', ctypes.c_uint32),
+]
+SturdyByteRange._fields_ = [
+    ('start', ctypes.c_uint64),
+    ('end', ctypes.c_uint64),
 ]
 SturdyBytesSink._fields_ = [
     ('internal', ctypes.c_void_p),
@@ -2101,6 +2385,12 @@ SturdyD3D12Handles._fields_ = [
     ('device', ctypes.c_void_p),
     ('graphics_queue', ctypes.c_void_p),
 ]
+SturdyDebugDrawSettings._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('depth_test', ctypes.c_uint8),
+    ('occluded_alpha', ctypes.c_float),
+    ('max_lines', ctypes.c_uint32),
+]
 SturdyDepthOfFieldSettings._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('enabled', ctypes.c_uint8),
@@ -2148,6 +2438,13 @@ SturdyDepthStencilState._fields_ = [
     ('stencil_front', SturdyStencilFaceState),
     ('stencil_back', SturdyStencilFaceState),
 ]
+SturdyDeviceChangeEvent._fields_ = [
+    ('kind', ctypes.c_int32),
+    ('backend', ctypes.c_int32),
+    ('generation', ctypes.c_uint64),
+    ('adapter_name', (ctypes.c_char * 160)),
+    ('message', (ctypes.c_char * 256)),
+]
 SturdyDeviceLimits._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('max_texture_dimension_2d', ctypes.c_uint32),
@@ -2169,6 +2466,22 @@ SturdyDeviceLimits._fields_ = [
     ('supports_minimum_depth_resolve', ctypes.c_uint8),
     ('supports_bc_texture_compression', ctypes.c_uint8),
     ('reserved', (ctypes.c_uint8 * 2)),
+]
+SturdyDeviceRequest._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('backend', ctypes.c_int32),
+    ('adapter_id', ctypes.c_char_p),
+    ('preference', ctypes.c_int32),
+    ('force_recreate', ctypes.c_uint8),
+]
+SturdyDeviceSwitchResult._fields_ = [
+    ('outcome', ctypes.c_int32),
+    ('backend', ctypes.c_int32),
+    ('generation', ctypes.c_uint64),
+    ('rolled_back', ctypes.c_uint8),
+    ('reason', (ctypes.c_char * 256)),
+    ('adapter_name', (ctypes.c_char * 160)),
+    ('adapter_stable_id', (ctypes.c_char * 32)),
 ]
 SturdyWindowRect._fields_ = [
     ('x', ctypes.c_int32),
@@ -2197,6 +2510,48 @@ SturdyDisplayInfo._fields_ = [
     ('physical_height_mm', ctypes.c_uint32),
     ('orientation', ctypes.c_int32),
 ]
+SturdyDockEvents._fields_ = [
+    ('tear_off_count', ctypes.c_uint32),
+    ('close_request_count', ctypes.c_uint32),
+]
+SturdyDockPanelInfo._fields_ = [
+    ('closable', ctypes.c_uint8),
+    ('title_length', ctypes.c_uint32),
+]
+SturdyDockPlacement._fields_ = [
+    ('has_placement', ctypes.c_uint8),
+    ('target_node', ctypes.c_uint32),
+    ('zone', ctypes.c_int32),
+]
+SturdyDockTabDrag._fields_ = [
+    ('source_leaf', ctypes.c_uint32),
+    ('pointer_x', ctypes.c_float),
+    ('pointer_y', ctypes.c_float),
+    ('panel_length', ctypes.c_uint32),
+]
+SturdyDockWorkspace._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyDocument._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyDocumentChange._fields_ = [
+    ('old_range', SturdyByteRange),
+    ('new_range', SturdyByteRange),
+]
+SturdyDocumentStats._fields_ = [
+    ('logical_bytes', ctypes.c_uint64),
+    ('backing_storage_bytes', ctypes.c_uint64),
+    ('tree_nodes', ctypes.c_uint64),
+    ('pieces', ctypes.c_uint64),
+    ('maximum_tree_depth', ctypes.c_uint64),
+    ('undo_revisions', ctypes.c_uint64),
+    ('redo_revisions', ctypes.c_uint64),
+    ('scalars', ctypes.c_uint64),
+    ('utf16_code_units', ctypes.c_uint64),
+    ('newlines', ctypes.c_uint64),
+    ('ascii', ctypes.c_uint8),
+]
 SturdyDrawArgs._fields_ = [
     ('vertex_count', ctypes.c_uint32),
     ('instance_count', ctypes.c_uint32),
@@ -2214,6 +2569,13 @@ SturdyDrawMeshTasksArgs._fields_ = [
     ('group_count_x', ctypes.c_uint32),
     ('group_count_y', ctypes.c_uint32),
     ('group_count_z', ctypes.c_uint32),
+]
+SturdyDropEvent._fields_ = [
+    ('window', ctypes.c_uint64),
+    ('kind', ctypes.c_int32),
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('data_length', ctypes.c_uint32),
 ]
 SturdyEngine._fields_ = [
     ('token', ctypes.c_uint64),
@@ -2504,6 +2866,10 @@ SturdyHttpServerOptions._fields_ = [
     ('websocket_subprotocol_count', ctypes.c_uint32),
     ('max_websockets', ctypes.c_uint64),
 ]
+SturdyIndentStyle._fields_ = [
+    ('tabs', ctypes.c_uint8),
+    ('width', ctypes.c_uint64),
+]
 SturdyKeyValue._fields_ = [
     ('name', ctypes.c_char_p),
     ('value', ctypes.c_char_p),
@@ -2518,8 +2884,17 @@ SturdyLightingSettings._fields_ = [
     ('max_lights', ctypes.c_uint32),
     ('max_lights_per_cluster', ctypes.c_uint32),
 ]
+SturdyLineIndent._fields_ = [
+    ('whitespace_bytes', ctypes.c_uint64),
+    ('whitespace_scalars', ctypes.c_uint64),
+    ('has_tabs', ctypes.c_uint8),
+    ('has_spaces', ctypes.c_uint8),
+]
 SturdyLogSink._fields_ = [
     ('id', ctypes.c_uint64),
+]
+SturdyMat4._fields_ = [
+    ('m', (ctypes.c_float * 16)),
 ]
 SturdyMessageBoxOptions._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -2645,6 +3020,188 @@ SturdyPenPoint._fields_ = [
     ('tangential_pressure', ctypes.c_float),
     ('buttons', ctypes.c_uint32),
 ]
+SturdyVec3._fields_ = [
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('z', ctypes.c_float),
+]
+SturdyPhysicsBox._fields_ = [
+    ('min', SturdyVec3),
+    ('max', SturdyVec3),
+    ('object', ctypes.c_uint64),
+    ('velocity', SturdyVec3),
+]
+SturdyPhysicsCharacter._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsCharacterSettings._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('radius', ctypes.c_float),
+    ('standing_height', ctypes.c_float),
+    ('crouching_height', ctypes.c_float),
+    ('up', SturdyVec3),
+    ('gravity', ctypes.c_float),
+    ('slope_limit_degrees', ctypes.c_float),
+    ('step_height', ctypes.c_float),
+    ('snap_distance', ctypes.c_float),
+    ('skin_width', ctypes.c_float),
+    ('max_slides', ctypes.c_uint32),
+    ('jump_speed', ctypes.c_float),
+    ('terminal_speed', ctypes.c_float),
+]
+SturdyPhysicsCharacterState._fields_ = [
+    ('position', SturdyVec3),
+    ('velocity', SturdyVec3),
+    ('ground_normal', SturdyVec3),
+    ('ground_object', ctypes.c_uint64),
+    ('height', ctypes.c_float),
+    ('grounded', ctypes.c_uint8),
+    ('crouching', ctypes.c_uint8),
+]
+SturdyPhysicsCloth._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsClothCapsule._fields_ = [
+    ('a', SturdyVec3),
+    ('b', SturdyVec3),
+    ('radius', ctypes.c_float),
+]
+SturdyPhysicsClothColliders._fields_ = [
+    ('spheres', ctypes.POINTER(SturdyPhysicsClothSphere)),
+    ('sphere_count', ctypes.c_uint32),
+    ('capsules', ctypes.POINTER(SturdyPhysicsClothCapsule)),
+    ('capsule_count', ctypes.c_uint32),
+    ('planes', ctypes.POINTER(SturdyPhysicsClothPlane)),
+    ('plane_count', ctypes.c_uint32),
+]
+SturdyPhysicsClothParams._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('gravity', SturdyVec3),
+    ('stretch_compliance', ctypes.c_float),
+    ('bend_compliance', ctypes.c_float),
+    ('damping', ctypes.c_float),
+    ('substeps', ctypes.c_uint32),
+    ('collision_thickness', ctypes.c_float),
+    ('friction', ctypes.c_float),
+    ('wind', SturdyVec3),
+    ('drag', ctypes.c_float),
+]
+SturdyPhysicsClothPlane._fields_ = [
+    ('normal', SturdyVec3),
+    ('offset', ctypes.c_float),
+]
+SturdyPhysicsClothSphere._fields_ = [
+    ('center', SturdyVec3),
+    ('radius', ctypes.c_float),
+]
+SturdyPhysicsContactConfig._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('min_impulse', ctypes.c_float),
+    ('min_speed', ctypes.c_float),
+    ('pair_cooldown_seconds', ctypes.c_float),
+    ('merge_radius', ctypes.c_float),
+    ('max_events_per_frame', ctypes.c_uint32),
+    ('full_intensity_impulse', ctypes.c_float),
+]
+SturdyPhysicsContactPoint._fields_ = [
+    ('body_a', ctypes.c_uint64),
+    ('body_b', ctypes.c_uint64),
+    ('point', SturdyVec3),
+    ('normal', SturdyVec3),
+    ('normal_impulse', ctypes.c_float),
+    ('approach_speed', ctypes.c_float),
+    ('slide_speed', ctypes.c_float),
+    ('material_a', ctypes.c_uint32),
+    ('material_b', ctypes.c_uint32),
+]
+SturdyPhysicsContactEvent._fields_ = [
+    ('contact', SturdyPhysicsContactPoint),
+    ('kind', ctypes.c_int32),
+    ('intensity', ctypes.c_float),
+]
+SturdyPhysicsContactFilter._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsImpactResult._fields_ = [
+    ('outcome', ctypes.c_int32),
+    ('point', SturdyVec3),
+    ('direction', SturdyVec3),
+    ('remaining_energy', ctypes.c_float),
+    ('depth', ctypes.c_float),
+]
+SturdyPhysicsLayers._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsMoveResult._fields_ = [
+    ('displacement', SturdyVec3),
+    ('grounded', ctypes.c_uint8),
+    ('hit_ceiling', ctypes.c_uint8),
+    ('stepped_up', ctypes.c_uint8),
+    ('jumped', ctypes.c_uint8),
+    ('landed', ctypes.c_uint8),
+    ('landing_speed', ctypes.c_float),
+]
+SturdyPhysicsPlane._fields_ = [
+    ('normal', SturdyVec3),
+    ('offset', ctypes.c_float),
+    ('object', ctypes.c_uint64),
+]
+SturdyPhysicsProjectile._fields_ = [
+    ('position', SturdyVec3),
+    ('direction', SturdyVec3),
+    ('energy', ctypes.c_float),
+]
+SturdyPhysicsSurfaceHit._fields_ = [
+    ('point', SturdyVec3),
+    ('normal', SturdyVec3),
+    ('distance', ctypes.c_float),
+    ('thickness', ctypes.c_float),
+    ('material', ctypes.c_uint32),
+    ('object', ctypes.c_uint64),
+]
+SturdyPhysicsShotImpact._fields_ = [
+    ('hit', SturdyPhysicsSurfaceHit),
+    ('result', SturdyPhysicsImpactResult),
+]
+SturdyPhysicsShotOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('max_distance', ctypes.c_float),
+    ('max_impacts', ctypes.c_uint32),
+    ('minimum_energy', ctypes.c_float),
+    ('seed', ctypes.c_uint64),
+]
+SturdyPhysicsStepper._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsSurfaceMaterial._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('name', ctypes.c_char_p),
+    ('penetration_resistance', ctypes.c_float),
+    ('ricochet_angle_degrees', ctypes.c_float),
+    ('ricochet_energy_retained', ctypes.c_float),
+    ('ricochet_scatter', ctypes.c_float),
+    ('exit_deflection', ctypes.c_float),
+]
+SturdyPhysicsSurfaces._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyPhysicsSweepHit._fields_ = [
+    ('fraction', ctypes.c_float),
+    ('normal', SturdyVec3),
+    ('point', SturdyVec3),
+    ('object', ctypes.c_uint64),
+    ('object_velocity', SturdyVec3),
+]
+SturdyPhysicsSwingTwistLimits._fields_ = [
+    ('axis', SturdyVec3),
+    ('swing_y', ctypes.c_float),
+    ('swing_z', ctypes.c_float),
+    ('twist_min', ctypes.c_float),
+    ('twist_max', ctypes.c_float),
+]
+SturdyPhysicsWorld._fields_ = [
+    ('token', ctypes.c_uint64),
+]
 SturdyPipelineLayoutDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('bind_group_layout_count', ctypes.c_uint32),
@@ -2694,6 +3251,22 @@ SturdyPortMapOptions._fields_ = [
     ('gateway_port', ctypes.c_uint16),
     ('ssdp_host', ctypes.c_char_p),
     ('ssdp_port', ctypes.c_uint16),
+]
+SturdyPresentTimingFeedback._fields_ = [
+    ('available', ctypes.c_uint8),
+    ('has_refresh_duration', ctypes.c_uint8),
+    ('has_variable_refresh', ctypes.c_uint8),
+    ('variable_refresh_active', ctypes.c_uint8),
+    ('refresh_duration_seconds', ctypes.c_double),
+    ('sample_count', ctypes.c_uint32),
+    ('mean_display_interval', ctypes.c_double),
+    ('display_interval_jitter', ctypes.c_double),
+    ('max_display_interval', ctypes.c_double),
+    ('missed_refreshes', ctypes.c_uint64),
+    ('presents_reported', ctypes.c_uint64),
+    ('last_present_id', ctypes.c_uint64),
+    ('last_display_time_ns', ctypes.c_uint64),
+    ('frame_to_display_estimate', ctypes.c_double),
 ]
 SturdyPresentationResolution._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -2747,6 +3320,12 @@ SturdyPushConstantRange._fields_ = [
     ('size', ctypes.c_uint32),
     ('shader_register', ctypes.c_uint32),
     ('register_space', ctypes.c_uint32),
+]
+SturdyQuat._fields_ = [
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('z', ctypes.c_float),
+    ('w', ctypes.c_float),
 ]
 SturdyQuerySet._fields_ = [
     ('id', ctypes.c_uint64),
@@ -2805,6 +3384,39 @@ SturdyQuicServerOptions._fields_ = [
     ('max_connections', ctypes.c_uint64),
     ('max_connections_per_address', ctypes.c_uint64),
     ('no_address_validation', ctypes.c_uint8),
+]
+SturdyRagdoll._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyRagdollBody._fields_ = [
+    ('joint', ctypes.c_uint32),
+    ('parent_body', ctypes.c_uint32),
+    ('humanoid_bone', ctypes.c_uint32),
+    ('mass', ctypes.c_float),
+    ('radius', ctypes.c_float),
+    ('length', ctypes.c_float),
+    ('center_offset', SturdyVec3),
+    ('axis', SturdyVec3),
+    ('rest_position', SturdyVec3),
+    ('rest_rotation', SturdyQuat),
+]
+SturdyRagdollJoint._fields_ = [
+    ('body', ctypes.c_uint32),
+    ('parent_body', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('anchor_in_parent', SturdyVec3),
+    ('limits', SturdyPhysicsSwingTwistLimits),
+    ('hinge_axis', SturdyVec3),
+    ('hinge_min', ctypes.c_float),
+    ('hinge_max', ctypes.c_float),
+    ('drive_stiffness', ctypes.c_float),
+    ('drive_damping', ctypes.c_float),
+]
+SturdyRagdollOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('total_mass', ctypes.c_float),
+    ('limb_radius_ratio', ctypes.c_float),
+    ('torso_radius_ratio', ctypes.c_float),
 ]
 SturdyRasterizationState._fields_ = [
     ('polygon_mode', ctypes.c_int32),
@@ -2921,6 +3533,11 @@ SturdyRenderBundleDesc._fields_ = [
 SturdyRenderBundleEncoder._fields_ = [
     ('token', ctypes.c_uint64),
 ]
+SturdyRenderHealth._fields_ = [
+    ('frames_rendered', ctypes.c_uint64),
+    ('frames_failed', ctypes.c_uint64),
+    ('consecutive_failures', ctypes.c_uint64),
+]
 SturdyRenderPassDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('color_attachment_count', ctypes.c_uint32),
@@ -2954,6 +3571,36 @@ SturdyRenderPipelineDesc._fields_ = [
     ('label', ctypes.c_char_p),
     ('task', SturdyShaderEntry),
     ('mesh', SturdyShaderEntry),
+]
+SturdyRenderTarget._fields_ = [
+    ('value', ctypes.c_uint64),
+]
+SturdyRenderTargetConfig._fields_ = [
+    ('width', ctypes.c_uint32),
+    ('height', ctypes.c_uint32),
+    ('format', ctypes.c_int32),
+    ('mip_levels', ctypes.c_uint32),
+    ('filter', ctypes.c_int32),
+    ('address', ctypes.c_int32),
+    ('max_anisotropy', ctypes.c_float),
+    ('storage', ctypes.c_uint8),
+    ('msaa_samples', ctypes.c_uint32),
+    ('adjustment_count', ctypes.c_uint32),
+]
+SturdyRenderTargetDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('width', ctypes.c_uint32),
+    ('height', ctypes.c_uint32),
+    ('label', ctypes.c_char_p),
+    ('format', ctypes.c_int32),
+    ('filter', ctypes.c_int32),
+    ('address', ctypes.c_int32),
+    ('max_anisotropy', ctypes.c_float),
+    ('mip_levels', ctypes.c_uint32),
+    ('storage', ctypes.c_int32),
+    ('msaa_samples', ctypes.c_uint32),
+    ('use', ctypes.c_int32),
+    ('strict', ctypes.c_uint8),
 ]
 SturdyRenderTextureDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -3006,6 +3653,10 @@ SturdyRuntimeConfig._fields_ = [
     ('enable_native_access', ctypes.c_uint8),
     ('reserved_features', (ctypes.c_uint8 * 5)),
     ('physical_device_id', ctypes.c_char_p),
+]
+SturdyRuntimeSettingsResult._fields_ = [
+    ('mode', ctypes.c_int32),
+    ('message', (ctypes.c_char * 256)),
 ]
 SturdySamplerDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -3230,6 +3881,11 @@ SturdyTaskInput._fields_ = [
 SturdyTaskOutput._fields_ = [
     ('internal', ctypes.c_void_p),
 ]
+SturdyTextEdit._fields_ = [
+    ('range', SturdyByteRange),
+    ('replacement', ctypes.c_char_p),
+    ('replacement_size', ctypes.c_uint64),
+]
 SturdyTextInputArea._fields_ = [
     ('x', ctypes.c_float),
     ('y', ctypes.c_float),
@@ -3243,6 +3899,10 @@ SturdyTextInputOptions._fields_ = [
     ('capitalization', ctypes.c_int32),
     ('autocorrect', ctypes.c_uint8),
     ('multiline', ctypes.c_uint8),
+]
+SturdyTextPoint._fields_ = [
+    ('line', ctypes.c_uint64),
+    ('column', ctypes.c_uint64),
 ]
 SturdyTexture._fields_ = [
     ('id', ctypes.c_uint64),
@@ -3471,6 +4131,56 @@ SturdyUiTextStyle._fields_ = [
     ('font_size', ctypes.c_uint32),
     ('reserved', ctypes.c_uint32),
     ('color', (ctypes.c_float * 4)),
+]
+SturdyUiTreeTarget._fields_ = [
+    ('kind', ctypes.c_int32),
+    ('window', ctypes.c_uint64),
+    ('target', SturdyRenderTarget),
+    ('headless_width', ctypes.c_uint32),
+    ('headless_height', ctypes.c_uint32),
+]
+SturdyUiTreeDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('name', ctypes.c_char_p),
+    ('target', SturdyUiTreeTarget),
+    ('rebuild', ctypes.c_int32),
+    ('rebuild_hz', ctypes.c_float),
+    ('layer', ctypes.c_int32),
+    ('scale_mode', ctypes.c_int32),
+    ('content_scale', ctypes.c_float),
+    ('hdr_reference_white_scale', ctypes.c_float),
+    ('window_input', ctypes.c_uint8),
+    ('clear_color', (ctypes.c_float * 4)),
+    ('build_budget_ms', ctypes.c_float),
+    ('builder', SturdyUiTreeBuilder),
+    ('user', ctypes.c_void_p),
+    ('release_user', SturdyUiTreeDesc_release_user_fn),
+]
+SturdyUiTreeFrame._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('entity', SturdyEntity),
+    ('width', ctypes.c_float),
+    ('height', ctypes.c_float),
+    ('delta_seconds', ctypes.c_float),
+    ('build_index', ctypes.c_uint64),
+    ('request_rebuild', ctypes.c_uint8),
+]
+SturdyUiTreeStats._fields_ = [
+    ('builds', ctypes.c_uint64),
+    ('skipped', ctypes.c_uint64),
+    ('over_budget', ctypes.c_uint64),
+    ('failed_builds', ctypes.c_uint64),
+    ('target_renders', ctypes.c_uint64),
+    ('last_build_ms', ctypes.c_double),
+    ('max_build_ms', ctypes.c_double),
+    ('last_width', ctypes.c_float),
+    ('last_height', ctypes.c_float),
+]
+SturdyVec4._fields_ = [
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('z', ctypes.c_float),
+    ('w', ctypes.c_float),
 ]
 SturdyVertex._fields_ = [
     ('position', (ctypes.c_float * 3)),
@@ -3785,6 +4495,27 @@ _FUNCTIONS = {
     'sturdy_cookie_jar_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
     'sturdy_cookie_jar_header_for': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_cookie_jar_store_from_response': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyKeyValue), ctypes.c_uint32)),
+    'sturdy_debug_draw_arrow': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, SturdyVec4, ctypes.c_float, ctypes.c_float)),
+    'sturdy_debug_draw_axes': (ctypes.c_int32, (SturdyEngine, SturdyMat4, ctypes.c_float, ctypes.c_float)),
+    'sturdy_debug_draw_box': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_capsule': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, ctypes.c_float, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_circle': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, ctypes.c_float, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_clear': (ctypes.c_int32, (SturdyEngine,)),
+    'sturdy_debug_draw_cone': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, ctypes.c_float, ctypes.c_float, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_cross': (ctypes.c_int32, (SturdyEngine, SturdyVec3, ctypes.c_float, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_enabled': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_debug_draw_frustum': (ctypes.c_int32, (SturdyEngine, SturdyMat4, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_grid': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, SturdyVec3, ctypes.c_uint32, ctypes.c_float, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_line': (ctypes.c_int32, (SturdyEngine, SturdyVec3, SturdyVec3, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_line_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_debug_draw_oriented_box': (ctypes.c_int32, (SturdyEngine, SturdyMat4, SturdyVec3, SturdyVec4, ctypes.c_float)),
+    'sturdy_debug_draw_polyline': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyVec3), ctypes.c_uint32, SturdyVec4, ctypes.c_uint8, ctypes.c_float)),
+    'sturdy_debug_draw_set_enabled': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint8)),
+    'sturdy_debug_draw_set_settings': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyDebugDrawSettings))),
+    'sturdy_debug_draw_set_width': (ctypes.c_int32, (SturdyEngine, ctypes.c_float)),
+    'sturdy_debug_draw_settings': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyDebugDrawSettings))),
+    'sturdy_debug_draw_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyDebugDrawSettings),)),
+    'sturdy_debug_draw_sphere': (ctypes.c_int32, (SturdyEngine, SturdyVec3, ctypes.c_float, SturdyVec4, ctypes.c_float)),
     'sturdy_dedicated_thread_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_dedicated_thread_pin_to_core': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_dedicated_thread_pin_to_fastest_core': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
@@ -3795,6 +4526,7 @@ _FUNCTIONS = {
     'sturdy_desktop_set_screensaver_enabled': (ctypes.c_int32, (ctypes.c_uint8,)),
     'sturdy_desktop_show_file_dialog': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyFileDialogOptions), ctypes.c_void_p, ctypes.c_void_p)),
     'sturdy_desktop_show_message_box': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyMessageBoxOptions), ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_device_request_init': (ctypes.c_int32, (ctypes.POINTER(SturdyDeviceRequest),)),
     'sturdy_dir_iter_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_dir_iter_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_display_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
@@ -3802,6 +4534,58 @@ _FUNCTIONS = {
     'sturdy_display_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(SturdyDisplayMode))),
     'sturdy_display_name': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_dns_resolve': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_dock_active_tab_drag': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(SturdyDockTabDrag))),
+    'sturdy_dock_active_tab_drag_panel': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_dock_add_panel': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyDockPlacement))),
+    'sturdy_dock_begin_frame': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float)),
+    'sturdy_dock_begin_panel_content': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p)),
+    'sturdy_dock_clear_foreign_drag_preview': (ctypes.c_int32, (SturdyDockWorkspace,)),
+    'sturdy_dock_close_request': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_dock_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyDockWorkspace))),
+    'sturdy_dock_destroy': (ctypes.c_int32, (SturdyDockWorkspace,)),
+    'sturdy_dock_end_frame': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(SturdyDockEvents))),
+    'sturdy_dock_focused_leaf': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_dock_has_panel': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_dock_is_empty': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_dock_panel_info': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p, ctypes.POINTER(SturdyDockPanelInfo))),
+    'sturdy_dock_panel_title': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_dock_preview_foreign_drag': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_dock_preview_foreign_drag_target': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_float, ctypes.c_float, ctypes.POINTER(SturdyDockPlacement))),
+    'sturdy_dock_remove_panel': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p)),
+    'sturdy_dock_restore_layout': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_char_p)),
+    'sturdy_dock_save_layout': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_dock_set_content_background': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.POINTER(ctypes.c_float))),
+    'sturdy_dock_tear_off': (ctypes.c_int32, (SturdyDockWorkspace, ctypes.c_uint32, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_dock_transfer_panel': (ctypes.c_int32, (SturdyDockWorkspace, SturdyDockWorkspace, ctypes.c_char_p, ctypes.POINTER(SturdyDockPlacement))),
+    'sturdy_document_apply': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(SturdyTextEdit), ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(SturdyApplyResult))),
+    'sturdy_document_change': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint32, ctypes.POINTER(SturdyDocumentChange))),
+    'sturdy_document_change_text': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_char_class_at': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_document_clip_offset': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(SturdyDocument))),
+    'sturdy_document_destroy': (ctypes.c_int32, (SturdyDocument,)),
+    'sturdy_document_detect_indent': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(SturdyIndentStyle))),
+    'sturdy_document_detect_line_ending': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_document_find': (ctypes.c_int32, (SturdyDocument, ctypes.c_char_p, ctypes.c_uint64, ctypes.c_uint8, ctypes.c_uint8, ctypes.POINTER(SturdyByteRange))),
+    'sturdy_document_find_all': (ctypes.c_int32, (SturdyDocument, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyByteRange), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_document_is_line_blank': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_document_line_count': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_line_indent': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(SturdyLineIndent))),
+    'sturdy_document_line_range': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(SturdyByteRange))),
+    'sturdy_document_matching_bracket': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_next_word_boundary': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_offset_to_point': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(SturdyTextPoint))),
+    'sturdy_document_offset_to_utf16': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(SturdyTextPoint))),
+    'sturdy_document_point_to_offset': (ctypes.c_int32, (SturdyDocument, SturdyTextPoint, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_previous_word_boundary': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_redo': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(SturdyApplyResult))),
+    'sturdy_document_revision': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_slice': (ctypes.c_int32, (SturdyDocument, SturdyByteRange, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_stats': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(SturdyDocumentStats))),
+    'sturdy_document_text': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_undo': (ctypes.c_int32, (SturdyDocument, ctypes.POINTER(SturdyApplyResult))),
+    'sturdy_document_utf16_to_offset': (ctypes.c_int32, (SturdyDocument, SturdyTextPoint, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_document_word_range_at': (ctypes.c_int32, (SturdyDocument, ctypes.c_uint64, ctypes.POINTER(SturdyByteRange))),
     'sturdy_ecs_add_chunk_system_ex': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdySystemAccess), ctypes.c_uint32, ctypes.POINTER(SturdySystemResourceAccess), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdySystem))),
     'sturdy_ecs_add_component': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)),
     'sturdy_ecs_add_system': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdySystemAccess), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)),
@@ -3846,12 +4630,33 @@ _FUNCTIONS = {
     'sturdy_ecs_set_resource': (ctypes.c_int32, (SturdyEngine, SturdyResourceId, ctypes.c_void_p, ctypes.c_uint32)),
     'sturdy_ecs_set_system_enabled': (ctypes.c_int32, (SturdyEngine, SturdySystem, ctypes.c_uint8)),
     'sturdy_ecs_spawn': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyComponentInit), ctypes.c_uint32, ctypes.POINTER(SturdyEntity))),
+    'sturdy_engine_adapter_backend': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(SturdyBackendOffer))),
+    'sturdy_engine_adapter_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_engine_adapter_description': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyAdapterDescription))),
+    'sturdy_engine_add_device_observer': (ctypes.c_int32, (SturdyEngine, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_engine_add_update_hook': (ctypes.c_int32, (SturdyEngine, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_engine_apply_runtime_settings': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyRuntimeConfig), ctypes.POINTER(SturdyRuntimeSettingsResult))),
+    'sturdy_engine_available_backends': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_int32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_engine_defer': (ctypes.c_int32, (SturdyEngine, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_engine_device_generation': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_engine_frame_mode': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_int32))),
     'sturdy_engine_key_down': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_engine_key_just_pressed': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_engine_key_just_released': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_engine_mouse_delta': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
     'sturdy_engine_mouse_down': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_engine_mouse_position': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
+    'sturdy_engine_next_device_change': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyDeviceChangeEvent))),
+    'sturdy_engine_next_drop_event': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyDropEvent), ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_engine_present_timing_feedback': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyPresentTimingFeedback))),
+    'sturdy_engine_remove_device_observer': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint64)),
+    'sturdy_engine_remove_update_hook': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint64)),
+    'sturdy_engine_render_health': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyRenderHealth))),
+    'sturdy_engine_render_health_last_error': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_engine_request_redraw': (ctypes.c_int32, (SturdyEngine,)),
+    'sturdy_engine_request_redraw_after': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint64)),
+    'sturdy_engine_set_frame_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32)),
+    'sturdy_engine_switch_device': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyDeviceRequest), ctypes.POINTER(SturdyDeviceSwitchResult))),
     'sturdy_engine_wheel_delta': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
     'sturdy_exec_just': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_exec_submit': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
@@ -3969,6 +4774,11 @@ _FUNCTIONS = {
     'sturdy_input_gamepad_event_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_input_gamepad_event_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyGamepadEvent))),
     'sturdy_input_gamepad_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyGamepadFrame))),
+    'sturdy_input_inject_key': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_uint8, ctypes.c_uint32, ctypes.c_uint8)),
+    'sturdy_input_inject_mouse_button': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_uint8, ctypes.c_float, ctypes.c_float, ctypes.c_uint8)),
+    'sturdy_input_inject_mouse_move': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_uint32)),
+    'sturdy_input_inject_mouse_wheel': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float)),
+    'sturdy_input_inject_text': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_char_p)),
     'sturdy_input_pen_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_input_pen_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyPenPoint))),
     'sturdy_input_set_gamepads_enabled': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint8)),
@@ -4093,6 +4903,80 @@ _FUNCTIONS = {
     'sturdy_permit_count': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_permit_forget': (ctypes.c_int32, (SturdyAsyncObject,)),
     'sturdy_permit_release': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_physics_character_add_impulse': (ctypes.c_int32, (SturdyPhysicsCharacter, SturdyVec3)),
+    'sturdy_physics_character_create': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsCharacterSettings), SturdyVec3, ctypes.POINTER(SturdyPhysicsCharacter))),
+    'sturdy_physics_character_destroy': (ctypes.c_int32, (SturdyPhysicsCharacter,)),
+    'sturdy_physics_character_move': (ctypes.c_int32, (SturdyPhysicsCharacter, SturdyPhysicsWorld, SturdyVec3, ctypes.c_float, ctypes.c_uint8, ctypes.POINTER(SturdyPhysicsMoveResult))),
+    'sturdy_physics_character_set_crouching': (ctypes.c_int32, (SturdyPhysicsCharacter, SturdyPhysicsWorld, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_character_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsCharacterSettings),)),
+    'sturdy_physics_character_state': (ctypes.c_int32, (SturdyPhysicsCharacter, ctypes.POINTER(SturdyPhysicsCharacterState))),
+    'sturdy_physics_character_teleport': (ctypes.c_int32, (SturdyPhysicsCharacter, SturdyVec3)),
+    'sturdy_physics_clamp_to_limits': (ctypes.c_int32, (SturdyQuat, ctypes.POINTER(SturdyPhysicsSwingTwistLimits), ctypes.POINTER(SturdyQuat))),
+    'sturdy_physics_cloth_constraint_counts': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_cloth_create_from_triangles': (ctypes.c_int32, (ctypes.POINTER(SturdyVec3), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.c_float, ctypes.POINTER(SturdyPhysicsCloth))),
+    'sturdy_physics_cloth_create_grid': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_uint32, ctypes.c_float, SturdyVec3, SturdyVec3, SturdyVec3, ctypes.c_float, ctypes.POINTER(SturdyPhysicsCloth))),
+    'sturdy_physics_cloth_destroy': (ctypes.c_int32, (SturdyPhysicsCloth,)),
+    'sturdy_physics_cloth_indices': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_cloth_is_pinned': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_cloth_move_pinned': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.c_uint32, SturdyVec3)),
+    'sturdy_physics_cloth_normals': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.POINTER(SturdyVec3), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_cloth_params_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsClothParams),)),
+    'sturdy_physics_cloth_particle_count': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_cloth_pin': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.c_uint32, ctypes.c_uint8)),
+    'sturdy_physics_cloth_positions': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.POINTER(SturdyVec3), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_cloth_step': (ctypes.c_int32, (SturdyPhysicsCloth, ctypes.c_float, ctypes.POINTER(SturdyPhysicsClothParams), ctypes.POINTER(SturdyPhysicsClothColliders))),
+    'sturdy_physics_contact_config_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsContactConfig),)),
+    'sturdy_physics_contact_filter_begin_frame': (ctypes.c_int32, (SturdyPhysicsContactFilter, ctypes.c_double)),
+    'sturdy_physics_contact_filter_create': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsContactConfig), ctypes.POINTER(SturdyPhysicsContactFilter))),
+    'sturdy_physics_contact_filter_destroy': (ctypes.c_int32, (SturdyPhysicsContactFilter,)),
+    'sturdy_physics_contact_filter_event': (ctypes.c_int32, (SturdyPhysicsContactFilter, ctypes.c_uint32, ctypes.POINTER(SturdyPhysicsContactEvent))),
+    'sturdy_physics_contact_filter_event_count': (ctypes.c_int32, (SturdyPhysicsContactFilter, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_contact_filter_set_config': (ctypes.c_int32, (SturdyPhysicsContactFilter, ctypes.POINTER(SturdyPhysicsContactConfig))),
+    'sturdy_physics_contact_filter_submit': (ctypes.c_int32, (SturdyPhysicsContactFilter, ctypes.POINTER(SturdyPhysicsContactPoint), ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_decompose_swing_twist': (ctypes.c_int32, (SturdyQuat, SturdyVec3, ctypes.POINTER(SturdyQuat), ctypes.POINTER(SturdyQuat))),
+    'sturdy_physics_interpolate_pose': (ctypes.c_int32, (SturdyVec3, SturdyQuat, SturdyVec3, SturdyQuat, ctypes.c_float, ctypes.POINTER(SturdyVec3), ctypes.POINTER(SturdyQuat))),
+    'sturdy_physics_layers_add': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_layers_all': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_layers_collides': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_layers_collision_mask': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_layers_count': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_layers_create': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsLayers),)),
+    'sturdy_physics_layers_destroy': (ctypes.c_int32, (SturdyPhysicsLayers,)),
+    'sturdy_physics_layers_find': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_layers_mask_of': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.POINTER(ctypes.c_char_p), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_layers_name': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_layers_set_collides': (ctypes.c_int32, (SturdyPhysicsLayers, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint8)),
+    'sturdy_physics_pd_drive': (ctypes.c_int32, (SturdyQuat, SturdyQuat, SturdyVec3, ctypes.c_float, ctypes.c_float, ctypes.POINTER(SturdyVec3))),
+    'sturdy_physics_resolve_impact': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsProjectile), ctypes.POINTER(SturdyPhysicsSurfaceMaterial), SturdyVec3, SturdyVec3, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.POINTER(SturdyPhysicsImpactResult))),
+    'sturdy_physics_shot_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsShotOptions),)),
+    'sturdy_physics_stepper_advance': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.c_double, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_stepper_alpha': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_physics_stepper_create': (ctypes.c_int32, (ctypes.c_double, ctypes.c_uint32, ctypes.POINTER(SturdyPhysicsStepper))),
+    'sturdy_physics_stepper_destroy': (ctypes.c_int32, (SturdyPhysicsStepper,)),
+    'sturdy_physics_stepper_dropped_seconds': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_physics_stepper_reset': (ctypes.c_int32, (SturdyPhysicsStepper,)),
+    'sturdy_physics_stepper_set_step': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.c_double)),
+    'sturdy_physics_stepper_simulated_time': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_physics_stepper_step': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_physics_stepper_total_steps': (ctypes.c_int32, (SturdyPhysicsStepper, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_surface_material_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsSurfaceMaterial),)),
+    'sturdy_physics_surfaces_add': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.POINTER(SturdyPhysicsSurfaceMaterial), ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_surfaces_count': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_surfaces_create': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsSurfaces),)),
+    'sturdy_physics_surfaces_destroy': (ctypes.c_int32, (SturdyPhysicsSurfaces,)),
+    'sturdy_physics_surfaces_find': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_surfaces_get': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.c_uint32, ctypes.POINTER(SturdyPhysicsSurfaceMaterial))),
+    'sturdy_physics_surfaces_name': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_physics_trace_shot': (ctypes.c_int32, (SturdyPhysicsSurfaces, ctypes.POINTER(SturdyPhysicsProjectile), ctypes.POINTER(SturdyPhysicsShotOptions), ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyPhysicsShotImpact), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_twist_angle': (ctypes.c_int32, (SturdyQuat, SturdyVec3, ctypes.POINTER(ctypes.c_float))),
+    'sturdy_physics_within_limits': (ctypes.c_int32, (SturdyQuat, ctypes.POINTER(SturdyPhysicsSwingTwistLimits), ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_world_add_box': (ctypes.c_int32, (SturdyPhysicsWorld, ctypes.POINTER(SturdyPhysicsBox), ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_physics_world_add_plane': (ctypes.c_int32, (SturdyPhysicsWorld, ctypes.POINTER(SturdyPhysicsPlane))),
+    'sturdy_physics_world_create': (ctypes.c_int32, (ctypes.POINTER(SturdyPhysicsWorld),)),
+    'sturdy_physics_world_destroy': (ctypes.c_int32, (SturdyPhysicsWorld,)),
+    'sturdy_physics_world_move_box': (ctypes.c_int32, (SturdyPhysicsWorld, ctypes.c_uint32, SturdyVec3)),
+    'sturdy_physics_world_overlaps_capsule': (ctypes.c_int32, (SturdyPhysicsWorld, SturdyVec3, ctypes.c_float, ctypes.c_float, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_physics_world_sweep_capsule': (ctypes.c_int32, (SturdyPhysicsWorld, SturdyVec3, ctypes.c_float, ctypes.c_float, SturdyVec3, ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(SturdyPhysicsSweepHit))),
     'sturdy_plugin_language': (ctypes.c_int32, (SturdyPlugin, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_plugin_load': (ctypes.c_int32, (ctypes.POINTER(SturdyPluginLoadDesc), ctypes.POINTER(SturdyPlugin))),
     'sturdy_plugin_module_count': (ctypes.c_int32, (SturdyPlugin, ctypes.POINTER(ctypes.c_uint32))),
@@ -4146,6 +5030,17 @@ _FUNCTIONS = {
     'sturdy_quic_stream_reset': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64)),
     'sturdy_quic_stream_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_quic_stream_stop_sending': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64)),
+    'sturdy_ragdoll_apply_body_rotations': (ctypes.c_int32, (SturdyEngine, SturdyRagdoll, SturdyEntity, ctypes.POINTER(SturdyQuat), ctypes.c_uint32, ctypes.POINTER(SturdyQuat), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_ragdoll_body': (ctypes.c_int32, (SturdyRagdoll, ctypes.c_uint32, ctypes.POINTER(SturdyRagdollBody))),
+    'sturdy_ragdoll_body_count': (ctypes.c_int32, (SturdyRagdoll, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_ragdoll_body_for_joint': (ctypes.c_int32, (SturdyRagdoll, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_ragdoll_build': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyRagdollOptions), ctypes.POINTER(SturdyRagdoll))),
+    'sturdy_ragdoll_destroy': (ctypes.c_int32, (SturdyRagdoll,)),
+    'sturdy_ragdoll_joint': (ctypes.c_int32, (SturdyRagdoll, ctypes.c_uint32, ctypes.POINTER(SturdyRagdollJoint))),
+    'sturdy_ragdoll_joint_count': (ctypes.c_int32, (SturdyRagdoll, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_ragdoll_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyRagdollOptions),)),
+    'sturdy_ragdoll_target_body_rotations': (ctypes.c_int32, (SturdyEngine, SturdyRagdoll, SturdyEntity, ctypes.POINTER(SturdyQuat), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_ragdoll_total_mass': (ctypes.c_int32, (SturdyRagdoll, ctypes.POINTER(ctypes.c_float))),
     'sturdy_rate_limiter_create': (ctypes.c_int32, (ctypes.c_double, ctypes.c_double, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_rate_limiter_retry_after_ms': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_double, ctypes.POINTER(ctypes.c_int64))),
     'sturdy_rate_limiter_tracked_keys': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
@@ -4211,6 +5106,17 @@ _FUNCTIONS = {
     'sturdy_render_set_transform': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(ctypes.c_float))),
     'sturdy_render_shape_params_init': (ctypes.c_int32, (ctypes.POINTER(SturdyShapeParams),)),
     'sturdy_render_spawn': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyEntity))),
+    'sturdy_render_target_adjustment': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_render_target_config': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.POINTER(SturdyRenderTargetConfig))),
+    'sturdy_render_target_create': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyRenderTargetDesc), ctypes.POINTER(SturdyRenderTarget))),
+    'sturdy_render_target_desc_init': (ctypes.c_int32, (ctypes.POINTER(SturdyRenderTargetDesc),)),
+    'sturdy_render_target_description': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.POINTER(SturdyRenderTargetDesc))),
+    'sturdy_render_target_destroy': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget)),
+    'sturdy_render_target_label': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_render_target_reconfigure': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.POINTER(SturdyRenderTargetDesc))),
+    'sturdy_render_target_render_view': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_render_target_resize': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.c_uint32, ctypes.c_uint32)),
+    'sturdy_render_target_texture': (ctypes.c_int32, (SturdyEngine, SturdyRenderTarget, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_render_texture_desc_init': (ctypes.c_int32, (ctypes.POINTER(SturdyRenderTextureDesc),)),
     'sturdy_render_unload_asset': (ctypes.c_int32, (SturdyEngine, SturdyAsset)),
     'sturdy_restir_gi_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyRestirGiSettings),)),
@@ -4552,6 +5458,23 @@ _FUNCTIONS = {
     'sturdy_ui_set_scale_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32)),
     'sturdy_ui_text': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(SturdyUiTextStyle))),
     'sturdy_ui_text_style_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiTextStyle),)),
+    'sturdy_ui_tree_add_text': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_char_p)),
+    'sturdy_ui_tree_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ui_tree_desc_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiTreeDesc),)),
+    'sturdy_ui_tree_last_error': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ui_tree_layer': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_ui_tree_point_at': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_uint8, ctypes.c_float, ctypes.c_float, ctypes.c_uint8)),
+    'sturdy_ui_tree_pointer_consumed': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_ui_tree_render_targets': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ui_tree_request_rebuild': (ctypes.c_int32, (SturdyEngine, SturdyEntity)),
+    'sturdy_ui_tree_scroll': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_float, ctypes.c_float)),
+    'sturdy_ui_tree_set_builder': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_ui_tree_set_layer': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_int32)),
+    'sturdy_ui_tree_set_rebuild_policy': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_int32, ctypes.c_float)),
+    'sturdy_ui_tree_set_target': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiTreeTarget))),
+    'sturdy_ui_tree_spawn': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiTreeDesc), ctypes.POINTER(SturdyEntity))),
+    'sturdy_ui_tree_stats': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiTreeStats))),
+    'sturdy_ui_tree_target': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiTreeTarget))),
     'sturdy_voice_fade_volume': (ctypes.c_int32, (SturdyVoice, ctypes.c_float, ctypes.c_float)),
     'sturdy_voice_pause': (ctypes.c_int32, (SturdyVoice,)),
     'sturdy_voice_release': (ctypes.c_int32, (SturdyVoice,)),
@@ -4752,6 +5675,11 @@ _DOCS = {
     'sturdy_cookie_jar_all': "Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).",
     'sturdy_cookie_jar_create': 'A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".',
     'sturdy_cookie_jar_header_for': '"a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).',
+    'sturdy_debug_draw_arrow': "`head_size` 0 picks a size from the arrow's length.",
+    'sturdy_debug_draw_axes': 'Red / green / blue axes of `transform`.',
+    'sturdy_debug_draw_line_count': 'How many segments are alive now.',
+    'sturdy_debug_draw_set_enabled': 'Master switch; with it off, calls are ignored and nothing is drawn.',
+    'sturdy_debug_draw_set_width': 'Line width, in pixels, of the shapes drawn after this call.',
     'sturdy_dedicated_thread_create': 'A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".',
     'sturdy_depth_of_field_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled).',
     'sturdy_desktop_pump_events': 'Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.',
@@ -4764,6 +5692,30 @@ _DOCS = {
     'sturdy_display_mode': 'Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.',
     'sturdy_display_name': "The monitor's name. See the string-output convention above.",
     'sturdy_dns_resolve': 'Resolves a host name. Fields: one `address` per result (numeric text).',
+    'sturdy_dock_active_tab_drag': '`STURDY_ERROR_NOT_AVAILABLE` when no tab is being dragged.',
+    'sturdy_dock_add_panel': 'Adds a panel (a tab). `STURDY_ERROR_COMPONENT_PRESENT` when `id` is already there, `STURDY_ERROR_INVALID_ARGUMENT` for an invalid placement.',
+    'sturdy_dock_begin_frame': "Lays out and draws the chrome into the rectangle (`x`, `y`, `width`, `height`, in the open UI layout's coordinate space) and processes this frame's tab and divider drags. Needs an open UI frame (`STURDY_ERROR_BUSY` otherwise) and must come before any `sturdy_dock_begin_panel_content`.",
+    'sturdy_dock_begin_panel_content': "Opens an element covering panel `id`'s content region (only if it is the active tab of its leaf this frame); add content as children and close it with `sturdy_ui_end_element`. `STURDY_ERROR_NOT_AVAILABLE` (opening nothing) for a hidden or unknown panel.",
+    'sturdy_dock_create': "`id_prefix` namespaces the element ids the workspace's chrome generates (tabs, dividers, close buttons): distinct per workspace. May be null.",
+    'sturdy_dock_end_frame': 'Finishes the frame (drop guides, deferred drops) and keeps its events for `sturdy_dock_tear_off` / `sturdy_dock_close_request` until the next frame ends.',
+    'sturdy_dock_focused_leaf': "The focused leaf's node id; `STURDY_ERROR_NOT_AVAILABLE` if none.",
+    'sturdy_dock_preview_foreign_drag': 'Previews (and on `released`, drops) `foreign_panel` at the pointer. `out_applied` says whether the drop was applied.',
+    'sturdy_dock_preview_foreign_drag_target': 'Drag preview of a panel dragged out of ANOTHER workspace over this one, inside an open UI frame. `local_pointer` is workspace-local. Reports the placement the pointer currently targets (drawing the drop guide); `STURDY_ERROR_NOT_AVAILABLE` when it targets none.',
+    'sturdy_dock_save_layout': 'Saves the layout as text (string-output convention) and restores one. `restore` fails with `STURDY_ERROR_INVALID_ARGUMENT` for malformed text or a layout that refers to panels the workspace does not have.',
+    'sturdy_dock_set_content_background': 'Straight-alpha sRGB.',
+    'sturdy_dock_tear_off': 'Panel id of tear-off `index` and the workspace-local drop position.',
+    'sturdy_dock_transfer_panel': "Moves panel `id` from `origin` into `target` (as the window coordinator does between two windows' workspaces): accepted by `target` at `placement`, then removed from `origin`. Nothing changes when `origin` lacks the panel or `target` rejects it.",
+    'sturdy_document_apply': 'Applies `edit_count` replacements as one transaction (ranges in the current text, non-overlapping). On failure (invalid range or boundary, overlap, invalid UTF-8) nothing changes and the error text names the reason.',
+    'sturdy_document_clip_offset': 'Snaps `offset` to a character boundary (after = round up, otherwise down) and into the text.',
+    'sturdy_document_create': '`initial` may be null for an empty document. `STURDY_ERROR_INVALID_ARGUMENT` when it is not valid UTF-8.',
+    'sturdy_document_find': 'Searches from `from` forward or backward; `STURDY_ERROR_NOT_AVAILABLE` when there is no match.',
+    'sturdy_document_find_all': 'Every non-overlapping match. Writes up to `capacity` ranges and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more.',
+    'sturdy_document_line_range': 'Byte range of `line` (without its terminator); `STURDY_ERROR_OUT_OF_RANGE` past the last line.',
+    'sturdy_document_matching_bracket': 'The bracket matching the one at `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.',
+    'sturdy_document_point_to_offset': '`STURDY_ERROR_OUT_OF_RANGE` for a position past the end of the line or document.',
+    'sturdy_document_text': 'The whole text / a byte range of it (string-output convention; the text may contain NUL bytes, `out_length` counts them).',
+    'sturdy_document_undo': '`STURDY_ERROR_NOT_AVAILABLE` when there is nothing to undo / redo.',
+    'sturdy_document_word_range_at': 'The word around `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.',
     'sturdy_ecs_add_chunk_system_ex': 'Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.',
     'sturdy_ecs_add_component': 'Attaches a component to an existing entity.',
     'sturdy_ecs_add_system': 'Registers a system that runs every frame, once per entity carrying all the listed components.\n\nThe access list is what makes automatic parallelism safe. A C++ system declares its access through its parameter types and the engine derives the rest; a function pointer carries no such information, so you declare it here. The scheduler then orders systems so that nothing writing a component runs alongside anything else touching it, and lets non-conflicting systems run together.\n\n**Declaring less access than you take is the one way to get data races.** If a system might write a component, declare `STURDY_ACCESS_WRITE` even when it usually only reads — an over-declared system costs parallelism, an under-declared one costs correctness.\n\nSystems stay registered for the life of the engine; there is no removal yet.',
@@ -4808,12 +5760,25 @@ _DOCS = {
     'sturdy_ecs_set_resource': "Overwrites a resource's value.",
     'sturdy_ecs_set_system_enabled': 'Skips (or resumes) a system without unregistering it.',
     'sturdy_ecs_spawn': 'Creates an entity carrying the supplied components.',
+    'sturdy_engine_adapter_backend': 'Backend `offer_index` of adapter `adapter_index` (` < backend_count`).',
+    'sturdy_engine_add_update_hook': 'Registers a hook; hooks run in registration order. Callable from any thread and from inside a hook (the new hook first runs next update). `release_user` (may be null) runs with `user` once the hook is removed and can never run again.',
+    'sturdy_engine_apply_runtime_settings': 'Applies the engine-level fields of `config` to the running engine, taking the cheapest route that works (hot-apply, recreate the surface, the device or the backend). Uses `graphics_backend`, `physical_device_id`, `enable_raytracing`, `enable_shader_disk_cache`, `enable_native_access`, `shaders_directory` and `app_name`; window fields are ignored. `surface` names the primary surface.',
+    'sturdy_engine_available_backends': 'The graphics APIs at least one discovered adapter can be driven through (reads the startup inventory; creates no device). Writes up to `capacity` entries and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more. `out_backends` may be null to count only.',
+    'sturdy_engine_defer': 'Queues `action` to run at the start of the next update, on the updating thread and before the update schedule runs, so it can do what is forbidden while systems run (remove a system, replace a module, spawn or destroy entities from a UI builder). Callable from any thread, including from inside a system or a frame callback. Actions run in the order queued; one queued by another action runs in the following update. `release_user` (may be null) runs with `user` after the action ran.',
+    'sturdy_engine_device_generation': 'Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery). GPU objects created through the raw RHI stop being valid when it changes.',
     'sturdy_engine_key_down': 'Reports whether a key is currently held.',
     'sturdy_engine_key_just_pressed': 'Reports whether a key transitioned to held during this tick.',
     'sturdy_engine_key_just_released': 'Reports whether a key transitioned to released during this tick.',
     'sturdy_engine_mouse_delta': 'Reads cursor movement accumulated during this tick.\n\nThis is the value to integrate for camera look, not the difference between successive `sturdy_engine_mouse_position` reads: it accumulates every motion event the platform delivered this tick, so it stays correct at high polling rates where several events land per frame.',
     'sturdy_engine_mouse_down': 'Reports whether a mouse button is currently held.',
     'sturdy_engine_mouse_position': 'Reads the cursor position in window coordinates.',
+    'sturdy_engine_next_device_change': 'Pops the oldest device change (switch, rollback, automatic device-loss recovery) in order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting.',
+    'sturdy_engine_next_drop_event': 'Pops the oldest drag-and-drop step in arrival order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting. The data (file path or text) of the event is written into `data_buffer` (string-output convention; may be null with capacity 0 to skip it). When the buffer is too small the call fails with `STURDY_ERROR_BUFFER_TOO_SMALL`, `out_event->data_length` and `out_length` say how much is needed, and the event stays queued.',
+    'sturdy_engine_remove_update_hook': 'Removes a hook; safe from inside the hook itself. `STURDY_ERROR_NOT_AVAILABLE` for an unknown id.',
+    'sturdy_engine_render_health_last_error': 'Message of the most recent frame failure (string-output convention); empty until one happens.',
+    'sturdy_engine_request_redraw': 'Renders a frame as soon as possible (`STURDY_FRAME_MODE_ON_DEMAND`; a no-op in continuous mode).',
+    'sturdy_engine_request_redraw_after': 'Renders a frame no later than `delay_nanoseconds` from now (the earliest of all pending requests wins).',
+    'sturdy_engine_switch_device': 'Replaces the graphics device (API and/or adapter) while the app keeps running. Engine-managed handles (meshes, textures, materials, render targets, window surfaces) are re-created in place; GPU objects created through the raw RHI are not (watch `sturdy_engine_device_generation`). Must be called from the thread that owns frame submission, between frames - not from inside a render callback.',
     'sturdy_engine_wheel_delta': 'Reads scroll-wheel movement accumulated during this tick.',
     'sturdy_exec_just': 'Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.',
     'sturdy_exec_submit': "Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.",
@@ -4912,6 +5877,9 @@ _DOCS = {
     'sturdy_http_server_start': 'Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.',
     'sturdy_http_server_start_router': '`sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.',
     'sturdy_input_gamepad_event_count': 'Pads plugged or unplugged since the previous tick.',
+    'sturdy_input_inject_key': "Synthetic input. Each call builds a platform-shaped window event and queues it exactly as a real device event, so the ECS input events, `InputState` and the UI see it on the next update. Meant for replay, tests, remote control and scripting. `modifiers` / `buttons` use the engine's modifier and mouse-button bit masks (the same values `SturdyWindowEvent` reports).",
+    'sturdy_input_inject_mouse_wheel': '`x` / `y` are the scroll deltas, with the pointer at (`mouse_x`, `mouse_y`).',
+    'sturdy_input_inject_text': 'Committed text (what a text-input method delivers after composition), UTF-8.',
     'sturdy_input_set_gamepads_enabled': 'Starts (or stops) sampling gamepads every tick. Off by default.',
     'sturdy_interval_create': 'A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.',
     'sturdy_io_copy': 'Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.',
@@ -5008,6 +5976,44 @@ _DOCS = {
     'sturdy_peer_start': 'Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.',
     'sturdy_permit_forget': 'Keeps the permits consumed forever (they are never returned).',
     'sturdy_permit_release': 'Returns the permits now.',
+    'sturdy_physics_character_create': '`settings` null selects the defaults.',
+    'sturdy_physics_character_move': 'Moves for `dt` seconds toward `desired_velocity` (horizontal, world space) against `world`; `jump` launches when grounded.',
+    'sturdy_physics_character_set_crouching': 'Crouches at once; standing up succeeds only with headroom. `out_crouching` (may be null) receives the resulting state.',
+    'sturdy_physics_character_settings_init': 'Fills `settings` with the engine defaults and the correct `struct_size`.',
+    'sturdy_physics_clamp_to_limits': 'The closest rotation to `rotation` that satisfies `limits`.',
+    'sturdy_physics_cloth_create_from_triangles': 'Any triangle mesh: `positions` (vertex_count vec3) and `indices` (index_count, a multiple of 3).',
+    'sturdy_physics_cloth_create_grid': 'A `columns x rows` sheet `spacing` apart from `origin`, extending along unit vectors `right` and `down`.',
+    'sturdy_physics_cloth_indices': 'Copies the triangle indices (capacity entries); `out_count` (may be null) receives the index count.',
+    'sturdy_physics_cloth_move_pinned': 'Moves a pinned particle (an attachment point following an animated body).',
+    'sturdy_physics_cloth_normals': 'Smooth per-particle normals into `out_normals` (capacity vec3s); `out_count` (may be null) receives the particle count.',
+    'sturdy_physics_cloth_positions': 'Copies particle positions into `out_positions` (capacity vec3s); `out_count` (may be null) receives the particle count.',
+    'sturdy_physics_cloth_step': 'Advances by `dt` seconds. `params` null selects the defaults; `colliders` may be null.',
+    'sturdy_physics_contact_filter_begin_frame': "Clears last frame's events and sets the clock used for cooldowns.",
+    'sturdy_physics_contact_filter_create': '`config` null selects the defaults.',
+    'sturdy_physics_contact_filter_submit': 'Offers a contact; `out_accepted` (may be null) says whether it became (or replaced) an event.',
+    'sturdy_physics_decompose_swing_twist': 'Splits `rotation` into swing and twist about the unit `axis` (`rotation == swing * twist`).',
+    'sturdy_physics_interpolate_pose': 'The pose to draw between two simulation states: positions lerp, rotations slerp the short way.',
+    'sturdy_physics_layers_add': 'Registers `name` (idempotent) and returns its index; `STURDY_ERROR_NOT_AVAILABLE` when all 64 are taken. A new layer collides with every layer.',
+    'sturdy_physics_layers_all': 'Every registered layer.',
+    'sturdy_physics_layers_collision_mask': 'The layers `layer` collides with, ready to hand to a solver as a filter mask.',
+    'sturdy_physics_layers_find': '`STURDY_ERROR_NOT_AVAILABLE` for an unregistered name.',
+    'sturdy_physics_layers_mask_of': "Union of the named layers' bits (unknown names are ignored).",
+    'sturdy_physics_layers_name': 'Layer name (string-output convention); empty for an unregistered index.',
+    'sturdy_physics_layers_set_collides': 'Symmetric. Indices past the registered layers are `STURDY_ERROR_INVALID_ARGUMENT`.',
+    'sturdy_physics_pd_drive': 'Active-ragdoll PD drive: the angular velocity (rad/s, parent frame) that pulls a joint from `current` toward `target`.',
+    'sturdy_physics_resolve_impact': 'Resolves one entry into one surface. `normal` faces the projectile; `thickness` is the distance the straight ray spends inside (very large for terrain); `random` is two uniform values in [0, 1) for scatter (pass fixed values for deterministic replays).',
+    'sturdy_physics_stepper_advance': 'Adds `delta_seconds` and reports how many fixed steps are now due (beyond the per-frame cap time is dropped).',
+    'sturdy_physics_stepper_alpha': 'Interpolation factor in [0, 1) after `advance`.',
+    'sturdy_physics_stepper_create': '`step_seconds` < = 0 selects 1/60; `max_steps_per_frame` 0 selects 8.',
+    'sturdy_physics_surfaces_add': 'Appends a material and returns its id.',
+    'sturdy_physics_surfaces_find': '`STURDY_ERROR_NOT_AVAILABLE` for an unknown name.',
+    'sturdy_physics_surfaces_get': 'Fills `out_material` (its `name` is null here; use `sturdy_physics_surfaces_name`).',
+    'sturdy_physics_trace_shot': 'Traces a projectile through the world (ray, impact, continue from the exit or ricochet). Writes up to `capacity` impacts and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` (with the first `capacity` filled) when there were more. `out_impacts` may be null to count only.',
+    'sturdy_physics_twist_angle': 'Signed twist angle in (-pi, pi] about `axis`.',
+    'sturdy_physics_world_add_box': 'Appends a box; `out_index` (may be null) receives its index for `sturdy_physics_world_move_box`.',
+    'sturdy_physics_world_move_box': 'Moves a box (a platform) by `delta`; an index past the boxes is `STURDY_ERROR_INVALID_ARGUMENT`.',
+    'sturdy_physics_world_overlaps_capsule': 'True when a vertical capsule (feet at `feet`) overlaps solid geometry.',
+    'sturdy_physics_world_sweep_capsule': 'Sweeps a vertical capsule by `delta`. `out_hit_something` says whether `out_hit` (may be null) was filled.',
     'sturdy_plugin_language': 'The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.',
     'sturdy_plugin_load': 'Opens a plugin library and runs its entry point with `STURDY_PLUGIN_LOAD`, collecting its modules (nothing is started).',
     'sturdy_plugin_module_count': 'How many modules the plugin added.',
@@ -5046,6 +6052,10 @@ _DOCS = {
     'sturdy_quic_stream_receive': '1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.',
     'sturdy_quic_stream_reset': "Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.",
     'sturdy_quic_stream_send': 'Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).',
+    'sturdy_ragdoll_apply_body_rotations': "Writes simulated body orientations (model space, one per body) into the entity's current pose: every driven joint takes its body's rotation relative to its skeleton parent, the others keep the animation's. The result is local joint rotations, one per skeleton joint, in `out_joint_rotations`.",
+    'sturdy_ragdoll_body_for_joint': 'The body driving skeleton joint `joint`; `STURDY_ERROR_NOT_AVAILABLE` when none does.',
+    'sturdy_ragdoll_build': 'Builds a definition for the humanoid skeleton of an animated entity (a skeleton animator or an animation-graph player). Fails with `STURDY_ERROR_NOT_AVAILABLE` when the entity has no skeleton or the rig has no usable humanoid mapping (hips, both legs and both arms).',
+    'sturdy_ragdoll_target_body_rotations': "Model-space orientation each body should have to match the entity's current animation pose, one per body: the targets a drive or a kinematic follow tracks. Writes up to `capacity` and reports the body count in `out_count`.",
     'sturdy_rate_limiter_create': 'A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".',
     'sturdy_rate_limiter_retry_after_ms': 'Milliseconds until `key` could take `cost` tokens (0 if it could now).',
     'sturdy_rate_limiter_try_acquire': 'Takes `cost` tokens for `key` if available.',
@@ -5106,6 +6116,13 @@ _DOCS = {
     'sturdy_render_set_transform': "Gives an entity a world transform.\n\nRendering is driven from the ECS: an entity with a transform and a model is drawn, an entity with a transform and a light lights the scene. These helpers write the engine's own components rather than making you reproduce their memory layout — which you could do through `sturdy_ecs_add_component`, but only by hard-coding a layout that is free to change.\n\nReplaces any transform the entity already has.",
     'sturdy_render_shape_params_init': "Fills `params` with the engine's default shape dimensions.",
     'sturdy_render_spawn': "Creates an entity ready to be rendered, carrying an identity transform.\n\nThe natural way to start a renderable: an entity must be spawned with at least one component, and the engine's own components register themselves lazily the first time something uses them — so looking `sturdy.engine.world_transform` up by name before anything has touched it reports `STURDY_ERROR_NOT_AVAILABLE`. This registers it and spawns in one step.\n\nFollow with `sturdy_render_set_transform` to place it and `sturdy_render_set_model` or one of the light setters to give it something to contribute.",
+    'sturdy_render_target_create': 'Creates a target. On failure the error text says why (unsupported format, zero size, `strict` request the device cannot meet).',
+    'sturdy_render_target_desc_init': 'Fills `desc` with the defaults (auto everything) and the correct `struct_size`.',
+    'sturdy_render_target_description': 'The description the target was last given. `out_desc->label` is null here; read it with `sturdy_render_target_label`.',
+    'sturdy_render_target_reconfigure': 'Changes size, format and/or sampling in place; the handle and texture stay valid. On failure the target is left as it was.',
+    'sturdy_render_target_render_view': "Renders the ECS scene into `target` through the view `callback` describes, synchronously. Only renderables whose visibility mask intersects the camera's culling mask appear, which keeps a viewer scene out of the window's own view. The target keeps per-target camera history for motion vectors and blur. Needs the primary window to exist (the renderer's per-surface frame state is borrowed from it; nothing is presented to it).",
+    'sturdy_render_target_resize': 'Resizes in place; the handle and its texture stay valid and the contents are cleared.',
+    'sturdy_render_target_texture': "The target's backing texture (a renderer texture handle value, usable wherever the engine takes a texture, such as UI images). 0 for an unknown target.",
     'sturdy_render_texture_desc_init': 'Fills `desc` with engine defaults (linear color space, mipmaps and compression both on) and the correct `struct_size`. `width`, `height`, and `rgba8` are left for the caller to set.',
     'sturdy_render_unload_asset': "Unloads an asset — a model, shader, or texture previously created by `sturdy_render_load_shader`, `sturdy_render_create_shape_model`, `sturdy_render_create_mesh_model`, or `sturdy_render_load_texture`. This is the only way to release one; without it, every asset a long-running caller creates accumulates for the life of the engine.\n\nUnloading does not check whether an entity's `sturdy_render_set_model` still points at it — despawn or reassign every such entity first, or its next draw reads a destroyed asset.",
     'sturdy_restir_gi_settings_init': 'Fills `settings` with `struct_size` and engine defaults (Medium quality, SVGF denoiser, disabled — ReSTIR GI is opt-in).',
@@ -5365,6 +6382,16 @@ _DOCS = {
     'sturdy_ui_set_scale_mode': 'Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.',
     'sturdy_ui_text': 'Draws text inside the current element.',
     'sturdy_ui_text_style_init': 'Fills a text style with defaults: font 0, 16px, opaque white.',
+    'sturdy_ui_tree_add_text': "Types committed text (UTF-8) into the tree's focused field.",
+    'sturdy_ui_tree_count': 'How many trees the engine laid out at its last build.',
+    'sturdy_ui_tree_last_error': 'Message of the last failed build (string-output convention); empty if none.',
+    'sturdy_ui_tree_point_at': 'Points at the tree: `has_uv` false = the pointer is not on it (cancels a press in progress); otherwise `u` / `v` in [0, 1] across it. `down` is the primary button. The way to drive off-screen and headless trees.',
+    'sturdy_ui_tree_pointer_consumed': 'Whether the pointer was over the tree (or dragging in it) at its last build: the "did the UI take this click" answer.',
+    'sturdy_ui_tree_render_targets': 'Renders every off-screen tree that has a frame its target has not shown yet. The application loop does this after each update; an embedder driving frames itself calls it at the same point. `out_rendered` (may be null) receives how many targets were rendered.',
+    'sturdy_ui_tree_request_rebuild': 'Lays the tree out at the next update whatever its policy. Any thread.',
+    'sturdy_ui_tree_scroll': 'Scrolls the tree by `dx` / `dy`.',
+    'sturdy_ui_tree_set_builder': 'Replaces the builder (and its `user` / `release_user`). The previous `release_user` runs once the old builder is no longer in use.',
+    'sturdy_ui_tree_spawn': 'Spawns an entity whose only component is the tree. `STURDY_ERROR_INVALID_ARGUMENT` for a null builder. Not callable from inside a builder.',
     'sturdy_voice_set_position': 'Moves a spatial voice; `velocity` (may be null) feeds Doppler shift.',
     'sturdy_volumetric_fog_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled — fog is opt-in).',
     'sturdy_watch_events_stream': 'The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.',

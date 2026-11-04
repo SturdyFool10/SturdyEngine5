@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 42u
+#define STURDY_ABI_VERSION_MINOR 43u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -9831,6 +9831,1350 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_send(SturdyEngine engine, 
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_publish(SturdyEngine engine, const char *from, const char *topic, const uint8_t *payload, size_t size, uint32_t *out_receivers);
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_subscribe(SturdyEngine engine, const char *script, const char *topic);
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_unsubscribe(SturdyEngine engine, const char *script, const char *topic);
+
+// ---------------------------------------------------------------------------------------------
+// Physics (Physics/): solver-agnostic helpers. None of these needs an engine handle.
+// ---------------------------------------------------------------------------------------------
+//
+// Every object below is owned: it lives until its `_destroy` call. Objects are not internally synchronized; use one from a
+// single thread at a time. Vectors are metres / metres per second in a right-handed world; quaternions are (x, y, z, w).
+
+typedef struct SturdyVec3 {
+    float x;
+    float y;
+    float z;
+} SturdyVec3;
+
+typedef struct SturdyQuat {
+    float x;
+    float y;
+    float z;
+    float w;
+} SturdyQuat;
+
+/// Fixed-timestep accumulator.
+typedef struct SturdyPhysicsStepper {
+    uint64_t token;
+} SturdyPhysicsStepper;
+/// Named collision layers and their symmetric collision matrix (up to 64 layers).
+typedef struct SturdyPhysicsLayers {
+    uint64_t token;
+} SturdyPhysicsLayers;
+/// A minimal analytic collision world (boxes and planes) for characters and tools.
+typedef struct SturdyPhysicsWorld {
+    uint64_t token;
+} SturdyPhysicsWorld;
+/// A kinematic capsule character mover.
+typedef struct SturdyPhysicsCharacter {
+    uint64_t token;
+} SturdyPhysicsCharacter;
+/// Turns a solver's contact stream into a sparse, budgeted event list.
+typedef struct SturdyPhysicsContactFilter {
+    uint64_t token;
+} SturdyPhysicsContactFilter;
+/// Indexed surface-material table shared by bullet penetration, impact sounds and effects.
+typedef struct SturdyPhysicsSurfaces {
+    uint64_t token;
+} SturdyPhysicsSurfaces;
+/// Position-based-dynamics cloth.
+typedef struct SturdyPhysicsCloth {
+    uint64_t token;
+} SturdyPhysicsCloth;
+
+// --- fixed stepper ---
+
+/// `step_seconds` <= 0 selects 1/60; `max_steps_per_frame` 0 selects 8.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_create(double step_seconds, uint32_t max_steps_per_frame, SturdyPhysicsStepper *out_stepper);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_destroy(SturdyPhysicsStepper stepper);
+/// Adds `delta_seconds` and reports how many fixed steps are now due (beyond the per-frame cap time is dropped).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_advance(SturdyPhysicsStepper stepper, double delta_seconds, uint32_t *out_steps);
+/// Interpolation factor in [0, 1) after `advance`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_alpha(SturdyPhysicsStepper stepper, double *out_alpha);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_step(SturdyPhysicsStepper stepper, double *out_step_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_total_steps(SturdyPhysicsStepper stepper, uint64_t *out_steps);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_simulated_time(SturdyPhysicsStepper stepper, double *out_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_dropped_seconds(SturdyPhysicsStepper stepper, double *out_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_set_step(SturdyPhysicsStepper stepper, double step_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_stepper_reset(SturdyPhysicsStepper stepper);
+/// The pose to draw between two simulation states: positions lerp, rotations slerp the short way.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_interpolate_pose(SturdyVec3 previous_position, SturdyQuat previous_rotation, SturdyVec3 current_position,
+                                                                        SturdyQuat current_rotation, float alpha, SturdyVec3 *out_position, SturdyQuat *out_rotation);
+
+// --- layers ---
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_create(SturdyPhysicsLayers *out_layers);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_destroy(SturdyPhysicsLayers layers);
+/// Registers `name` (idempotent) and returns its index; `STURDY_ERROR_NOT_AVAILABLE` when all 64 are taken. A new layer collides with every layer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_add(SturdyPhysicsLayers layers, const char *name, uint32_t *out_index);
+/// `STURDY_ERROR_NOT_AVAILABLE` for an unregistered name.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_find(SturdyPhysicsLayers layers, const char *name, uint32_t *out_index);
+/// Layer name (string-output convention); empty for an unregistered index.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_name(SturdyPhysicsLayers layers, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_count(SturdyPhysicsLayers layers, uint32_t *out_count);
+/// Union of the named layers' bits (unknown names are ignored).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_mask_of(SturdyPhysicsLayers layers, const char *const *names, uint32_t name_count, uint64_t *out_mask);
+/// Every registered layer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_all(SturdyPhysicsLayers layers, uint64_t *out_mask);
+/// Symmetric. Indices past the registered layers are `STURDY_ERROR_INVALID_ARGUMENT`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_set_collides(SturdyPhysicsLayers layers, uint32_t a, uint32_t b, SturdyBool collides);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_collides(SturdyPhysicsLayers layers, uint32_t a, uint32_t b, SturdyBool *out_collides);
+/// The layers `layer` collides with, ready to hand to a solver as a filter mask.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_layers_collision_mask(SturdyPhysicsLayers layers, uint32_t layer, uint64_t *out_mask);
+
+// --- simple world + character controller ---
+
+typedef struct SturdyPhysicsBox {
+    SturdyVec3 min;
+    SturdyVec3 max;
+    uint64_t object;
+    /// Reported to a character so it can ride the box.
+    SturdyVec3 velocity;
+} SturdyPhysicsBox;
+
+typedef struct SturdyPhysicsPlane {
+    SturdyVec3 normal;
+    float offset;
+    uint64_t object;
+} SturdyPhysicsPlane;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_create(SturdyPhysicsWorld *out_world);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_destroy(SturdyPhysicsWorld world);
+/// Appends a box; `out_index` (may be null) receives its index for `sturdy_physics_world_move_box`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_add_box(SturdyPhysicsWorld world, const SturdyPhysicsBox *box, uint32_t *out_index);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_add_plane(SturdyPhysicsWorld world, const SturdyPhysicsPlane *plane);
+/// Moves a box (a platform) by `delta`; an index past the boxes is `STURDY_ERROR_INVALID_ARGUMENT`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_move_box(SturdyPhysicsWorld world, uint32_t index, SturdyVec3 delta);
+/// True when a vertical capsule (feet at `feet`) overlaps solid geometry.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_overlaps_capsule(SturdyPhysicsWorld world, SturdyVec3 feet, float radius, float height, SturdyBool *out_overlaps);
+
+typedef struct SturdyPhysicsSweepHit {
+    float fraction;
+    SturdyVec3 normal;
+    SturdyVec3 point;
+    uint64_t object;
+    SturdyVec3 object_velocity;
+} SturdyPhysicsSweepHit;
+
+/// Sweeps a vertical capsule by `delta`. `out_hit_something` says whether `out_hit` (may be null) was filled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_world_sweep_capsule(SturdyPhysicsWorld world, SturdyVec3 feet, float radius, float height, SturdyVec3 delta,
+                                                                           SturdyBool *out_hit_something, SturdyPhysicsSweepHit *out_hit);
+
+typedef struct SturdyPhysicsCharacterSettings {
+    uint32_t struct_size;
+    float radius;
+    float standing_height;
+    float crouching_height;
+    SturdyVec3 up;
+    float gravity;
+    float slope_limit_degrees;
+    float step_height;
+    float snap_distance;
+    float skin_width;
+    uint32_t max_slides;
+    float jump_speed;
+    float terminal_speed;
+} SturdyPhysicsCharacterSettings;
+
+/// Fills `settings` with the engine defaults and the correct `struct_size`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_settings_init(SturdyPhysicsCharacterSettings *settings);
+
+typedef struct SturdyPhysicsMoveResult {
+    /// Position change this call (feet), including platform carry.
+    SturdyVec3 displacement;
+    SturdyBool grounded;
+    SturdyBool hit_ceiling;
+    SturdyBool stepped_up;
+    SturdyBool jumped;
+    SturdyBool landed;
+    float landing_speed;
+} SturdyPhysicsMoveResult;
+
+/// `settings` null selects the defaults.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_create(const SturdyPhysicsCharacterSettings *settings, SturdyVec3 feet, SturdyPhysicsCharacter *out_character);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_destroy(SturdyPhysicsCharacter character);
+/// Moves for `dt` seconds toward `desired_velocity` (horizontal, world space) against `world`; `jump` launches when grounded.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_move(SturdyPhysicsCharacter character, SturdyPhysicsWorld world, SturdyVec3 desired_velocity, float dt,
+                                                                      SturdyBool jump, SturdyPhysicsMoveResult *out_result);
+/// Crouches at once; standing up succeeds only with headroom. `out_crouching` (may be null) receives the resulting state.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_set_crouching(SturdyPhysicsCharacter character, SturdyPhysicsWorld world, SturdyBool crouching,
+                                                                               SturdyBool *out_crouching);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_teleport(SturdyPhysicsCharacter character, SturdyVec3 feet);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_add_impulse(SturdyPhysicsCharacter character, SturdyVec3 velocity_change);
+
+typedef struct SturdyPhysicsCharacterState {
+    SturdyVec3 position;
+    SturdyVec3 velocity;
+    SturdyVec3 ground_normal;
+    uint64_t ground_object;
+    float height;
+    SturdyBool grounded;
+    SturdyBool crouching;
+} SturdyPhysicsCharacterState;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_character_state(SturdyPhysicsCharacter character, SturdyPhysicsCharacterState *out_state);
+
+// --- contact events ---
+
+typedef struct SturdyPhysicsContactPoint {
+    uint64_t body_a;
+    uint64_t body_b;
+    SturdyVec3 point;
+    SturdyVec3 normal;
+    /// Impulse along the normal (N*s).
+    float normal_impulse;
+    /// Closing speed along the normal and relative speed along the surface (m/s).
+    float approach_speed;
+    float slide_speed;
+    /// Indices into a surface table; 0xFFFFFFFF for none.
+    uint32_t material_a;
+    uint32_t material_b;
+} SturdyPhysicsContactPoint;
+
+typedef enum SturdyPhysicsContactKind {
+    STURDY_PHYSICS_CONTACT_IMPACT = 0,
+    STURDY_PHYSICS_CONTACT_SCRAPE = 1,
+    STURDY_PHYSICS_CONTACT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyPhysicsContactKind;
+
+typedef struct SturdyPhysicsContactEvent {
+    SturdyPhysicsContactPoint contact;
+    SturdyPhysicsContactKind kind;
+    /// 0..1, a perceptual mapping of the impulse for volume and effect intensity.
+    float intensity;
+} SturdyPhysicsContactEvent;
+
+typedef struct SturdyPhysicsContactConfig {
+    uint32_t struct_size;
+    float min_impulse;
+    float min_speed;
+    float pair_cooldown_seconds;
+    float merge_radius;
+    uint32_t max_events_per_frame;
+    float full_intensity_impulse;
+} SturdyPhysicsContactConfig;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_config_init(SturdyPhysicsContactConfig *config);
+/// `config` null selects the defaults.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_create(const SturdyPhysicsContactConfig *config, SturdyPhysicsContactFilter *out_filter);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_destroy(SturdyPhysicsContactFilter filter);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_set_config(SturdyPhysicsContactFilter filter, const SturdyPhysicsContactConfig *config);
+/// Clears last frame's events and sets the clock used for cooldowns.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_begin_frame(SturdyPhysicsContactFilter filter, double time_seconds);
+/// Offers a contact; `out_accepted` (may be null) says whether it became (or replaced) an event.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_submit(SturdyPhysicsContactFilter filter, const SturdyPhysicsContactPoint *contact,
+                                                                             SturdyBool *out_accepted);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_event_count(SturdyPhysicsContactFilter filter, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_contact_filter_event(SturdyPhysicsContactFilter filter, uint32_t index, SturdyPhysicsContactEvent *out_event);
+
+// --- surfaces and ballistics ---
+
+typedef struct SturdyPhysicsSurfaceMaterial {
+    uint32_t struct_size;
+    /// Null for no name.
+    const char *name;
+    /// Joules per metre spent travelling through the material.
+    float penetration_resistance;
+    /// Impact angles (from the surface) below which the projectile skips off.
+    float ricochet_angle_degrees;
+    float ricochet_energy_retained;
+    float ricochet_scatter;
+    float exit_deflection;
+} SturdyPhysicsSurfaceMaterial;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surface_material_init(SturdyPhysicsSurfaceMaterial *material);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_create(SturdyPhysicsSurfaces *out_surfaces);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_destroy(SturdyPhysicsSurfaces surfaces);
+/// Appends a material and returns its id.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_add(SturdyPhysicsSurfaces surfaces, const SturdyPhysicsSurfaceMaterial *material, uint32_t *out_id);
+/// `STURDY_ERROR_NOT_AVAILABLE` for an unknown name.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_find(SturdyPhysicsSurfaces surfaces, const char *name, uint32_t *out_id);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_count(SturdyPhysicsSurfaces surfaces, uint32_t *out_count);
+/// Fills `out_material` (its `name` is null here; use `sturdy_physics_surfaces_name`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_get(SturdyPhysicsSurfaces surfaces, uint32_t id, SturdyPhysicsSurfaceMaterial *out_material);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_surfaces_name(SturdyPhysicsSurfaces surfaces, uint32_t id, char *buffer, size_t capacity, size_t *out_length);
+
+typedef struct SturdyPhysicsProjectile {
+    SturdyVec3 position;
+    /// Unit travel direction.
+    SturdyVec3 direction;
+    /// Kinetic energy in joules.
+    float energy;
+} SturdyPhysicsProjectile;
+
+typedef enum SturdyPhysicsImpactOutcome {
+    STURDY_PHYSICS_IMPACT_STOPPED = 0,
+    STURDY_PHYSICS_IMPACT_PENETRATED = 1,
+    STURDY_PHYSICS_IMPACT_RICOCHETED = 2,
+    STURDY_PHYSICS_IMPACT_OUTCOME_FORCE_U32 = 0x7fffffff
+} SturdyPhysicsImpactOutcome;
+
+typedef struct SturdyPhysicsImpactResult {
+    SturdyPhysicsImpactOutcome outcome;
+    SturdyVec3 point;
+    SturdyVec3 direction;
+    float remaining_energy;
+    float depth;
+} SturdyPhysicsImpactResult;
+
+/// Resolves one entry into one surface. `normal` faces the projectile; `thickness` is the distance the straight ray spends inside (very large for
+/// terrain); `random` is two uniform values in [0, 1) for scatter (pass fixed values for deterministic replays).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_resolve_impact(const SturdyPhysicsProjectile *projectile, const SturdyPhysicsSurfaceMaterial *material,
+                                                                      SturdyVec3 entry_point, SturdyVec3 normal, float thickness, float random_x, float random_y,
+                                                                      SturdyPhysicsImpactResult *out_result);
+
+typedef struct SturdyPhysicsSurfaceHit {
+    SturdyVec3 point;
+    SturdyVec3 normal;
+    /// Distance along the ray from its origin.
+    float distance;
+    /// Distance the straight ray stays inside the object after this point.
+    float thickness;
+    uint32_t material;
+    uint64_t object;
+} SturdyPhysicsSurfaceHit;
+
+/// Casts a ray and reports the nearest hit within `max_distance`: write `out_hit` and return nonzero, or return zero for no hit.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyPhysicsRayQuery)(void *user, SturdyVec3 origin, SturdyVec3 direction, float max_distance, SturdyPhysicsSurfaceHit *out_hit);
+
+typedef struct SturdyPhysicsShotOptions {
+    uint32_t struct_size;
+    float max_distance;
+    uint32_t max_impacts;
+    /// Energy below which the projectile is spent.
+    float minimum_energy;
+    uint64_t seed;
+} SturdyPhysicsShotOptions;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_shot_options_init(SturdyPhysicsShotOptions *options);
+
+typedef struct SturdyPhysicsShotImpact {
+    SturdyPhysicsSurfaceHit hit;
+    SturdyPhysicsImpactResult result;
+} SturdyPhysicsShotImpact;
+
+/// Traces a projectile through the world (ray, impact, continue from the exit or ricochet). Writes up to `capacity` impacts and reports the total in
+/// `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` (with the first `capacity` filled) when there were more. `out_impacts` may be null to count only.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_trace_shot(SturdyPhysicsSurfaces surfaces, const SturdyPhysicsProjectile *projectile, const SturdyPhysicsShotOptions *options,
+                                                                  SturdyPhysicsRayQuery query, void *user, SturdyPhysicsShotImpact *out_impacts, uint32_t capacity,
+                                                                  uint32_t *out_count);
+
+// --- cloth ---
+
+typedef struct SturdyPhysicsClothParams {
+    uint32_t struct_size;
+    SturdyVec3 gravity;
+    float stretch_compliance;
+    float bend_compliance;
+    float damping;
+    uint32_t substeps;
+    float collision_thickness;
+    float friction;
+    SturdyVec3 wind;
+    float drag;
+} SturdyPhysicsClothParams;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_params_init(SturdyPhysicsClothParams *params);
+
+typedef struct SturdyPhysicsClothSphere {
+    SturdyVec3 center;
+    float radius;
+} SturdyPhysicsClothSphere;
+
+typedef struct SturdyPhysicsClothCapsule {
+    SturdyVec3 a;
+    SturdyVec3 b;
+    float radius;
+} SturdyPhysicsClothCapsule;
+
+/// Plane through `normal * offset` facing `normal`; particles are kept on the positive side.
+typedef struct SturdyPhysicsClothPlane {
+    SturdyVec3 normal;
+    float offset;
+} SturdyPhysicsClothPlane;
+
+typedef struct SturdyPhysicsClothColliders {
+    const SturdyPhysicsClothSphere *spheres;
+    uint32_t sphere_count;
+    const SturdyPhysicsClothCapsule *capsules;
+    uint32_t capsule_count;
+    const SturdyPhysicsClothPlane *planes;
+    uint32_t plane_count;
+} SturdyPhysicsClothColliders;
+
+/// A `columns x rows` sheet `spacing` apart from `origin`, extending along unit vectors `right` and `down`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_create_grid(uint32_t columns, uint32_t rows, float spacing, SturdyVec3 origin, SturdyVec3 right, SturdyVec3 down,
+                                                                         float total_mass, SturdyPhysicsCloth *out_cloth);
+/// Any triangle mesh: `positions` (vertex_count vec3) and `indices` (index_count, a multiple of 3).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_create_from_triangles(const SturdyVec3 *positions, uint32_t vertex_count, const uint32_t *indices,
+                                                                                   uint32_t index_count, float total_mass, SturdyPhysicsCloth *out_cloth);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_destroy(SturdyPhysicsCloth cloth);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_particle_count(SturdyPhysicsCloth cloth, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_constraint_counts(SturdyPhysicsCloth cloth, uint32_t *out_stretch, uint32_t *out_bend);
+/// Copies particle positions into `out_positions` (capacity vec3s); `out_count` (may be null) receives the particle count.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_positions(SturdyPhysicsCloth cloth, SturdyVec3 *out_positions, uint32_t capacity, uint32_t *out_count);
+/// Copies the triangle indices (capacity entries); `out_count` (may be null) receives the index count.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_indices(SturdyPhysicsCloth cloth, uint32_t *out_indices, uint32_t capacity, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_pin(SturdyPhysicsCloth cloth, uint32_t particle, SturdyBool pinned);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_is_pinned(SturdyPhysicsCloth cloth, uint32_t particle, SturdyBool *out_pinned);
+/// Moves a pinned particle (an attachment point following an animated body).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_move_pinned(SturdyPhysicsCloth cloth, uint32_t particle, SturdyVec3 position);
+/// Advances by `dt` seconds. `params` null selects the defaults; `colliders` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_step(SturdyPhysicsCloth cloth, float dt, const SturdyPhysicsClothParams *params,
+                                                                  const SturdyPhysicsClothColliders *colliders);
+/// Smooth per-particle normals into `out_normals` (capacity vec3s); `out_count` (may be null) receives the particle count.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_cloth_normals(SturdyPhysicsCloth cloth, SturdyVec3 *out_normals, uint32_t capacity, uint32_t *out_count);
+
+// --- swing / twist joint maths ---
+
+typedef struct SturdyPhysicsSwingTwistLimits {
+    /// Unit twist axis in the joint's frame.
+    SturdyVec3 axis;
+    /// Half-angles of the elliptical swing cone, radians.
+    float swing_y;
+    float swing_z;
+    float twist_min;
+    float twist_max;
+} SturdyPhysicsSwingTwistLimits;
+
+/// Splits `rotation` into swing and twist about the unit `axis` (`rotation == swing * twist`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_decompose_swing_twist(SturdyQuat rotation, SturdyVec3 axis, SturdyQuat *out_swing, SturdyQuat *out_twist);
+/// Signed twist angle in (-pi, pi] about `axis`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_twist_angle(SturdyQuat rotation, SturdyVec3 axis, float *out_angle);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_within_limits(SturdyQuat rotation, const SturdyPhysicsSwingTwistLimits *limits, SturdyBool *out_within);
+/// The closest rotation to `rotation` that satisfies `limits`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_clamp_to_limits(SturdyQuat rotation, const SturdyPhysicsSwingTwistLimits *limits, SturdyQuat *out_rotation);
+/// Active-ragdoll PD drive: the angular velocity (rad/s, parent frame) that pulls a joint from `current` toward `target`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_physics_pd_drive(SturdyQuat current, SturdyQuat target, SturdyVec3 angular_velocity, float stiffness, float damping,
+                                                                SturdyVec3 *out_velocity);
+
+// ---------------------------------------------------------------------------------------------
+// Engine control: frame mode and redraw, synthetic input, drag-and-drop, render health, graphics device
+// ---------------------------------------------------------------------------------------------
+
+typedef enum SturdyFrameMode {
+    /// Render every loop iteration, paced by the presentation settings (games).
+    STURDY_FRAME_MODE_CONTINUOUS = 0,
+    /// Render only when something asks (input, resize, a redraw request, a device change); otherwise the loop sleeps (tools, editors).
+    STURDY_FRAME_MODE_ON_DEMAND = 1,
+    STURDY_FRAME_MODE_FORCE_U32 = 0x7fffffff
+} SturdyFrameMode;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_set_frame_mode(SturdyEngine engine, SturdyFrameMode mode);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_frame_mode(SturdyEngine engine, SturdyFrameMode *out_mode);
+/// Renders a frame as soon as possible (`STURDY_FRAME_MODE_ON_DEMAND`; a no-op in continuous mode).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_request_redraw(SturdyEngine engine);
+/// Renders a frame no later than `delay_nanoseconds` from now (the earliest of all pending requests wins).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_request_redraw_after(SturdyEngine engine, uint64_t delay_nanoseconds);
+
+/// Synthetic input. Each call builds a platform-shaped window event and queues it exactly as a real device event, so the ECS input events,
+/// `InputState` and the UI see it on the next update. Meant for replay, tests, remote control and scripting. `modifiers` / `buttons` use the
+/// engine's modifier and mouse-button bit masks (the same values `SturdyWindowEvent` reports).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_inject_key(SturdyEngine engine, SturdySurface surface, int32_t key, SturdyBool pressed, uint32_t modifiers,
+                                                                SturdyBool repeat);
+/// Committed text (what a text-input method delivers after composition), UTF-8.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_inject_text(SturdyEngine engine, SturdySurface surface, const char *utf8);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_inject_mouse_move(SturdyEngine engine, SturdySurface surface, float x, float y, float delta_x, float delta_y,
+                                                                       uint32_t buttons);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_inject_mouse_button(SturdyEngine engine, SturdySurface surface, SturdyMouseButton button, SturdyBool pressed,
+                                                                         float x, float y, uint8_t clicks);
+/// `x` / `y` are the scroll deltas, with the pointer at (`mouse_x`, `mouse_y`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_inject_mouse_wheel(SturdyEngine engine, SturdySurface surface, float x, float y, float mouse_x, float mouse_y);
+
+typedef enum SturdyDropKind {
+    STURDY_DROP_BEGIN = 0,
+    STURDY_DROP_HOVER = 1,
+    /// A file was dropped; the data is its path.
+    STURDY_DROP_FILE = 2,
+    /// Text was dropped; the data is the text.
+    STURDY_DROP_TEXT = 3,
+    STURDY_DROP_COMPLETE = 4,
+    STURDY_DROP_KIND_FORCE_U32 = 0x7fffffff
+} SturdyDropKind;
+
+typedef struct SturdyDropEvent {
+    uint64_t window;
+    SturdyDropKind kind;
+    /// Pointer position in window coordinates (`HOVER`; best effort for the others).
+    float x;
+    float y;
+    /// Bytes of data (path or text, without the terminator) read with `sturdy_engine_drop_event_data` into a buffer of at least `data_length + 1`.
+    uint32_t data_length;
+} SturdyDropEvent;
+
+/// Pops the oldest drag-and-drop step in arrival order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting. The data (file path or text) of the event
+/// is written into `data_buffer` (string-output convention; may be null with capacity 0 to skip it). When the buffer is too small the call fails
+/// with `STURDY_ERROR_BUFFER_TOO_SMALL`, `out_event->data_length` and `out_length` say how much is needed, and the event stays queued.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_next_drop_event(SturdyEngine engine, SturdyDropEvent *out_event, char *data_buffer, size_t capacity,
+                                                                      size_t *out_length);
+
+/// What frame rendering has done since startup. The frame callback keeps running when a frame fails, so an app that just switched device compares two
+/// snapshots (or watches `consecutive_failures`) to learn that nothing is being drawn, and rolls back.
+typedef struct SturdyRenderHealth {
+    uint64_t frames_rendered;
+    uint64_t frames_failed;
+    /// Failures since the last successful frame; 0 means the latest frame rendered.
+    uint64_t consecutive_failures;
+} SturdyRenderHealth;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_render_health(SturdyEngine engine, SturdyRenderHealth *out_health);
+/// Message of the most recent frame failure (string-output convention); empty until one happens.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_render_health_last_error(SturdyEngine engine, char *buffer, size_t capacity, size_t *out_length);
+
+typedef enum SturdyAdapterPresentable {
+    /// Not probed: only the running device can be asked.
+    STURDY_ADAPTER_PRESENTABLE_UNKNOWN = 0,
+    STURDY_ADAPTER_PRESENTABLE_YES = 1,
+    STURDY_ADAPTER_PRESENTABLE_NO = 2,
+    STURDY_ADAPTER_PRESENTABLE_FORCE_U32 = 0x7fffffff
+} SturdyAdapterPresentable;
+
+/// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery). GPU objects created through the raw RHI
+/// stop being valid when it changes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_device_generation(SturdyEngine engine, uint64_t *out_generation);
+/// The graphics APIs at least one discovered adapter can be driven through (reads the startup inventory; creates no device). Writes up to `capacity`
+/// entries and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more. `out_backends` may be null to count only.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_available_backends(SturdyEngine engine, SturdyBackend *out_backends, uint32_t capacity, uint32_t *out_count);
+
+/// One graphics API an adapter can be driven through.
+typedef struct SturdyBackendOffer {
+    SturdyBackend backend;
+    char driver_version[64];
+    char api_version[32];
+    SturdyAdapterPresentable presentable;
+    /// This offer is the device the engine runs on right now.
+    SturdyBool active;
+} SturdyBackendOffer;
+
+/// One physical GPU, as a settings screen lists it. Text is truncated to the field size and always null-terminated.
+typedef struct SturdyAdapterDescription {
+    /// Stable across backends, driver updates and reboots: persist this and pass it to `sturdy_engine_switch_device`.
+    char stable_id[32];
+    char physical_device_id[96];
+    char name[160];
+    char vendor[64];
+    uint32_t vendor_id;
+    uint32_t device_id;
+    SturdyDeviceType device_type;
+    uint32_t backend_count;
+} SturdyAdapterDescription;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_adapter_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_adapter_description(SturdyEngine engine, uint32_t adapter_index, SturdyAdapterDescription *out_adapter);
+/// Backend `offer_index` of adapter `adapter_index` (`< backend_count`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_adapter_backend(SturdyEngine engine, uint32_t adapter_index, uint32_t offer_index,
+                                                                      SturdyBackendOffer *out_offer);
+
+typedef enum SturdyDevicePreference {
+    STURDY_DEVICE_PREFERENCE_DEFAULT = 0,
+    STURDY_DEVICE_PREFERENCE_HIGH_PERFORMANCE = 1,
+    STURDY_DEVICE_PREFERENCE_LOW_POWER = 2,
+    /// Only discrete GPUs are acceptable; no match is a failure, never a downgrade.
+    STURDY_DEVICE_PREFERENCE_DISCRETE_ONLY = 3,
+    STURDY_DEVICE_PREFERENCE_INTEGRATED_ONLY = 4,
+    STURDY_DEVICE_PREFERENCE_FORCE_U32 = 0x7fffffff
+} SturdyDevicePreference;
+
+typedef struct SturdyDeviceRequest {
+    uint32_t struct_size;
+    /// `STURDY_BACKEND_DEFAULT`: keep the running backend when the chosen adapter supports it, else the first it does.
+    SturdyBackend backend;
+    /// A saved `stable_id` (or backend-specific `physical_device_id`); null or empty: no particular adapter. When it no longer exists the request falls
+    /// back to `preference` and the outcome is `STURDY_DEVICE_SWITCH_FALLBACK`.
+    const char *adapter_id;
+    SturdyDevicePreference preference;
+    /// Rebuild the device even when the request resolves to the one already running.
+    SturdyBool force_recreate;
+} SturdyDeviceRequest;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_device_request_init(SturdyDeviceRequest *request);
+
+typedef enum SturdyDeviceSwitchOutcome {
+    /// The device now matches the request exactly.
+    STURDY_DEVICE_SWITCH_SWITCHED = 0,
+    /// A device was created, but not the exact one asked for; `reason` says why.
+    STURDY_DEVICE_SWITCH_FALLBACK = 1,
+    /// Nothing changed (or the previous device was restored); `reason` says why. Never leaves a dead window.
+    STURDY_DEVICE_SWITCH_FAILED = 2,
+    STURDY_DEVICE_SWITCH_OUTCOME_FORCE_U32 = 0x7fffffff
+} SturdyDeviceSwitchOutcome;
+
+typedef struct SturdyDeviceSwitchResult {
+    SturdyDeviceSwitchOutcome outcome;
+    /// Backend running after the call (the previous one on failure).
+    SturdyBackend backend;
+    uint64_t generation;
+    /// A replacement was attempted, failed, and the previous device was rebuilt.
+    SturdyBool rolled_back;
+    /// Empty for an exact switch; otherwise why the request was relaxed or refused.
+    char reason[256];
+    char adapter_name[160];
+    char adapter_stable_id[32];
+} SturdyDeviceSwitchResult;
+
+/// Replaces the graphics device (API and/or adapter) while the app keeps running. Engine-managed handles (meshes, textures, materials, render targets,
+/// window surfaces) are re-created in place; GPU objects created through the raw RHI are not (watch `sturdy_engine_device_generation`). Must be called
+/// from the thread that owns frame submission, between frames - not from inside a render callback.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_switch_device(SturdyEngine engine, const SturdyDeviceRequest *request, SturdyDeviceSwitchResult *out_result);
+
+typedef enum SturdyDeviceChangeKind {
+    /// About to be replaced: the old device is still alive, release GPU objects tied to it now.
+    STURDY_DEVICE_CHANGE_SWITCHING = 0,
+    /// The replacement is live (or the old one was restored after a failed switch).
+    STURDY_DEVICE_CHANGE_SWITCHED = 1,
+    /// The driver reported device loss and the engine rebuilt the device on the same request.
+    STURDY_DEVICE_CHANGE_RECOVERED = 2,
+    /// Device loss that could not be recovered; the renderer is unusable until the next successful switch.
+    STURDY_DEVICE_CHANGE_LOST_UNRECOVERABLE = 3,
+    STURDY_DEVICE_CHANGE_KIND_FORCE_U32 = 0x7fffffff
+} SturdyDeviceChangeKind;
+
+typedef struct SturdyDeviceChangeEvent {
+    SturdyDeviceChangeKind kind;
+    SturdyBackend backend;
+    uint64_t generation;
+    char adapter_name[160];
+    char message[256];
+} SturdyDeviceChangeEvent;
+
+/// Pops the oldest device change (switch, rollback, automatic device-loss recovery) in order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_next_device_change(SturdyEngine engine, SturdyDeviceChangeEvent *out_event);
+
+// ---------------------------------------------------------------------------------------------
+// Debug draw
+// ---------------------------------------------------------------------------------------------
+//
+// Lines, boxes, spheres, arrows and friends drawn over the world from anywhere in game code. Every call takes a `seconds` lifetime: 0 shows the
+// shape until the next update (a call made every update draws a steady image), a positive value keeps it that long whatever the game does next.
+// Safe to call from any thread. Matrices are 16 floats in column-major order (glm layout).
+
+typedef struct SturdyVec4 {
+    float x;
+    float y;
+    float z;
+    float w;
+} SturdyVec4;
+
+typedef struct SturdyMat4 {
+    float m[16];
+} SturdyMat4;
+
+typedef struct SturdyDebugDrawSettings {
+    uint32_t struct_size;
+    /// Test against the scene depth (when the frame has a scene).
+    SturdyBool depth_test;
+    /// Alpha multiplier for stretches behind geometry (0 hides them).
+    float occluded_alpha;
+    /// Segments beyond this are dropped.
+    uint32_t max_lines;
+} SturdyDebugDrawSettings;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_settings_init(SturdyDebugDrawSettings *settings);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_set_settings(SturdyEngine engine, const SturdyDebugDrawSettings *settings);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_settings(SturdyEngine engine, SturdyDebugDrawSettings *out_settings);
+/// Master switch; with it off, calls are ignored and nothing is drawn.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_set_enabled(SturdyEngine engine, SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_enabled(SturdyEngine engine, SturdyBool *out_enabled);
+/// Line width, in pixels, of the shapes drawn after this call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_set_width(SturdyEngine engine, float width_pixels);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_clear(SturdyEngine engine);
+/// How many segments are alive now.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_line_count(SturdyEngine engine, uint64_t *out_count);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_line(SturdyEngine engine, SturdyVec3 a, SturdyVec3 b, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_polyline(SturdyEngine engine, const SturdyVec3 *points, uint32_t point_count, SturdyVec4 color, SturdyBool closed,
+                                                                   float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_cross(SturdyEngine engine, SturdyVec3 point, float size, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_box(SturdyEngine engine, SturdyVec3 min, SturdyVec3 max, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_oriented_box(SturdyEngine engine, SturdyMat4 transform, SturdyVec3 half_extents, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_sphere(SturdyEngine engine, SturdyVec3 center, float radius, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_circle(SturdyEngine engine, SturdyVec3 center, SturdyVec3 normal, float radius, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_capsule(SturdyEngine engine, SturdyVec3 a, SturdyVec3 b, float radius, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_cone(SturdyEngine engine, SturdyVec3 apex, SturdyVec3 direction, float length, float half_angle_radians,
+                                                               SturdyVec4 color, float seconds);
+/// `head_size` 0 picks a size from the arrow's length.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_arrow(SturdyEngine engine, SturdyVec3 from, SturdyVec3 to, SturdyVec4 color, float head_size, float seconds);
+/// Red / green / blue axes of `transform`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_axes(SturdyEngine engine, SturdyMat4 transform, float size, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_frustum(SturdyEngine engine, SturdyMat4 inverse_view_projection, SturdyVec4 color, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_debug_draw_grid(SturdyEngine engine, SturdyVec3 center, SturdyVec3 axis_u, SturdyVec3 axis_v, uint32_t half_cells, float cell_size,
+                                                               SturdyVec4 color, float seconds);
+
+// ---------------------------------------------------------------------------------------------
+// Offscreen render targets
+// ---------------------------------------------------------------------------------------------
+//
+// Images the engine renders into instead of a window: a UI image, an in-world monitor, a portal, a probe, a compute canvas. Set only `width`,
+// `height` and `use` to get the best the device can do for that use; set any other field to take that decision over.
+
+typedef struct SturdyRenderTarget {
+    /// 0 is invalid.
+    uint64_t value;
+} SturdyRenderTarget;
+
+typedef enum SturdyRenderTargetFormat {
+    /// Chosen from `use` and what the device supports.
+    STURDY_RENDER_TARGET_FORMAT_AUTO = 0,
+    /// Display-encoded SDR, exactly what a window shows.
+    STURDY_RENDER_TARGET_FORMAT_BGRA8_SRGB = 1,
+    STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2,
+    /// Linear half-float, unclamped (1.0 = paper white).
+    STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3,
+    STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4,
+    STURDY_RENDER_TARGET_FORMAT_FORCE_U32 = 0x7fffffff
+} SturdyRenderTargetFormat;
+
+typedef enum SturdyRenderTargetUse {
+    /// Shown at about its own size (a UI image): 8-bit, no mips, no anisotropy.
+    STURDY_RENDER_TARGET_USE_SCREEN = 0,
+    /// Mapped onto world geometry (an in-world monitor): 8-bit, the full mip chain, the device's highest anisotropy.
+    STURDY_RENDER_TARGET_USE_WORLD = 1,
+    /// Written by compute kernels: linear half-float with storage access when the device allows it.
+    STURDY_RENDER_TARGET_USE_COMPUTE = 2,
+    STURDY_RENDER_TARGET_USE_FORCE_U32 = 0x7fffffff
+} SturdyRenderTargetUse;
+
+typedef enum SturdyRenderTargetFeature {
+    /// Decided by `use`.
+    STURDY_RENDER_TARGET_FEATURE_AUTO = 0,
+    STURDY_RENDER_TARGET_FEATURE_OFF = 1,
+    /// On when the device supports it, otherwise off; never an error.
+    STURDY_RENDER_TARGET_FEATURE_IF_SUPPORTED = 2,
+    /// On, or creation fails with the reason.
+    STURDY_RENDER_TARGET_FEATURE_REQUIRED = 3,
+    STURDY_RENDER_TARGET_FEATURE_FORCE_U32 = 0x7fffffff
+} SturdyRenderTargetFeature;
+
+typedef enum SturdyRenderTargetFilter {
+    STURDY_RENDER_TARGET_FILTER_LINEAR = 0,
+    /// Pixel-exact.
+    STURDY_RENDER_TARGET_FILTER_NEAREST = 1,
+    STURDY_RENDER_TARGET_FILTER_FORCE_U32 = 0x7fffffff
+} SturdyRenderTargetFilter;
+
+typedef enum SturdyRenderTargetAddressMode {
+    STURDY_RENDER_TARGET_ADDRESS_CLAMP_TO_EDGE = 0,
+    STURDY_RENDER_TARGET_ADDRESS_REPEAT = 1,
+    STURDY_RENDER_TARGET_ADDRESS_MIRRORED_REPEAT = 2,
+    STURDY_RENDER_TARGET_ADDRESS_FORCE_U32 = 0x7fffffff
+} SturdyRenderTargetAddressMode;
+
+/// `mip_levels` value meaning "decided by `use`".
+#define STURDY_RENDER_TARGET_AUTO_MIPS 0xFFFFFFFFu
+
+typedef struct SturdyRenderTargetDesc {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    /// Null for no label.
+    const char *label;
+    SturdyRenderTargetFormat format;
+    SturdyRenderTargetFilter filter;
+    SturdyRenderTargetAddressMode address;
+    /// Negative = decided by `use`; 0 or 1 = off; more = a request fitted to the device. Linear filter only.
+    float max_anisotropy;
+    /// `STURDY_RENDER_TARGET_AUTO_MIPS` = by `use`; 1 = none; 0 = the full chain; otherwise a count. Rebuilt from level 0 after every frame aimed at the target.
+    uint32_t mip_levels;
+    /// Lets compute kernels write the target.
+    SturdyRenderTargetFeature storage;
+    /// 0 = each frame's own setting; 1, 2, 4, 8, 16 = this many samples for every frame aimed at the target.
+    uint32_t msaa_samples;
+    SturdyRenderTargetUse use;
+    /// Fail rather than fall back when an explicit value is beyond the device.
+    SturdyBool strict;
+} SturdyRenderTargetDesc;
+
+/// Fills `desc` with the defaults (auto everything) and the correct `struct_size`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_desc_init(SturdyRenderTargetDesc *desc);
+
+/// Creates a target. On failure the error text says why (unsupported format, zero size, `strict` request the device cannot meet).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_create(SturdyEngine engine, const SturdyRenderTargetDesc *desc, SturdyRenderTarget *out_target);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_destroy(SturdyEngine engine, SturdyRenderTarget target);
+/// Resizes in place; the handle and its texture stay valid and the contents are cleared.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_resize(SturdyEngine engine, SturdyRenderTarget target, uint32_t width, uint32_t height);
+/// Changes size, format and/or sampling in place; the handle and texture stay valid. On failure the target is left as it was.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_reconfigure(SturdyEngine engine, SturdyRenderTarget target, const SturdyRenderTargetDesc *desc);
+/// The description the target was last given. `out_desc->label` is null here; read it with `sturdy_render_target_label`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_description(SturdyEngine engine, SturdyRenderTarget target, SturdyRenderTargetDesc *out_desc);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_label(SturdyEngine engine, SturdyRenderTarget target, char *buffer, size_t capacity, size_t *out_length);
+
+/// What the request resolved to on the current device.
+typedef struct SturdyRenderTargetConfig {
+    uint32_t width;
+    uint32_t height;
+    /// Never `AUTO`.
+    SturdyRenderTargetFormat format;
+    uint32_t mip_levels;
+    SturdyRenderTargetFilter filter;
+    SturdyRenderTargetAddressMode address;
+    float max_anisotropy;
+    SturdyBool storage;
+    uint32_t msaa_samples;
+    /// How many explicit requests the device could not meet; read each with `sturdy_render_target_adjustment`.
+    uint32_t adjustment_count;
+} SturdyRenderTargetConfig;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_config(SturdyEngine engine, SturdyRenderTarget target, SturdyRenderTargetConfig *out_config);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_adjustment(SturdyEngine engine, SturdyRenderTarget target, uint32_t index, char *buffer, size_t capacity,
+                                                                        size_t *out_length);
+/// The target's backing texture (a renderer texture handle value, usable wherever the engine takes a texture, such as UI images). 0 for an unknown target.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_texture(SturdyEngine engine, SturdyRenderTarget target, uint64_t *out_texture);
+
+/// Called inside `sturdy_render_target_render_view` to describe the view: fill the camera, lighting and render-graph settings of `frame` with the usual
+/// `sturdy_frame_*` setters. The frame starts as the standard pipeline with the camera viewport set to the target's size. Return false to skip rendering.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyViewCallback)(SturdyEngine engine, const SturdyFrameInput *input, SturdyFrame frame, void *user);
+
+/// Renders the ECS scene into `target` through the view `callback` describes, synchronously. Only renderables whose visibility mask intersects the
+/// camera's culling mask appear, which keeps a viewer scene out of the window's own view. The target keeps per-target camera history for motion vectors
+/// and blur. Needs the primary window to exist (the renderer's per-surface frame state is borrowed from it; nothing is presented to it).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_target_render_view(SturdyEngine engine, SturdyRenderTarget target, SturdyViewCallback callback, void *user);
+
+// ---------------------------------------------------------------------------------------------
+// UI trees
+// ---------------------------------------------------------------------------------------------
+//
+// A UI tree is an entity with a UI tree component. The engine lays every tree out once per update, after the update schedule, on the thread that
+// updates; there is no UI thread to own. Each tree is independent (its own layout, widget state, input and output): a HUD, a docked editor and any
+// number of in-world monitors are just several entities, addressed by `SturdyEntity`.
+//
+// A tree's builder is called to lay it out and builds with the ordinary `sturdy_ui_begin_element` / `sturdy_ui_end_element` / `sturdy_ui_text` /
+// `sturdy_ui_hovered` / `sturdy_ui_clicked` calls (they act on that tree while its builder runs; the tree is not a `sturdy_ui_begin` frame).
+// Unbalanced elements fail the build. The renderer always draws a tree's latest *finished* frame: a tree that is not rebuilt, or whose builder
+// failed, keeps showing its last frame and never blocks a window. Builders run one at a time and must not spawn or destroy entities
+// (queue that with `sturdy_engine_defer`) or call back into their own tree.
+
+typedef enum SturdyUiTreeTargetKind {
+    /// Drawn over a window's frames (`window` 0 = the primary window), fed from that window's events.
+    STURDY_UI_TREE_TARGET_WINDOW = 0,
+    /// Rendered into an off-screen target, at the target's size; sample `sturdy_render_target_texture` to show it in the world.
+    STURDY_UI_TREE_TARGET_OFFSCREEN = 1,
+    /// Laid out at `headless_width` x `headless_height` pixels and drawn nowhere (tests, measuring).
+    STURDY_UI_TREE_TARGET_HEADLESS = 2,
+    STURDY_UI_TREE_TARGET_FORCE_U32 = 0x7fffffff
+} SturdyUiTreeTargetKind;
+
+typedef struct SturdyUiTreeTarget {
+    SturdyUiTreeTargetKind kind;
+    uint64_t window;
+    SturdyRenderTarget target;
+    uint32_t headless_width;
+    uint32_t headless_height;
+} SturdyUiTreeTarget;
+
+typedef enum SturdyUiRebuildPolicy {
+    /// Every update (a HUD that shows live values).
+    STURDY_UI_REBUILD_EVERY_UPDATE = 0,
+    /// Only when input reached the tree, a rebuild was requested, or the extent changed (in-world panels, static tools).
+    STURDY_UI_REBUILD_ON_DIRTY = 1,
+    /// At most `rebuild_hz` times per second, plus the on-dirty triggers (a monitor showing a clock or a graph).
+    STURDY_UI_REBUILD_FIXED_RATE = 2,
+    STURDY_UI_REBUILD_FORCE_U32 = 0x7fffffff
+} SturdyUiRebuildPolicy;
+
+/// What a builder is handed each time its tree is laid out. Valid only inside the builder.
+typedef struct SturdyUiTreeFrame {
+    uint32_t struct_size;
+    /// The entity that carries the tree.
+    SturdyEntity entity;
+    /// Framebuffer pixels the tree is laid out at (layout units are pixels divided by the tree's scale).
+    float width;
+    float height;
+    /// Seconds since this tree was last laid out (a skipped tree sees the whole gap).
+    float delta_seconds;
+    /// How many times this tree has been laid out before.
+    uint64_t build_index;
+    /// Set true to lay the tree out again next update even under on-dirty / fixed-rate policies (an animation still running).
+    SturdyBool request_rebuild;
+} SturdyUiTreeFrame;
+
+typedef void(STURDY_ABI_CALL *SturdyUiTreeBuilder)(SturdyEngine engine, SturdyUiTreeFrame *frame, void *user);
+
+typedef struct SturdyUiTreeDesc {
+    uint32_t struct_size;
+    /// For logs, stats and the overlay pass name; null for "ui".
+    const char *name;
+    SturdyUiTreeTarget target;
+    SturdyUiRebuildPolicy rebuild;
+    /// Fixed-rate policy only.
+    float rebuild_hz;
+    /// Stacking among trees on the same window: higher draws on top and gets the pointer first.
+    int32_t layer;
+    SturdyUiScaleMode scale_mode;
+    /// Content scale for off-screen and headless trees (window trees follow their window's). 1 = a layout unit is a pixel.
+    float content_scale;
+    /// HDR displays only: scales the reference white the UI is composed at.
+    float hdr_reference_white_scale;
+    /// Window trees only: whether the engine feeds the tree from its window's mouse, keyboard and text events.
+    SturdyBool window_input;
+    /// Off-screen trees only: what the target is cleared to before the UI is drawn (straight-alpha linear RGBA).
+    float clear_color[4];
+    /// A build longer than this is counted in the stats and logged.
+    float build_budget_ms;
+    SturdyUiTreeBuilder builder;
+    void *user;
+    /// Called once with `user` when the tree is gone and its builder can never run again. May be null.
+    void(STURDY_ABI_CALL *release_user)(void *user);
+} SturdyUiTreeDesc;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_desc_init(SturdyUiTreeDesc *desc);
+/// Spawns an entity whose only component is the tree. `STURDY_ERROR_INVALID_ARGUMENT` for a null builder. Not callable from inside a builder.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_spawn(SturdyEngine engine, const SturdyUiTreeDesc *desc, SturdyEntity *out_entity);
+/// Replaces the builder (and its `user` / `release_user`). The previous `release_user` runs once the old builder is no longer in use.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_set_builder(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeBuilder builder, void *user,
+                                                                   void(STURDY_ABI_CALL *release_user)(void *user));
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_set_target(SturdyEngine engine, SturdyEntity entity, const SturdyUiTreeTarget *target);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_target(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeTarget *out_target);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_set_rebuild_policy(SturdyEngine engine, SturdyEntity entity, SturdyUiRebuildPolicy policy, float rebuild_hz);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_set_layer(SturdyEngine engine, SturdyEntity entity, int32_t layer);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_layer(SturdyEngine engine, SturdyEntity entity, int32_t *out_layer);
+/// Lays the tree out at the next update whatever its policy. Any thread.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_request_rebuild(SturdyEngine engine, SturdyEntity entity);
+/// Points at the tree: `has_uv` false = the pointer is not on it (cancels a press in progress); otherwise `u` / `v` in [0, 1] across it. `down` is the
+/// primary button. The way to drive off-screen and headless trees.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_point_at(SturdyEngine engine, SturdyEntity entity, SturdyBool has_uv, float u, float v, SturdyBool down);
+/// Scrolls the tree by `dx` / `dy`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_scroll(SturdyEngine engine, SturdyEntity entity, float dx, float dy);
+/// Types committed text (UTF-8) into the tree's focused field.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_add_text(SturdyEngine engine, SturdyEntity entity, const char *utf8);
+/// Whether the pointer was over the tree (or dragging in it) at its last build: the "did the UI take this click" answer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_pointer_consumed(SturdyEngine engine, SturdyEntity entity, SturdyBool *out_consumed);
+
+typedef struct SturdyUiTreeStats {
+    uint64_t builds;
+    /// Updates in which the tree was not rebuilt because its policy said it was clean.
+    uint64_t skipped;
+    uint64_t over_budget;
+    uint64_t failed_builds;
+    /// Off-screen trees: frames rendered into the target.
+    uint64_t target_renders;
+    double last_build_ms;
+    double max_build_ms;
+    /// Extent of the latest finished frame (0 before the first).
+    float last_width;
+    float last_height;
+} SturdyUiTreeStats;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_stats(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeStats *out_stats);
+/// Message of the last failed build (string-output convention); empty if none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_last_error(SturdyEngine engine, SturdyEntity entity, char *buffer, size_t capacity, size_t *out_length);
+/// How many trees the engine laid out at its last build.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_count(SturdyEngine engine, uint64_t *out_count);
+/// Renders every off-screen tree that has a frame its target has not shown yet. The application loop does this after each update; an embedder driving
+/// frames itself calls it at the same point. `out_rendered` (may be null) receives how many targets were rendered.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_render_targets(SturdyEngine engine, uint64_t *out_rendered);
+
+// ---------------------------------------------------------------------------------------------
+// Update boundary hooks, runtime settings, presentation timing
+// ---------------------------------------------------------------------------------------------
+
+/// Called at the start of an update, on the thread that updates. `engine` is valid only for the call.
+typedef void(STURDY_ABI_CALL *SturdyDeferredAction)(SturdyEngine engine, void *user);
+/// Queues `action` to run at the start of the next update, on the updating thread and before the update schedule runs, so it can do what is forbidden
+/// while systems run (remove a system, replace a module, spawn or destroy entities from a UI builder). Callable from any thread, including from inside
+/// a system or a frame callback. Actions run in the order queued; one queued by another action runs in the following update. `release_user` (may be
+/// null) runs with `user` after the action ran.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_defer(SturdyEngine engine, SturdyDeferredAction action, void *user, void(STURDY_ABI_CALL *release_user)(void *user));
+
+/// Called at the start of every update with the scaled delta (after queued boundary actions and the clocks advanced, before transforms propagate and the
+/// update schedule runs). Nothing else touches the world then, so a hook may spawn, destroy and change entities, and register or remove systems.
+typedef void(STURDY_ABI_CALL *SturdyUpdateHook)(SturdyEngine engine, double delta_seconds, void *user);
+/// Registers a hook; hooks run in registration order. Callable from any thread and from inside a hook (the new hook first runs next update).
+/// `release_user` (may be null) runs with `user` once the hook is removed and can never run again.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_add_update_hook(SturdyEngine engine, SturdyUpdateHook hook, void *user,
+                                                                      void(STURDY_ABI_CALL *release_user)(void *user), uint64_t *out_hook);
+/// Removes a hook; safe from inside the hook itself. `STURDY_ERROR_NOT_AVAILABLE` for an unknown id.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_remove_update_hook(SturdyEngine engine, uint64_t hook);
+
+/// Called for every device change, including `SWITCHING` while the old device is still alive (release GPU objects tied to it now). Runs on the
+/// thread making the change and must not call `sturdy_engine_switch_device`. `event` is valid only for the call.
+typedef void(STURDY_ABI_CALL *SturdyDeviceObserver)(SturdyEngine engine, const SturdyDeviceChangeEvent *event, void *user);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_add_device_observer(SturdyEngine engine, SturdyDeviceObserver observer, void *user,
+                                                                          void(STURDY_ABI_CALL *release_user)(void *user), uint64_t *out_observer);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_remove_device_observer(SturdyEngine engine, uint64_t observer);
+
+typedef enum SturdyRuntimeSettingApplyMode {
+    STURDY_RUNTIME_SETTING_NO_CHANGE = 0,
+    STURDY_RUNTIME_SETTING_HOT_APPLIED = 1,
+    STURDY_RUNTIME_SETTING_SURFACE_RECREATED = 2,
+    STURDY_RUNTIME_SETTING_DEVICE_RECREATED = 3,
+    STURDY_RUNTIME_SETTING_BACKEND_RECREATED = 4,
+    STURDY_RUNTIME_SETTING_UNSUPPORTED = 5,
+    STURDY_RUNTIME_SETTING_FORCE_U32 = 0x7fffffff
+} SturdyRuntimeSettingApplyMode;
+
+typedef struct SturdyRuntimeSettingsResult {
+    SturdyRuntimeSettingApplyMode mode;
+    char message[256];
+} SturdyRuntimeSettingsResult;
+
+/// Applies the engine-level fields of `config` to the running engine, taking the cheapest route that works (hot-apply, recreate the surface, the device
+/// or the backend). Uses `graphics_backend`, `physical_device_id`, `enable_raytracing`, `enable_shader_disk_cache`, `enable_native_access`,
+/// `shaders_directory` and `app_name`; window fields are ignored. `surface` names the primary surface.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_apply_runtime_settings(SturdyEngine engine, SturdySurface surface, const SturdyRuntimeConfig *config,
+                                                                             SturdyRuntimeSettingsResult *out_result);
+
+/// Display-clock feedback for a surface (refresh cycle, fixed or variable refresh, measured display intervals). `available` false: the backend cannot report
+/// presentation timing and everything else is unknown.
+typedef struct SturdyPresentTimingFeedback {
+    SturdyBool available;
+    /// Each optional value is meaningful only when its `has_` flag is set.
+    SturdyBool has_refresh_duration;
+    SturdyBool has_variable_refresh;
+    SturdyBool variable_refresh_active;
+    double refresh_duration_seconds;
+    uint32_t sample_count;
+    double mean_display_interval;
+    /// Standard deviation of the display interval.
+    double display_interval_jitter;
+    double max_display_interval;
+    /// Frames that stayed on screen more than 1.5 refresh cycles longer than intended on a fixed-refresh display.
+    uint64_t missed_refreshes;
+    uint64_t presents_reported;
+    uint64_t last_present_id;
+    /// `steady_clock` nanoseconds the newest reported present reached the display; 0 = none yet.
+    uint64_t last_display_time_ns;
+    /// Frame start to display, seconds (mean + 2 sigma over the recent window).
+    double frame_to_display_estimate;
+} SturdyPresentTimingFeedback;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_engine_present_timing_feedback(SturdyEngine engine, SturdySurface surface, SturdyPresentTimingFeedback *out_feedback);
+
+// ---------------------------------------------------------------------------------------------
+// Text documents
+// ---------------------------------------------------------------------------------------------
+//
+// An editable, versioned rope of UTF-8 text with undo and redo, line and position mapping, word and bracket navigation and search: the model behind a
+// code editor. Offsets are byte offsets into the UTF-8 text and must be on character boundaries (`sturdy_document_clip_offset` snaps one). Columns are
+// Unicode scalar columns, or UTF-16 code unit columns in the `utf16` calls. Owned: a document lives until `sturdy_document_destroy`. Not internally
+// synchronized: use one from a single thread at a time.
+
+typedef struct SturdyDocument {
+    uint64_t token;
+} SturdyDocument;
+
+typedef struct SturdyByteRange {
+    uint64_t start;
+    uint64_t end;
+} SturdyByteRange;
+
+typedef struct SturdyTextPoint {
+    uint64_t line;
+    /// A Unicode scalar column, or a UTF-16 code unit column for the `utf16` calls.
+    uint64_t column;
+} SturdyTextPoint;
+
+typedef enum SturdyEditKind {
+    /// A self-contained edit: its own undo step.
+    STURDY_EDIT_STANDALONE = 0,
+    /// Typing: consecutive typing edits merge into one undo step.
+    STURDY_EDIT_TYPING = 1,
+    /// Deleting: consecutive deletions merge into one undo step.
+    STURDY_EDIT_DELETION = 2,
+    STURDY_EDIT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyEditKind;
+
+/// One edit: replace `range` with `replacement` (`replacement_size` bytes of UTF-8, no terminator needed).
+typedef struct SturdyTextEdit {
+    SturdyByteRange range;
+    const char *replacement;
+    size_t replacement_size;
+} SturdyTextEdit;
+
+typedef enum SturdyCharClass {
+    STURDY_CHAR_CLASS_WHITESPACE = 0,
+    STURDY_CHAR_CLASS_WORD = 1,
+    STURDY_CHAR_CLASS_PUNCTUATION = 2,
+    STURDY_CHAR_CLASS_FORCE_U32 = 0x7fffffff
+} SturdyCharClass;
+
+typedef enum SturdyLineEnding {
+    STURDY_LINE_ENDING_LF = 0,
+    STURDY_LINE_ENDING_CRLF = 1,
+    STURDY_LINE_ENDING_FORCE_U32 = 0x7fffffff
+} SturdyLineEnding;
+
+typedef struct SturdyIndentStyle {
+    /// True: tabs. False: `width` spaces.
+    SturdyBool tabs;
+    uint64_t width;
+} SturdyIndentStyle;
+
+typedef struct SturdyLineIndent {
+    uint64_t whitespace_bytes;
+    uint64_t whitespace_scalars;
+    SturdyBool has_tabs;
+    SturdyBool has_spaces;
+} SturdyLineIndent;
+
+typedef struct SturdyDocumentStats {
+    uint64_t logical_bytes;
+    uint64_t backing_storage_bytes;
+    uint64_t tree_nodes;
+    uint64_t pieces;
+    uint64_t maximum_tree_depth;
+    uint64_t undo_revisions;
+    uint64_t redo_revisions;
+    uint64_t scalars;
+    uint64_t utf16_code_units;
+    uint64_t newlines;
+    SturdyBool ascii;
+} SturdyDocumentStats;
+
+/// What an applied edit, undo or redo changed. The per-change details are read with `sturdy_document_change` / `sturdy_document_change_text` until the next
+/// edit.
+typedef struct SturdyApplyResult {
+    uint64_t revision_before;
+    uint64_t revision_after;
+    uint32_t change_count;
+} SturdyApplyResult;
+
+typedef struct SturdyDocumentChange {
+    /// The replaced range in the old text and the range the new text occupies.
+    SturdyByteRange old_range;
+    SturdyByteRange new_range;
+} SturdyDocumentChange;
+
+typedef enum SturdyChangeText {
+    STURDY_CHANGE_TEXT_INSERTED = 0,
+    STURDY_CHANGE_TEXT_DELETED = 1,
+    STURDY_CHANGE_TEXT_FORCE_U32 = 0x7fffffff
+} SturdyChangeText;
+
+/// `initial` may be null for an empty document. `STURDY_ERROR_INVALID_ARGUMENT` when it is not valid UTF-8.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_create(const char *initial, size_t initial_size, SturdyDocument *out_document);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_destroy(SturdyDocument document);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_revision(SturdyDocument document, uint64_t *out_revision);
+/// The whole text / a byte range of it (string-output convention; the text may contain NUL bytes, `out_length` counts them).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_text(SturdyDocument document, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_slice(SturdyDocument document, SturdyByteRange range, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_line_count(SturdyDocument document, uint64_t *out_count);
+/// Byte range of `line` (without its terminator); `STURDY_ERROR_OUT_OF_RANGE` past the last line.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_line_range(SturdyDocument document, uint64_t line, SturdyByteRange *out_range);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_stats(SturdyDocument document, SturdyDocumentStats *out_stats);
+
+/// Applies `edit_count` replacements as one transaction (ranges in the current text, non-overlapping). On failure (invalid range or boundary,
+/// overlap, invalid UTF-8) nothing changes and the error text names the reason.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_apply(SturdyDocument document, const SturdyTextEdit *edits, uint32_t edit_count, SturdyEditKind kind,
+                                                              SturdyApplyResult *out_result);
+/// `STURDY_ERROR_NOT_AVAILABLE` when there is nothing to undo / redo.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_undo(SturdyDocument document, SturdyApplyResult *out_result);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_redo(SturdyDocument document, SturdyApplyResult *out_result);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_change(SturdyDocument document, uint32_t index, SturdyDocumentChange *out_change);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_change_text(SturdyDocument document, uint32_t index, SturdyChangeText which, char *buffer, size_t capacity,
+                                                                    size_t *out_length);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_offset_to_point(SturdyDocument document, uint64_t offset, SturdyTextPoint *out_point);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_offset_to_utf16(SturdyDocument document, uint64_t offset, SturdyTextPoint *out_point);
+/// `STURDY_ERROR_OUT_OF_RANGE` for a position past the end of the line or document.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_point_to_offset(SturdyDocument document, SturdyTextPoint point, uint64_t *out_offset);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_utf16_to_offset(SturdyDocument document, SturdyTextPoint point, uint64_t *out_offset);
+/// Snaps `offset` to a character boundary (after = round up, otherwise down) and into the text.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_clip_offset(SturdyDocument document, uint64_t offset, SturdyBool after, uint64_t *out_offset);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_char_class_at(SturdyDocument document, uint64_t offset, SturdyCharClass *out_class);
+/// The word around `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_word_range_at(SturdyDocument document, uint64_t offset, SturdyByteRange *out_range);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_next_word_boundary(SturdyDocument document, uint64_t offset, uint64_t *out_offset);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_previous_word_boundary(SturdyDocument document, uint64_t offset, uint64_t *out_offset);
+/// The bracket matching the one at `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_matching_bracket(SturdyDocument document, uint64_t offset, uint64_t *out_offset);
+/// Searches from `from` forward or backward; `STURDY_ERROR_NOT_AVAILABLE` when there is no match.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_find(SturdyDocument document, const char *pattern, uint64_t from, SturdyBool forward, SturdyBool case_sensitive,
+                                                             SturdyByteRange *out_range);
+/// Every non-overlapping match. Writes up to `capacity` ranges and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_find_all(SturdyDocument document, const char *pattern, SturdyBool case_sensitive, SturdyByteRange *out_ranges,
+                                                                 uint32_t capacity, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_is_line_blank(SturdyDocument document, uint64_t line, SturdyBool *out_blank);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_line_indent(SturdyDocument document, uint64_t line, SturdyLineIndent *out_indent);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_detect_indent(SturdyDocument document, SturdyIndentStyle *out_style);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_document_detect_line_ending(SturdyDocument document, SturdyLineEnding *out_ending);
+
+// ---------------------------------------------------------------------------------------------
+// Dock workspaces
+// ---------------------------------------------------------------------------------------------
+//
+// A tabbed, splittable, drag-to-rearrange panel layout (editor-style docking). Owned: a workspace lives until `sturdy_dock_destroy`, persists across
+// frames, and is driven once per frame from inside an open UI frame (a `sturdy_ui_begin` frame or a UI tree builder): `sturdy_dock_begin_frame`, then for
+// each panel `sturdy_dock_begin_panel_content` ... `sturdy_ui_end_element`, then `sturdy_dock_end_frame`. Panels are identified by UTF-8 string ids.
+
+typedef struct SturdyDockWorkspace {
+    uint64_t token;
+} SturdyDockWorkspace;
+
+typedef enum SturdyDockZone {
+    /// Add as a tab of the target leaf.
+    STURDY_DOCK_ZONE_CENTER = 0,
+    /// Split the target leaf and put the panel on that side.
+    STURDY_DOCK_ZONE_LEFT = 1,
+    STURDY_DOCK_ZONE_RIGHT = 2,
+    STURDY_DOCK_ZONE_TOP = 3,
+    STURDY_DOCK_ZONE_BOTTOM = 4,
+    STURDY_DOCK_ZONE_FORCE_U32 = 0x7fffffff
+} SturdyDockZone;
+
+/// Where a panel goes. `has_placement` false lets the workspace pick (the focused leaf, else the root).
+typedef struct SturdyDockPlacement {
+    SturdyBool has_placement;
+    /// A node id, such as `sturdy_dock_focused_leaf` reports.
+    uint32_t target_node;
+    SturdyDockZone zone;
+} SturdyDockPlacement;
+
+typedef struct SturdyDockPanelInfo {
+    SturdyBool closable;
+    /// Bytes of the title; read it with `sturdy_dock_panel_title`.
+    uint32_t title_length;
+} SturdyDockPanelInfo;
+
+/// A tab drag in progress.
+typedef struct SturdyDockTabDrag {
+    uint32_t source_leaf;
+    /// Pointer position in the workspace's own coordinate space.
+    float pointer_x;
+    float pointer_y;
+    /// Bytes of the dragged panel's id; read it with `sturdy_dock_active_tab_drag_panel`.
+    uint32_t panel_length;
+} SturdyDockTabDrag;
+
+/// What one frame asked for. The workspace does not act on these itself: a tear-off means "the user dragged this panel out", a close request "the user
+/// clicked its close button"; the caller decides.
+typedef struct SturdyDockEvents {
+    uint32_t tear_off_count;
+    uint32_t close_request_count;
+} SturdyDockEvents;
+
+/// `id_prefix` namespaces the element ids the workspace's chrome generates (tabs, dividers, close buttons): distinct per workspace. May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_create(const char *id_prefix, SturdyDockWorkspace *out_workspace);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_destroy(SturdyDockWorkspace workspace);
+/// Adds a panel (a tab). `STURDY_ERROR_COMPONENT_PRESENT` when `id` is already there, `STURDY_ERROR_INVALID_ARGUMENT` for an invalid placement.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_add_panel(SturdyDockWorkspace workspace, const char *id, const char *title, SturdyBool closable,
+                                                              const SturdyDockPlacement *placement);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_remove_panel(SturdyDockWorkspace workspace, const char *id);
+/// Moves panel `id` from `origin` into `target` (as the window coordinator does between two windows' workspaces): accepted by `target` at `placement`, then
+/// removed from `origin`. Nothing changes when `origin` lacks the panel or `target` rejects it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_transfer_panel(SturdyDockWorkspace origin, SturdyDockWorkspace target, const char *id, const SturdyDockPlacement *placement);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_has_panel(SturdyDockWorkspace workspace, const char *id, SturdyBool *out_has);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_is_empty(SturdyDockWorkspace workspace, SturdyBool *out_empty);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_panel_info(SturdyDockWorkspace workspace, const char *id, SturdyDockPanelInfo *out_info);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_panel_title(SturdyDockWorkspace workspace, const char *id, char *buffer, size_t capacity, size_t *out_length);
+/// The focused leaf's node id; `STURDY_ERROR_NOT_AVAILABLE` if none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_focused_leaf(SturdyDockWorkspace workspace, uint32_t *out_node);
+/// `STURDY_ERROR_NOT_AVAILABLE` when no tab is being dragged.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_active_tab_drag(SturdyDockWorkspace workspace, SturdyDockTabDrag *out_drag);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_active_tab_drag_panel(SturdyDockWorkspace workspace, char *buffer, size_t capacity, size_t *out_length);
+/// Straight-alpha sRGB.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_set_content_background(SturdyDockWorkspace workspace, const float rgba[4]);
+
+/// Saves the layout as text (string-output convention) and restores one. `restore` fails with `STURDY_ERROR_INVALID_ARGUMENT` for malformed text or a
+/// layout that refers to panels the workspace does not have.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_save_layout(SturdyDockWorkspace workspace, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_restore_layout(SturdyDockWorkspace workspace, const char *layout);
+
+/// Lays out and draws the chrome into the rectangle (`x`, `y`, `width`, `height`, in the open UI layout's coordinate space) and processes this frame's tab
+/// and divider drags. Needs an open UI frame (`STURDY_ERROR_BUSY` otherwise) and must come before any `sturdy_dock_begin_panel_content`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_begin_frame(SturdyDockWorkspace workspace, float x, float y, float width, float height, float delta_seconds);
+/// Opens an element covering panel `id`'s content region (only if it is the active tab of its leaf this frame); add content as children and close it with
+/// `sturdy_ui_end_element`. `STURDY_ERROR_NOT_AVAILABLE` (opening nothing) for a hidden or unknown panel.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_begin_panel_content(SturdyDockWorkspace workspace, const char *id);
+/// Finishes the frame (drop guides, deferred drops) and keeps its events for `sturdy_dock_tear_off` / `sturdy_dock_close_request` until the next frame ends.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_end_frame(SturdyDockWorkspace workspace, SturdyDockEvents *out_events);
+/// Panel id of tear-off `index` and the workspace-local drop position.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_tear_off(SturdyDockWorkspace workspace, uint32_t index, float *out_x, float *out_y, char *buffer, size_t capacity,
+                                                             size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_close_request(SturdyDockWorkspace workspace, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+
+/// Drag preview of a panel dragged out of ANOTHER workspace over this one, inside an open UI frame. `local_pointer` is workspace-local. Reports the placement
+/// the pointer currently targets (drawing the drop guide); `STURDY_ERROR_NOT_AVAILABLE` when it targets none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_preview_foreign_drag_target(SturdyDockWorkspace workspace, float local_x, float local_y,
+                                                                               SturdyDockPlacement *out_placement);
+/// Previews (and on `released`, drops) `foreign_panel` at the pointer. `out_applied` says whether the drop was applied.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_preview_foreign_drag(SturdyDockWorkspace workspace, const char *foreign_panel, float local_x, float local_y,
+                                                                         SturdyBool released, SturdyBool *out_applied);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dock_clear_foreign_drag_preview(SturdyDockWorkspace workspace);
+
+// ---------------------------------------------------------------------------------------------
+// Ragdolls
+// ---------------------------------------------------------------------------------------------
+//
+// A ragdoll definition for an animated humanoid: one capsule per major bone, joints with human-plausible swing/twist limits, masses from anthropometric
+// fractions, all built from the entity's skeleton rest pose. The definition is solver-agnostic data: create the bodies and joints in your physics
+// engine from it, simulate, then feed the body rotations back with `sturdy_ragdoll_apply_body_rotations`. Owned: lives until `sturdy_ragdoll_destroy`.
+
+typedef struct SturdyRagdoll {
+    uint64_t token;
+} SturdyRagdoll;
+
+typedef struct SturdyRagdollOptions {
+    uint32_t struct_size;
+    float total_mass;
+    /// Capsule radius as a fraction of segment length for limbs / the torso.
+    float limb_radius_ratio;
+    float torso_radius_ratio;
+} SturdyRagdollOptions;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_options_init(SturdyRagdollOptions *options);
+
+typedef enum SturdyRagdollJointKind {
+    STURDY_RAGDOLL_JOINT_BALL = 0,
+    STURDY_RAGDOLL_JOINT_HINGE = 1,
+    STURDY_RAGDOLL_JOINT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyRagdollJointKind;
+
+/// One rigid capsule. Its frame is its skeleton joint's frame, so a solver can start it at `rest_rotation` and read its world rotation straight back.
+typedef struct SturdyRagdollBody {
+    /// Skeleton joint this body drives.
+    uint32_t joint;
+    /// Body of the nearest simulated ancestor; 0xFFFFFFFF for the root.
+    uint32_t parent_body;
+    /// Humanoid slot (the engine's humanoid bone ordering, Hips = 0).
+    uint32_t humanoid_bone;
+    float mass;
+    float radius;
+    /// Tip-to-tip segment length (capsule core, excluding the caps).
+    float length;
+    /// Capsule centre relative to the joint, in the joint's frame, and the capsule axis (unit) in that frame.
+    SturdyVec3 center_offset;
+    SturdyVec3 axis;
+    /// Joint position and orientation in model space at rest.
+    SturdyVec3 rest_position;
+    SturdyQuat rest_rotation;
+} SturdyRagdollBody;
+
+typedef struct SturdyRagdollJoint {
+    /// The child body this joint attaches and its parent.
+    uint32_t body;
+    uint32_t parent_body;
+    SturdyRagdollJointKind kind;
+    /// Anchor on the parent body (its frame) where the child's origin is attached.
+    SturdyVec3 anchor_in_parent;
+    /// Ball joints: swing/twist limits in the child's frame, relative to the parent.
+    SturdyPhysicsSwingTwistLimits limits;
+    /// Hinge joints: rotation axis in the child's frame and its angle range in radians.
+    SturdyVec3 hinge_axis;
+    float hinge_min;
+    float hinge_max;
+    /// Active-ragdoll motor gains (see `sturdy_physics_pd_drive`): pull toward the animated pose.
+    float drive_stiffness;
+    float drive_damping;
+} SturdyRagdollJoint;
+
+/// Builds a definition for the humanoid skeleton of an animated entity (a skeleton animator or an animation-graph player). Fails with
+/// `STURDY_ERROR_NOT_AVAILABLE` when the entity has no skeleton or the rig has no usable humanoid mapping (hips, both legs and both arms).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_build(SturdyEngine engine, SturdyEntity entity, const SturdyRagdollOptions *options, SturdyRagdoll *out_ragdoll);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_destroy(SturdyRagdoll ragdoll);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_body_count(SturdyRagdoll ragdoll, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_joint_count(SturdyRagdoll ragdoll, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_total_mass(SturdyRagdoll ragdoll, float *out_mass);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_body(SturdyRagdoll ragdoll, uint32_t index, SturdyRagdollBody *out_body);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_joint(SturdyRagdoll ragdoll, uint32_t index, SturdyRagdollJoint *out_joint);
+/// The body driving skeleton joint `joint`; `STURDY_ERROR_NOT_AVAILABLE` when none does.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_body_for_joint(SturdyRagdoll ragdoll, uint32_t joint, uint32_t *out_body);
+/// Model-space orientation each body should have to match the entity's current animation pose, one per body: the targets a drive or a kinematic follow
+/// tracks. Writes up to `capacity` and reports the body count in `out_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_target_body_rotations(SturdyEngine engine, SturdyRagdoll ragdoll, SturdyEntity entity, SturdyQuat *out_rotations,
+                                                                             uint32_t capacity, uint32_t *out_count);
+/// Writes simulated body orientations (model space, one per body) into the entity's current pose: every driven joint takes its body's rotation relative to
+/// its skeleton parent, the others keep the animation's. The result is local joint rotations, one per skeleton joint, in `out_joint_rotations`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ragdoll_apply_body_rotations(SturdyEngine engine, SturdyRagdoll ragdoll, SturdyEntity entity, const SturdyQuat *body_rotations,
+                                                                            uint32_t body_count, SturdyQuat *out_joint_rotations, uint32_t capacity, uint32_t *out_joint_count);
 
 #ifdef __cplusplus
 } // extern "C"

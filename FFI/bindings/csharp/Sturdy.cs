@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 42; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 43; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -40,6 +40,13 @@ namespace Sturdy
     {
         STURDY_ACCESS_READ = 0,
         STURDY_ACCESS_WRITE = 1,
+    }
+
+    public enum SturdyAdapterPresentable : int
+    {
+        STURDY_ADAPTER_PRESENTABLE_UNKNOWN = 0,
+        STURDY_ADAPTER_PRESENTABLE_YES = 1,
+        STURDY_ADAPTER_PRESENTABLE_NO = 2,
     }
 
     /// Selects which of the adapter's text fields `sturdy_rhi_adapter_string` returns.
@@ -187,6 +194,19 @@ namespace Sturdy
         STURDY_BORDER_COLOR_OPAQUE_WHITE = 2,
     }
 
+    public enum SturdyChangeText : int
+    {
+        STURDY_CHANGE_TEXT_INSERTED = 0,
+        STURDY_CHANGE_TEXT_DELETED = 1,
+    }
+
+    public enum SturdyCharClass : int
+    {
+        STURDY_CHAR_CLASS_WHITESPACE = 0,
+        STURDY_CHAR_CLASS_WORD = 1,
+        STURDY_CHAR_CLASS_PUNCTUATION = 2,
+    }
+
     /// Swapchain color space, including real display HDR transfer functions. Matches `RHI::ColorSpace`. `STURDY_COLOR_SPACE_DOLBY_VISION` is declared for completeness but not implemented by either backend yet; requesting it will not succeed.
     public enum SturdyColorSpace : int
     {
@@ -259,6 +279,30 @@ namespace Sturdy
         STURDY_CURSOR_ICON_RESIZE_NW = 21,
     }
 
+    public enum SturdyDeviceChangeKind : int
+    {
+        STURDY_DEVICE_CHANGE_SWITCHING = 0,
+        STURDY_DEVICE_CHANGE_SWITCHED = 1,
+        STURDY_DEVICE_CHANGE_RECOVERED = 2,
+        STURDY_DEVICE_CHANGE_LOST_UNRECOVERABLE = 3,
+    }
+
+    public enum SturdyDevicePreference : int
+    {
+        STURDY_DEVICE_PREFERENCE_DEFAULT = 0,
+        STURDY_DEVICE_PREFERENCE_HIGH_PERFORMANCE = 1,
+        STURDY_DEVICE_PREFERENCE_LOW_POWER = 2,
+        STURDY_DEVICE_PREFERENCE_DISCRETE_ONLY = 3,
+        STURDY_DEVICE_PREFERENCE_INTEGRATED_ONLY = 4,
+    }
+
+    public enum SturdyDeviceSwitchOutcome : int
+    {
+        STURDY_DEVICE_SWITCH_SWITCHED = 0,
+        STURDY_DEVICE_SWITCH_FALLBACK = 1,
+        STURDY_DEVICE_SWITCH_FAILED = 2,
+    }
+
     /// Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists.
     public enum SturdyDeviceType : int
     {
@@ -276,6 +320,31 @@ namespace Sturdy
         STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2,
         STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3,
         STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4,
+    }
+
+    public enum SturdyDockZone : int
+    {
+        STURDY_DOCK_ZONE_CENTER = 0,
+        STURDY_DOCK_ZONE_LEFT = 1,
+        STURDY_DOCK_ZONE_RIGHT = 2,
+        STURDY_DOCK_ZONE_TOP = 3,
+        STURDY_DOCK_ZONE_BOTTOM = 4,
+    }
+
+    public enum SturdyDropKind : int
+    {
+        STURDY_DROP_BEGIN = 0,
+        STURDY_DROP_HOVER = 1,
+        STURDY_DROP_FILE = 2,
+        STURDY_DROP_TEXT = 3,
+        STURDY_DROP_COMPLETE = 4,
+    }
+
+    public enum SturdyEditKind : int
+    {
+        STURDY_EDIT_STANDALONE = 0,
+        STURDY_EDIT_TYPING = 1,
+        STURDY_EDIT_DELETION = 2,
     }
 
     /// The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change.
@@ -376,6 +445,12 @@ namespace Sturdy
     {
         STURDY_FRAME_LENGTH_DELIMITED = 0,
         STURDY_FRAME_LINES = 1,
+    }
+
+    public enum SturdyFrameMode : int
+    {
+        STURDY_FRAME_MODE_CONTINUOUS = 0,
+        STURDY_FRAME_MODE_ON_DEMAND = 1,
     }
 
     /// The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`.
@@ -571,6 +646,12 @@ namespace Sturdy
         STURDY_LATENCY_MODE_ULTRA = 2,
     }
 
+    public enum SturdyLineEnding : int
+    {
+        STURDY_LINE_ENDING_LF = 0,
+        STURDY_LINE_ENDING_CRLF = 1,
+    }
+
     /// Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.
     public enum SturdyLinuxBlurProtocol : int
     {
@@ -709,6 +790,19 @@ namespace Sturdy
         STURDY_OPACITY_MICROMAP_FORMAT_FOUR_STATE = 1,
     }
 
+    public enum SturdyPhysicsContactKind : int
+    {
+        STURDY_PHYSICS_CONTACT_IMPACT = 0,
+        STURDY_PHYSICS_CONTACT_SCRAPE = 1,
+    }
+
+    public enum SturdyPhysicsImpactOutcome : int
+    {
+        STURDY_PHYSICS_IMPACT_STOPPED = 0,
+        STURDY_PHYSICS_IMPACT_PENETRATED = 1,
+        STURDY_PHYSICS_IMPACT_RICOCHETED = 2,
+    }
+
     /// Outcome of a platform-level display/HDR query, distinct from `SturdyResult`: the call itself succeeded (a device and surface exist), but the platform may still have nothing useful to report. Matches `RHI::PlatformQueryStatus`.
     public enum SturdyPlatformQueryStatus : int
     {
@@ -826,6 +920,12 @@ namespace Sturdy
         STURDY_QUEUE_CLASS_VIDEO_ENCODE = 5,
     }
 
+    public enum SturdyRagdollJointKind : int
+    {
+        STURDY_RAGDOLL_JOINT_BALL = 0,
+        STURDY_RAGDOLL_JOINT_HINGE = 1,
+    }
+
     /// Matches `RHI::RayTracingShaderGroupType`.
     public enum SturdyRayTracingShaderGroupType : int
     {
@@ -855,6 +955,43 @@ namespace Sturdy
         STURDY_RENDER_FEATURE_DEBUG_OVERLAY = 6,
         STURDY_RENDER_FEATURE_RESTIR_GI = 7,
         STURDY_RENDER_FEATURE_MOTION_BLUR = 8,
+    }
+
+    public enum SturdyRenderTargetAddressMode : int
+    {
+        STURDY_RENDER_TARGET_ADDRESS_CLAMP_TO_EDGE = 0,
+        STURDY_RENDER_TARGET_ADDRESS_REPEAT = 1,
+        STURDY_RENDER_TARGET_ADDRESS_MIRRORED_REPEAT = 2,
+    }
+
+    public enum SturdyRenderTargetFeature : int
+    {
+        STURDY_RENDER_TARGET_FEATURE_AUTO = 0,
+        STURDY_RENDER_TARGET_FEATURE_OFF = 1,
+        STURDY_RENDER_TARGET_FEATURE_IF_SUPPORTED = 2,
+        STURDY_RENDER_TARGET_FEATURE_REQUIRED = 3,
+    }
+
+    public enum SturdyRenderTargetFilter : int
+    {
+        STURDY_RENDER_TARGET_FILTER_LINEAR = 0,
+        STURDY_RENDER_TARGET_FILTER_NEAREST = 1,
+    }
+
+    public enum SturdyRenderTargetFormat : int
+    {
+        STURDY_RENDER_TARGET_FORMAT_AUTO = 0,
+        STURDY_RENDER_TARGET_FORMAT_BGRA8_SRGB = 1,
+        STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2,
+        STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3,
+        STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4,
+    }
+
+    public enum SturdyRenderTargetUse : int
+    {
+        STURDY_RENDER_TARGET_USE_SCREEN = 0,
+        STURDY_RENDER_TARGET_USE_WORLD = 1,
+        STURDY_RENDER_TARGET_USE_COMPUTE = 2,
     }
 
     /// Denoiser resolving ReSTIR GI's raw reservoir output. `DLSS_RAY_RECONSTRUCTION`/`FSR_REDSTONE` are reserved for future vendor-SDK integrations; selecting either falls back to `SVGF` with a one-time engine warning until a real backend exists.
@@ -905,6 +1042,16 @@ namespace Sturdy
         STURDY_RING_FULL = 1,
         STURDY_RING_EMPTY = 2,
         STURDY_RING_TOO_LARGE = 3,
+    }
+
+    public enum SturdyRuntimeSettingApplyMode : int
+    {
+        STURDY_RUNTIME_SETTING_NO_CHANGE = 0,
+        STURDY_RUNTIME_SETTING_HOT_APPLIED = 1,
+        STURDY_RUNTIME_SETTING_SURFACE_RECREATED = 2,
+        STURDY_RUNTIME_SETTING_DEVICE_RECREATED = 3,
+        STURDY_RUNTIME_SETTING_BACKEND_RECREATED = 4,
+        STURDY_RUNTIME_SETTING_UNSUPPORTED = 5,
     }
 
     /// Rendering path the scene stage evaluates.
@@ -1141,6 +1288,13 @@ namespace Sturdy
         STURDY_UI_GRAPH_TYPE_PIE = 4,
     }
 
+    public enum SturdyUiRebuildPolicy : int
+    {
+        STURDY_UI_REBUILD_EVERY_UPDATE = 0,
+        STURDY_UI_REBUILD_ON_DIRTY = 1,
+        STURDY_UI_REBUILD_FIXED_RATE = 2,
+    }
+
     /// How UI units map onto the framebuffer.
     public enum SturdyUiScaleMode : int
     {
@@ -1155,6 +1309,13 @@ namespace Sturdy
         STURDY_UI_SIZING_GROW = 1,
         STURDY_UI_SIZING_FIXED = 2,
         STURDY_UI_SIZING_PERCENT = 3,
+    }
+
+    public enum SturdyUiTreeTargetKind : int
+    {
+        STURDY_UI_TREE_TARGET_WINDOW = 0,
+        STURDY_UI_TREE_TARGET_OFFSCREEN = 1,
+        STURDY_UI_TREE_TARGET_HEADLESS = 2,
     }
 
     /// Presentation synchronization policy.
@@ -1508,6 +1669,20 @@ namespace Sturdy
         public ulong acceleration_structure_device_address;
     }
 
+    /// One physical GPU, as a settings screen lists it. Text is truncated to the field size and always null-terminated.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyAdapterDescription
+    {
+        public fixed byte stable_id[32];
+        public fixed byte physical_device_id[96];
+        public fixed byte name[160];
+        public fixed byte vendor[64];
+        public uint vendor_id;
+        public uint device_id;
+        public SturdyDeviceType device_type;
+        public uint backend_count;
+    }
+
     /// Numeric identity of the adapter the engine selected.
     ///
     /// Text fields (name, vendor, driver version, API version, stable device id) are read separately through `sturdy_rhi_adapter_string`, following the string-output convention above.
@@ -1555,6 +1730,15 @@ namespace Sturdy
         public SturdyPostProcessAntiAliasing post_process;
         public float subpixel_quality;
         public float edge_threshold;
+    }
+
+    /// What an applied edit, undo or redo changed. The per-change details are read with `sturdy_document_change` / `sturdy_document_change_text` until the next edit.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyApplyResult
+    {
+        public ulong revision_before;
+        public ulong revision_after;
+        public uint change_count;
     }
 
     /// An engine asset — a shader, model or texture.
@@ -1637,6 +1821,17 @@ namespace Sturdy
         public float adapt_up_speed;
         public float adapt_down_speed;
         public float center_weight;
+    }
+
+    /// One graphics API an adapter can be driven through.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyBackendOffer
+    {
+        public SturdyBackend backend;
+        public fixed byte driver_version[64];
+        public fixed byte api_version[32];
+        public SturdyAdapterPresentable presentable;
+        public byte active;
     }
 
     /// Handle to a bind group. See the "RHI resources" section header for its lifetime rules.
@@ -1783,6 +1978,13 @@ namespace Sturdy
         public uint extent_width;
         public uint extent_height;
         public uint extent_depth_or_layers;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyByteRange
+    {
+        public ulong start;
+        public ulong end;
     }
 
     /// Where a stream callback writes the item it produces (copied immediately).
@@ -2054,6 +2256,15 @@ namespace Sturdy
         public void* graphics_queue;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDebugDrawSettings
+    {
+        public uint struct_size;
+        public byte depth_test;
+        public float occluded_alpha;
+        public uint max_lines;
+    }
+
     /// Depth of field (since 0.34): the thin-lens blur of everything away from the focal plane, with the aperture's polygon as the bokeh. With `from_camera` set the engine overwrites the lens fields from the camera every frame.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyDepthOfFieldSettings
@@ -2117,6 +2328,16 @@ namespace Sturdy
         public SturdyStencilFaceState stencil_back;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDeviceChangeEvent
+    {
+        public SturdyDeviceChangeKind kind;
+        public SturdyBackend backend;
+        public ulong generation;
+        public fixed byte adapter_name[160];
+        public fixed byte message[256];
+    }
+
     /// Hardware limits of the active device.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyDeviceLimits
@@ -2141,6 +2362,28 @@ namespace Sturdy
         public byte supports_minimum_depth_resolve;
         public byte supports_bc_texture_compression;
         public fixed byte reserved[2];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDeviceRequest
+    {
+        public uint struct_size;
+        public SturdyBackend backend;
+        public byte* adapter_id;
+        public SturdyDevicePreference preference;
+        public byte force_recreate;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDeviceSwitchResult
+    {
+        public SturdyDeviceSwitchOutcome outcome;
+        public SturdyBackend backend;
+        public ulong generation;
+        public byte rolled_back;
+        public fixed byte reason[256];
+        public fixed byte adapter_name[160];
+        public fixed byte adapter_stable_id[32];
     }
 
     /// An integer rectangle in window or desktop coordinates (origin top-left).
@@ -2182,6 +2425,75 @@ namespace Sturdy
         public SturdyDisplayOrientation orientation;
     }
 
+    /// What one frame asked for. The workspace does not act on these itself: a tear-off means "the user dragged this panel out", a close request "the user clicked its close button"; the caller decides.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDockEvents
+    {
+        public uint tear_off_count;
+        public uint close_request_count;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDockPanelInfo
+    {
+        public byte closable;
+        public uint title_length;
+    }
+
+    /// Where a panel goes. `has_placement` false lets the workspace pick (the focused leaf, else the root).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDockPlacement
+    {
+        public byte has_placement;
+        public uint target_node;
+        public SturdyDockZone zone;
+    }
+
+    /// A tab drag in progress.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDockTabDrag
+    {
+        public uint source_leaf;
+        public float pointer_x;
+        public float pointer_y;
+        public uint panel_length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDockWorkspace
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDocument
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDocumentChange
+    {
+        public SturdyByteRange old_range;
+        public SturdyByteRange new_range;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDocumentStats
+    {
+        public ulong logical_bytes;
+        public ulong backing_storage_bytes;
+        public ulong tree_nodes;
+        public ulong pieces;
+        public ulong maximum_tree_depth;
+        public ulong undo_revisions;
+        public ulong redo_revisions;
+        public ulong scalars;
+        public ulong utf16_code_units;
+        public ulong newlines;
+        public byte ascii;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyDrawArgs
     {
@@ -2208,6 +2520,16 @@ namespace Sturdy
         public uint group_count_x;
         public uint group_count_y;
         public uint group_count_z;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDropEvent
+    {
+        public ulong window;
+        public SturdyDropKind kind;
+        public float x;
+        public float y;
+        public uint data_length;
     }
 
     /// Borrowed reference to the live engine, valid only inside the callback that received it.
@@ -2641,6 +2963,13 @@ namespace Sturdy
         public ulong max_websockets;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyIndentStyle
+    {
+        public byte tabs;
+        public ulong width;
+    }
+
     /// A name/value pair (HTTP headers, environment variables). Both strings are null-terminated.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyKeyValue
@@ -2663,11 +2992,26 @@ namespace Sturdy
         public uint max_lights_per_cluster;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyLineIndent
+    {
+        public ulong whitespace_bytes;
+        public ulong whitespace_scalars;
+        public byte has_tabs;
+        public byte has_spaces;
+    }
+
     /// Handle to a registered log sink, returned by `sturdy_log_add_sink`.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyLogSink
     {
         public ulong id;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyMat4
+    {
+        public fixed float m[16];
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -2836,6 +3180,283 @@ namespace Sturdy
         public uint buttons;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyVec3
+    {
+        public float x;
+        public float y;
+        public float z;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsBox
+    {
+        public SturdyVec3 min;
+        public SturdyVec3 max;
+        public ulong @object;
+        public SturdyVec3 velocity;
+    }
+
+    /// A kinematic capsule character mover.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsCharacter
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsCharacterSettings
+    {
+        public uint struct_size;
+        public float radius;
+        public float standing_height;
+        public float crouching_height;
+        public SturdyVec3 up;
+        public float gravity;
+        public float slope_limit_degrees;
+        public float step_height;
+        public float snap_distance;
+        public float skin_width;
+        public uint max_slides;
+        public float jump_speed;
+        public float terminal_speed;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsCharacterState
+    {
+        public SturdyVec3 position;
+        public SturdyVec3 velocity;
+        public SturdyVec3 ground_normal;
+        public ulong ground_object;
+        public float height;
+        public byte grounded;
+        public byte crouching;
+    }
+
+    /// Position-based-dynamics cloth.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsCloth
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsClothCapsule
+    {
+        public SturdyVec3 a;
+        public SturdyVec3 b;
+        public float radius;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsClothColliders
+    {
+        public SturdyPhysicsClothSphere* spheres;
+        public uint sphere_count;
+        public SturdyPhysicsClothCapsule* capsules;
+        public uint capsule_count;
+        public SturdyPhysicsClothPlane* planes;
+        public uint plane_count;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsClothParams
+    {
+        public uint struct_size;
+        public SturdyVec3 gravity;
+        public float stretch_compliance;
+        public float bend_compliance;
+        public float damping;
+        public uint substeps;
+        public float collision_thickness;
+        public float friction;
+        public SturdyVec3 wind;
+        public float drag;
+    }
+
+    /// Plane through `normal * offset` facing `normal`; particles are kept on the positive side.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsClothPlane
+    {
+        public SturdyVec3 normal;
+        public float offset;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsClothSphere
+    {
+        public SturdyVec3 center;
+        public float radius;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsContactConfig
+    {
+        public uint struct_size;
+        public float min_impulse;
+        public float min_speed;
+        public float pair_cooldown_seconds;
+        public float merge_radius;
+        public uint max_events_per_frame;
+        public float full_intensity_impulse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsContactPoint
+    {
+        public ulong body_a;
+        public ulong body_b;
+        public SturdyVec3 point;
+        public SturdyVec3 normal;
+        public float normal_impulse;
+        public float approach_speed;
+        public float slide_speed;
+        public uint material_a;
+        public uint material_b;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsContactEvent
+    {
+        public SturdyPhysicsContactPoint contact;
+        public SturdyPhysicsContactKind kind;
+        public float intensity;
+    }
+
+    /// Turns a solver's contact stream into a sparse, budgeted event list.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsContactFilter
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsImpactResult
+    {
+        public SturdyPhysicsImpactOutcome outcome;
+        public SturdyVec3 point;
+        public SturdyVec3 direction;
+        public float remaining_energy;
+        public float depth;
+    }
+
+    /// Named collision layers and their symmetric collision matrix (up to 64 layers).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsLayers
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsMoveResult
+    {
+        public SturdyVec3 displacement;
+        public byte grounded;
+        public byte hit_ceiling;
+        public byte stepped_up;
+        public byte jumped;
+        public byte landed;
+        public float landing_speed;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsPlane
+    {
+        public SturdyVec3 normal;
+        public float offset;
+        public ulong @object;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsProjectile
+    {
+        public SturdyVec3 position;
+        public SturdyVec3 direction;
+        public float energy;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsSurfaceHit
+    {
+        public SturdyVec3 point;
+        public SturdyVec3 normal;
+        public float distance;
+        public float thickness;
+        public uint material;
+        public ulong @object;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsShotImpact
+    {
+        public SturdyPhysicsSurfaceHit hit;
+        public SturdyPhysicsImpactResult result;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsShotOptions
+    {
+        public uint struct_size;
+        public float max_distance;
+        public uint max_impacts;
+        public float minimum_energy;
+        public ulong seed;
+    }
+
+    /// Fixed-timestep accumulator.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsStepper
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsSurfaceMaterial
+    {
+        public uint struct_size;
+        public byte* name;
+        public float penetration_resistance;
+        public float ricochet_angle_degrees;
+        public float ricochet_energy_retained;
+        public float ricochet_scatter;
+        public float exit_deflection;
+    }
+
+    /// Indexed surface-material table shared by bullet penetration, impact sounds and effects.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsSurfaces
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsSweepHit
+    {
+        public float fraction;
+        public SturdyVec3 normal;
+        public SturdyVec3 point;
+        public ulong @object;
+        public SturdyVec3 object_velocity;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsSwingTwistLimits
+    {
+        public SturdyVec3 axis;
+        public float swing_y;
+        public float swing_z;
+        public float twist_min;
+        public float twist_max;
+    }
+
+    /// A minimal analytic collision world (boxes and planes) for characters and tools.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPhysicsWorld
+    {
+        public ulong token;
+    }
+
     /// Describes a pipeline layout to create.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyPipelineLayoutDesc
@@ -2909,6 +3530,26 @@ namespace Sturdy
         public ushort ssdp_port;
     }
 
+    /// Display-clock feedback for a surface (refresh cycle, fixed or variable refresh, measured display intervals). `available` false: the backend cannot report presentation timing and everything else is unknown.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPresentTimingFeedback
+    {
+        public byte available;
+        public byte has_refresh_duration;
+        public byte has_variable_refresh;
+        public byte variable_refresh_active;
+        public double refresh_duration_seconds;
+        public uint sample_count;
+        public double mean_display_interval;
+        public double display_interval_jitter;
+        public double max_display_interval;
+        public ulong missed_refreshes;
+        public ulong presents_reported;
+        public ulong last_present_id;
+        public ulong last_display_time_ns;
+        public double frame_to_display_estimate;
+    }
+
     /// What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyPresentationResolution
@@ -2975,6 +3616,15 @@ namespace Sturdy
         public uint size;
         public uint shader_register;
         public uint register_space;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyQuat
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float w;
     }
 
     /// Handle to a query set. See the "RHI resources" section header for its lifetime rules.
@@ -3059,6 +3709,52 @@ namespace Sturdy
         public ulong max_connections;
         public ulong max_connections_per_address;
         public byte no_address_validation;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRagdoll
+    {
+        public ulong token;
+    }
+
+    /// One rigid capsule. Its frame is its skeleton joint's frame, so a solver can start it at `rest_rotation` and read its world rotation straight back.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRagdollBody
+    {
+        public uint joint;
+        public uint parent_body;
+        public uint humanoid_bone;
+        public float mass;
+        public float radius;
+        public float length;
+        public SturdyVec3 center_offset;
+        public SturdyVec3 axis;
+        public SturdyVec3 rest_position;
+        public SturdyQuat rest_rotation;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRagdollJoint
+    {
+        public uint body;
+        public uint parent_body;
+        public SturdyRagdollJointKind kind;
+        public SturdyVec3 anchor_in_parent;
+        public SturdyPhysicsSwingTwistLimits limits;
+        public SturdyVec3 hinge_axis;
+        public float hinge_min;
+        public float hinge_max;
+        public float drive_stiffness;
+        public float drive_damping;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRagdollOptions
+    {
+        public uint struct_size;
+        public float total_mass;
+        public float limb_radius_ratio;
+        public float torso_radius_ratio;
     }
 
     /// Rasterizer fixed-function state.
@@ -3238,6 +3934,15 @@ namespace Sturdy
         public ulong token;
     }
 
+    /// What frame rendering has done since startup. The frame callback keeps running when a frame fails, so an app that just switched device compares two snapshots (or watches `consecutive_failures`) to learn that nothing is being drawn, and rolls back.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRenderHealth
+    {
+        public ulong frames_rendered;
+        public ulong frames_failed;
+        public ulong consecutive_failures;
+    }
+
     /// Describes a render pass to begin.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyRenderPassDesc
@@ -3288,6 +3993,46 @@ namespace Sturdy
         public byte* label;
         public SturdyShaderEntry task;
         public SturdyShaderEntry mesh;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRenderTarget
+    {
+        public ulong value;
+    }
+
+    /// What the request resolved to on the current device.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRenderTargetConfig
+    {
+        public uint width;
+        public uint height;
+        public SturdyRenderTargetFormat format;
+        public uint mip_levels;
+        public SturdyRenderTargetFilter filter;
+        public SturdyRenderTargetAddressMode address;
+        public float max_anisotropy;
+        public byte storage;
+        public uint msaa_samples;
+        public uint adjustment_count;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRenderTargetDesc
+    {
+        public uint struct_size;
+        public uint width;
+        public uint height;
+        public byte* label;
+        public SturdyRenderTargetFormat format;
+        public SturdyRenderTargetFilter filter;
+        public SturdyRenderTargetAddressMode address;
+        public float max_anisotropy;
+        public uint mip_levels;
+        public SturdyRenderTargetFeature storage;
+        public uint msaa_samples;
+        public SturdyRenderTargetUse use;
+        public byte strict;
     }
 
     /// Describes a texture built directly from raw pixels, for `sturdy_render_create_texture`.
@@ -3359,6 +4104,13 @@ namespace Sturdy
         public byte enable_native_access;
         public fixed byte reserved_features[5];
         public byte* physical_device_id;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRuntimeSettingsResult
+    {
+        public SturdyRuntimeSettingApplyMode mode;
+        public fixed byte message[256];
     }
 
     /// Describes a sampler to create.
@@ -3694,6 +4446,15 @@ namespace Sturdy
         public void* @internal;
     }
 
+    /// One edit: replace `range` with `replacement` (`replacement_size` bytes of UTF-8, no terminator needed).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTextEdit
+    {
+        public SturdyByteRange range;
+        public byte* replacement;
+        public ulong replacement_size;
+    }
+
     /// Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyTextInputArea
@@ -3714,6 +4475,13 @@ namespace Sturdy
         public SturdyTextCapitalization capitalization;
         public byte autocorrect;
         public byte multiline;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTextPoint
+    {
+        public ulong line;
+        public ulong column;
     }
 
     /// Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules.
@@ -4017,6 +4785,72 @@ namespace Sturdy
         public uint font_size;
         public uint reserved;
         public fixed float color[4];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiTreeTarget
+    {
+        public SturdyUiTreeTargetKind kind;
+        public ulong window;
+        public SturdyRenderTarget target;
+        public uint headless_width;
+        public uint headless_height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiTreeDesc
+    {
+        public uint struct_size;
+        public byte* name;
+        public SturdyUiTreeTarget target;
+        public SturdyUiRebuildPolicy rebuild;
+        public float rebuild_hz;
+        public int layer;
+        public SturdyUiScaleMode scale_mode;
+        public float content_scale;
+        public float hdr_reference_white_scale;
+        public byte window_input;
+        public fixed float clear_color[4];
+        public float build_budget_ms;
+        public delegate* unmanaged[Cdecl]<SturdyEngine, SturdyUiTreeFrame*, void*, void> builder;
+        public void* user;
+        public delegate* unmanaged[Cdecl]<void*, void> release_user;
+    }
+
+    /// What a builder is handed each time its tree is laid out. Valid only inside the builder.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiTreeFrame
+    {
+        public uint struct_size;
+        public SturdyEntity entity;
+        public float width;
+        public float height;
+        public float delta_seconds;
+        public ulong build_index;
+        public byte request_rebuild;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiTreeStats
+    {
+        public ulong builds;
+        public ulong skipped;
+        public ulong over_budget;
+        public ulong failed_builds;
+        public ulong target_renders;
+        public double last_build_ms;
+        public double max_build_ms;
+        public float last_width;
+        public float last_height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyVec4
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float w;
     }
 
     /// One vertex of a custom mesh. Matches the engine's own vertex layout field for field.
@@ -4721,6 +5555,74 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_cookie_jar_store_from_response(SturdyAsyncObject jar, byte* host, byte* path, byte https, SturdyKeyValue* response_headers, uint header_count);
 
+        /// `head_size` 0 picks a size from the arrow's length.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_arrow(SturdyEngine engine, SturdyVec3 from, SturdyVec3 to, SturdyVec4 color, float head_size, float seconds);
+
+        /// Red / green / blue axes of `transform`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_axes(SturdyEngine engine, SturdyMat4 transform, float size, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_box(SturdyEngine engine, SturdyVec3 min, SturdyVec3 max, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_capsule(SturdyEngine engine, SturdyVec3 a, SturdyVec3 b, float radius, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_circle(SturdyEngine engine, SturdyVec3 center, SturdyVec3 normal, float radius, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_clear(SturdyEngine engine);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_cone(SturdyEngine engine, SturdyVec3 apex, SturdyVec3 direction, float length, float half_angle_radians, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_cross(SturdyEngine engine, SturdyVec3 point, float size, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_enabled(SturdyEngine engine, byte* out_enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_frustum(SturdyEngine engine, SturdyMat4 inverse_view_projection, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_grid(SturdyEngine engine, SturdyVec3 center, SturdyVec3 axis_u, SturdyVec3 axis_v, uint half_cells, float cell_size, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_line(SturdyEngine engine, SturdyVec3 a, SturdyVec3 b, SturdyVec4 color, float seconds);
+
+        /// How many segments are alive now.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_line_count(SturdyEngine engine, ulong* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_oriented_box(SturdyEngine engine, SturdyMat4 transform, SturdyVec3 half_extents, SturdyVec4 color, float seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_polyline(SturdyEngine engine, SturdyVec3* points, uint point_count, SturdyVec4 color, byte closed, float seconds);
+
+        /// Master switch; with it off, calls are ignored and nothing is drawn.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_set_enabled(SturdyEngine engine, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_set_settings(SturdyEngine engine, SturdyDebugDrawSettings* settings);
+
+        /// Line width, in pixels, of the shapes drawn after this call.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_set_width(SturdyEngine engine, float width_pixels);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_settings(SturdyEngine engine, SturdyDebugDrawSettings* out_settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_settings_init(SturdyDebugDrawSettings* settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_debug_draw_sphere(SturdyEngine engine, SturdyVec3 center, float radius, SturdyVec4 color, float seconds);
+
         /// A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_dedicated_thread_create(byte* name, SturdyAsyncObject* out_thread);
@@ -4757,6 +5659,9 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_desktop_show_message_box(SturdyEngine engine, SturdyMessageBoxOptions* options, int* out_button);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_device_request_init(SturdyDeviceRequest* request);
+
         /// Walks a directory entry by entry. Object "dir_iter".
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_dir_iter_create(byte* path, byte recursive, SturdyAsyncObject* out_iter);
@@ -4783,6 +5688,186 @@ namespace Sturdy
         /// Resolves a host name. Fields: one `address` per result (numeric text).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_dns_resolve(byte* host, SturdyAsyncOp* out_op);
+
+        /// `STURDY_ERROR_NOT_AVAILABLE` when no tab is being dragged.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_active_tab_drag(SturdyDockWorkspace workspace, SturdyDockTabDrag* out_drag);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_active_tab_drag_panel(SturdyDockWorkspace workspace, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Adds a panel (a tab). `STURDY_ERROR_COMPONENT_PRESENT` when `id` is already there, `STURDY_ERROR_INVALID_ARGUMENT` for an invalid placement.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_add_panel(SturdyDockWorkspace workspace, byte* id, byte* title, byte closable, SturdyDockPlacement* placement);
+
+        /// Lays out and draws the chrome into the rectangle (`x`, `y`, `width`, `height`, in the open UI layout's coordinate space) and processes this frame's tab and divider drags. Needs an open UI frame (`STURDY_ERROR_BUSY` otherwise) and must come before any `sturdy_dock_begin_panel_content`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_begin_frame(SturdyDockWorkspace workspace, float x, float y, float width, float height, float delta_seconds);
+
+        /// Opens an element covering panel `id`'s content region (only if it is the active tab of its leaf this frame); add content as children and close it with `sturdy_ui_end_element`. `STURDY_ERROR_NOT_AVAILABLE` (opening nothing) for a hidden or unknown panel.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_begin_panel_content(SturdyDockWorkspace workspace, byte* id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_clear_foreign_drag_preview(SturdyDockWorkspace workspace);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_close_request(SturdyDockWorkspace workspace, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// `id_prefix` namespaces the element ids the workspace's chrome generates (tabs, dividers, close buttons): distinct per workspace. May be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_create(byte* id_prefix, SturdyDockWorkspace* out_workspace);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_destroy(SturdyDockWorkspace workspace);
+
+        /// Finishes the frame (drop guides, deferred drops) and keeps its events for `sturdy_dock_tear_off` / `sturdy_dock_close_request` until the next frame ends.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_end_frame(SturdyDockWorkspace workspace, SturdyDockEvents* out_events);
+
+        /// The focused leaf's node id; `STURDY_ERROR_NOT_AVAILABLE` if none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_focused_leaf(SturdyDockWorkspace workspace, uint* out_node);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_has_panel(SturdyDockWorkspace workspace, byte* id, byte* out_has);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_is_empty(SturdyDockWorkspace workspace, byte* out_empty);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_panel_info(SturdyDockWorkspace workspace, byte* id, SturdyDockPanelInfo* out_info);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_panel_title(SturdyDockWorkspace workspace, byte* id, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Previews (and on `released`, drops) `foreign_panel` at the pointer. `out_applied` says whether the drop was applied.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_preview_foreign_drag(SturdyDockWorkspace workspace, byte* foreign_panel, float local_x, float local_y, byte released, byte* out_applied);
+
+        /// Drag preview of a panel dragged out of ANOTHER workspace over this one, inside an open UI frame. `local_pointer` is workspace-local. Reports the placement the pointer currently targets (drawing the drop guide); `STURDY_ERROR_NOT_AVAILABLE` when it targets none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_preview_foreign_drag_target(SturdyDockWorkspace workspace, float local_x, float local_y, SturdyDockPlacement* out_placement);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_remove_panel(SturdyDockWorkspace workspace, byte* id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_restore_layout(SturdyDockWorkspace workspace, byte* layout);
+
+        /// Saves the layout as text (string-output convention) and restores one. `restore` fails with `STURDY_ERROR_INVALID_ARGUMENT` for malformed text or a layout that refers to panels the workspace does not have.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_save_layout(SturdyDockWorkspace workspace, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Straight-alpha sRGB.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_set_content_background(SturdyDockWorkspace workspace, float* rgba);
+
+        /// Panel id of tear-off `index` and the workspace-local drop position.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_tear_off(SturdyDockWorkspace workspace, uint index, float* out_x, float* out_y, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Moves panel `id` from `origin` into `target` (as the window coordinator does between two windows' workspaces): accepted by `target` at `placement`, then removed from `origin`. Nothing changes when `origin` lacks the panel or `target` rejects it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dock_transfer_panel(SturdyDockWorkspace origin, SturdyDockWorkspace target, byte* id, SturdyDockPlacement* placement);
+
+        /// Applies `edit_count` replacements as one transaction (ranges in the current text, non-overlapping). On failure (invalid range or boundary, overlap, invalid UTF-8) nothing changes and the error text names the reason.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_apply(SturdyDocument document, SturdyTextEdit* edits, uint edit_count, SturdyEditKind kind, SturdyApplyResult* out_result);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_change(SturdyDocument document, uint index, SturdyDocumentChange* out_change);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_change_text(SturdyDocument document, uint index, SturdyChangeText which, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_char_class_at(SturdyDocument document, ulong offset, SturdyCharClass* out_class);
+
+        /// Snaps `offset` to a character boundary (after = round up, otherwise down) and into the text.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_clip_offset(SturdyDocument document, ulong offset, byte after, ulong* out_offset);
+
+        /// `initial` may be null for an empty document. `STURDY_ERROR_INVALID_ARGUMENT` when it is not valid UTF-8.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_create(byte* initial, ulong initial_size, SturdyDocument* out_document);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_destroy(SturdyDocument document);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_detect_indent(SturdyDocument document, SturdyIndentStyle* out_style);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_detect_line_ending(SturdyDocument document, SturdyLineEnding* out_ending);
+
+        /// Searches from `from` forward or backward; `STURDY_ERROR_NOT_AVAILABLE` when there is no match.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_find(SturdyDocument document, byte* pattern, ulong from, byte forward, byte case_sensitive, SturdyByteRange* out_range);
+
+        /// Every non-overlapping match. Writes up to `capacity` ranges and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_find_all(SturdyDocument document, byte* pattern, byte case_sensitive, SturdyByteRange* out_ranges, uint capacity, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_is_line_blank(SturdyDocument document, ulong line, byte* out_blank);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_line_count(SturdyDocument document, ulong* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_line_indent(SturdyDocument document, ulong line, SturdyLineIndent* out_indent);
+
+        /// Byte range of `line` (without its terminator); `STURDY_ERROR_OUT_OF_RANGE` past the last line.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_line_range(SturdyDocument document, ulong line, SturdyByteRange* out_range);
+
+        /// The bracket matching the one at `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_matching_bracket(SturdyDocument document, ulong offset, ulong* out_offset);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_next_word_boundary(SturdyDocument document, ulong offset, ulong* out_offset);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_offset_to_point(SturdyDocument document, ulong offset, SturdyTextPoint* out_point);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_offset_to_utf16(SturdyDocument document, ulong offset, SturdyTextPoint* out_point);
+
+        /// `STURDY_ERROR_OUT_OF_RANGE` for a position past the end of the line or document.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_point_to_offset(SturdyDocument document, SturdyTextPoint point, ulong* out_offset);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_previous_word_boundary(SturdyDocument document, ulong offset, ulong* out_offset);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_redo(SturdyDocument document, SturdyApplyResult* out_result);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_revision(SturdyDocument document, ulong* out_revision);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_slice(SturdyDocument document, SturdyByteRange range, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_stats(SturdyDocument document, SturdyDocumentStats* out_stats);
+
+        /// The whole text / a byte range of it (string-output convention; the text may contain NUL bytes, `out_length` counts them).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_text(SturdyDocument document, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// `STURDY_ERROR_NOT_AVAILABLE` when there is nothing to undo / redo.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_undo(SturdyDocument document, SturdyApplyResult* out_result);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_utf16_to_offset(SturdyDocument document, SturdyTextPoint point, ulong* out_offset);
+
+        /// The word around `offset`; `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_document_word_range_at(SturdyDocument document, ulong offset, SturdyByteRange* out_range);
 
         /// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4998,6 +6083,42 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ecs_spawn(SturdyEngine engine, SturdyComponentInit* components, uint component_count, SturdyEntity* out_entity);
 
+        /// Backend `offer_index` of adapter `adapter_index` (` < backend_count`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_adapter_backend(SturdyEngine engine, uint adapter_index, uint offer_index, SturdyBackendOffer* out_offer);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_adapter_count(SturdyEngine engine, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_adapter_description(SturdyEngine engine, uint adapter_index, SturdyAdapterDescription* out_adapter);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_add_device_observer(SturdyEngine engine, delegate* unmanaged[Cdecl]<SturdyEngine, SturdyDeviceChangeEvent*, void*, void> observer, void* user, delegate* unmanaged[Cdecl]<void*, void> release_user, ulong* out_observer);
+
+        /// Registers a hook; hooks run in registration order. Callable from any thread and from inside a hook (the new hook first runs next update). `release_user` (may be null) runs with `user` once the hook is removed and can never run again.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_add_update_hook(SturdyEngine engine, delegate* unmanaged[Cdecl]<SturdyEngine, double, void*, void> hook, void* user, delegate* unmanaged[Cdecl]<void*, void> release_user, ulong* out_hook);
+
+        /// Applies the engine-level fields of `config` to the running engine, taking the cheapest route that works (hot-apply, recreate the surface, the device or the backend). Uses `graphics_backend`, `physical_device_id`, `enable_raytracing`, `enable_shader_disk_cache`, `enable_native_access`, `shaders_directory` and `app_name`; window fields are ignored. `surface` names the primary surface.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_apply_runtime_settings(SturdyEngine engine, SturdySurface surface, SturdyRuntimeConfig* config, SturdyRuntimeSettingsResult* out_result);
+
+        /// The graphics APIs at least one discovered adapter can be driven through (reads the startup inventory; creates no device). Writes up to `capacity` entries and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` when there are more. `out_backends` may be null to count only.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_available_backends(SturdyEngine engine, SturdyBackend* out_backends, uint capacity, uint* out_count);
+
+        /// Queues `action` to run at the start of the next update, on the updating thread and before the update schedule runs, so it can do what is forbidden while systems run (remove a system, replace a module, spawn or destroy entities from a UI builder). Callable from any thread, including from inside a system or a frame callback. Actions run in the order queued; one queued by another action runs in the following update. `release_user` (may be null) runs with `user` after the action ran.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_defer(SturdyEngine engine, delegate* unmanaged[Cdecl]<SturdyEngine, void*, void> action, void* user, delegate* unmanaged[Cdecl]<void*, void> release_user);
+
+        /// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery). GPU objects created through the raw RHI stop being valid when it changes.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_device_generation(SturdyEngine engine, ulong* out_generation);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_frame_mode(SturdyEngine engine, SturdyFrameMode* out_mode);
+
         /// Reports whether a key is currently held.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_engine_key_down(SturdyEngine engine, int key, byte* out_down);
@@ -5023,6 +6144,46 @@ namespace Sturdy
         /// Reads the cursor position in window coordinates.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_engine_mouse_position(SturdyEngine engine, float* out_x, float* out_y);
+
+        /// Pops the oldest device change (switch, rollback, automatic device-loss recovery) in order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_next_device_change(SturdyEngine engine, SturdyDeviceChangeEvent* out_event);
+
+        /// Pops the oldest drag-and-drop step in arrival order. `STURDY_ERROR_NOT_AVAILABLE` when none is waiting. The data (file path or text) of the event is written into `data_buffer` (string-output convention; may be null with capacity 0 to skip it). When the buffer is too small the call fails with `STURDY_ERROR_BUFFER_TOO_SMALL`, `out_event->data_length` and `out_length` say how much is needed, and the event stays queued.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_next_drop_event(SturdyEngine engine, SturdyDropEvent* out_event, byte* data_buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_present_timing_feedback(SturdyEngine engine, SturdySurface surface, SturdyPresentTimingFeedback* out_feedback);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_remove_device_observer(SturdyEngine engine, ulong observer);
+
+        /// Removes a hook; safe from inside the hook itself. `STURDY_ERROR_NOT_AVAILABLE` for an unknown id.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_remove_update_hook(SturdyEngine engine, ulong hook);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_render_health(SturdyEngine engine, SturdyRenderHealth* out_health);
+
+        /// Message of the most recent frame failure (string-output convention); empty until one happens.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_render_health_last_error(SturdyEngine engine, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Renders a frame as soon as possible (`STURDY_FRAME_MODE_ON_DEMAND`; a no-op in continuous mode).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_request_redraw(SturdyEngine engine);
+
+        /// Renders a frame no later than `delay_nanoseconds` from now (the earliest of all pending requests wins).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_request_redraw_after(SturdyEngine engine, ulong delay_nanoseconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_set_frame_mode(SturdyEngine engine, SturdyFrameMode mode);
+
+        /// Replaces the graphics device (API and/or adapter) while the app keeps running. Engine-managed handles (meshes, textures, materials, render targets, window surfaces) are re-created in place; GPU objects created through the raw RHI are not (watch `sturdy_engine_device_generation`). Must be called from the thread that owns frame submission, between frames - not from inside a render callback.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_engine_switch_device(SturdyEngine engine, SturdyDeviceRequest* request, SturdyDeviceSwitchResult* out_result);
 
         /// Reads scroll-wheel movement accumulated during this tick.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -5482,6 +6643,24 @@ namespace Sturdy
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_input_gamepad_get(SturdyEngine engine, uint index, SturdyGamepadFrame* out_frame);
+
+        /// Synthetic input. Each call builds a platform-shaped window event and queues it exactly as a real device event, so the ECS input events, `InputState` and the UI see it on the next update. Meant for replay, tests, remote control and scripting. `modifiers` / `buttons` use the engine's modifier and mouse-button bit masks (the same values `SturdyWindowEvent` reports).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_inject_key(SturdyEngine engine, SturdySurface surface, int key, byte pressed, uint modifiers, byte repeat);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_inject_mouse_button(SturdyEngine engine, SturdySurface surface, SturdyMouseButton button, byte pressed, float x, float y, byte clicks);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_inject_mouse_move(SturdyEngine engine, SturdySurface surface, float x, float y, float delta_x, float delta_y, uint buttons);
+
+        /// `x` / `y` are the scroll deltas, with the pointer at (`mouse_x`, `mouse_y`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_inject_mouse_wheel(SturdyEngine engine, SturdySurface surface, float x, float y, float mouse_x, float mouse_y);
+
+        /// Committed text (what a text-input method delivers after composition), UTF-8.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_inject_text(SturdyEngine engine, SturdySurface surface, byte* utf8);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_input_pen_count(SturdyEngine engine, uint* out_count);
@@ -5953,6 +7132,266 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_permit_release(SturdyAsyncObject permit);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_add_impulse(SturdyPhysicsCharacter character, SturdyVec3 velocity_change);
+
+        /// `settings` null selects the defaults.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_create(SturdyPhysicsCharacterSettings* settings, SturdyVec3 feet, SturdyPhysicsCharacter* out_character);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_destroy(SturdyPhysicsCharacter character);
+
+        /// Moves for `dt` seconds toward `desired_velocity` (horizontal, world space) against `world`; `jump` launches when grounded.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_move(SturdyPhysicsCharacter character, SturdyPhysicsWorld world, SturdyVec3 desired_velocity, float dt, byte jump, SturdyPhysicsMoveResult* out_result);
+
+        /// Crouches at once; standing up succeeds only with headroom. `out_crouching` (may be null) receives the resulting state.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_set_crouching(SturdyPhysicsCharacter character, SturdyPhysicsWorld world, byte crouching, byte* out_crouching);
+
+        /// Fills `settings` with the engine defaults and the correct `struct_size`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_settings_init(SturdyPhysicsCharacterSettings* settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_state(SturdyPhysicsCharacter character, SturdyPhysicsCharacterState* out_state);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_character_teleport(SturdyPhysicsCharacter character, SturdyVec3 feet);
+
+        /// The closest rotation to `rotation` that satisfies `limits`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_clamp_to_limits(SturdyQuat rotation, SturdyPhysicsSwingTwistLimits* limits, SturdyQuat* out_rotation);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_constraint_counts(SturdyPhysicsCloth cloth, uint* out_stretch, uint* out_bend);
+
+        /// Any triangle mesh: `positions` (vertex_count vec3) and `indices` (index_count, a multiple of 3).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_create_from_triangles(SturdyVec3* positions, uint vertex_count, uint* indices, uint index_count, float total_mass, SturdyPhysicsCloth* out_cloth);
+
+        /// A `columns x rows` sheet `spacing` apart from `origin`, extending along unit vectors `right` and `down`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_create_grid(uint columns, uint rows, float spacing, SturdyVec3 origin, SturdyVec3 right, SturdyVec3 down, float total_mass, SturdyPhysicsCloth* out_cloth);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_destroy(SturdyPhysicsCloth cloth);
+
+        /// Copies the triangle indices (capacity entries); `out_count` (may be null) receives the index count.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_indices(SturdyPhysicsCloth cloth, uint* out_indices, uint capacity, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_is_pinned(SturdyPhysicsCloth cloth, uint particle, byte* out_pinned);
+
+        /// Moves a pinned particle (an attachment point following an animated body).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_move_pinned(SturdyPhysicsCloth cloth, uint particle, SturdyVec3 position);
+
+        /// Smooth per-particle normals into `out_normals` (capacity vec3s); `out_count` (may be null) receives the particle count.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_normals(SturdyPhysicsCloth cloth, SturdyVec3* out_normals, uint capacity, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_params_init(SturdyPhysicsClothParams* @params);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_particle_count(SturdyPhysicsCloth cloth, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_pin(SturdyPhysicsCloth cloth, uint particle, byte pinned);
+
+        /// Copies particle positions into `out_positions` (capacity vec3s); `out_count` (may be null) receives the particle count.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_positions(SturdyPhysicsCloth cloth, SturdyVec3* out_positions, uint capacity, uint* out_count);
+
+        /// Advances by `dt` seconds. `params` null selects the defaults; `colliders` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_cloth_step(SturdyPhysicsCloth cloth, float dt, SturdyPhysicsClothParams* @params, SturdyPhysicsClothColliders* colliders);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_config_init(SturdyPhysicsContactConfig* config);
+
+        /// Clears last frame's events and sets the clock used for cooldowns.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_begin_frame(SturdyPhysicsContactFilter filter, double time_seconds);
+
+        /// `config` null selects the defaults.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_create(SturdyPhysicsContactConfig* config, SturdyPhysicsContactFilter* out_filter);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_destroy(SturdyPhysicsContactFilter filter);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_event(SturdyPhysicsContactFilter filter, uint index, SturdyPhysicsContactEvent* out_event);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_event_count(SturdyPhysicsContactFilter filter, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_set_config(SturdyPhysicsContactFilter filter, SturdyPhysicsContactConfig* config);
+
+        /// Offers a contact; `out_accepted` (may be null) says whether it became (or replaced) an event.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_contact_filter_submit(SturdyPhysicsContactFilter filter, SturdyPhysicsContactPoint* contact, byte* out_accepted);
+
+        /// Splits `rotation` into swing and twist about the unit `axis` (`rotation == swing * twist`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_decompose_swing_twist(SturdyQuat rotation, SturdyVec3 axis, SturdyQuat* out_swing, SturdyQuat* out_twist);
+
+        /// The pose to draw between two simulation states: positions lerp, rotations slerp the short way.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_interpolate_pose(SturdyVec3 previous_position, SturdyQuat previous_rotation, SturdyVec3 current_position, SturdyQuat current_rotation, float alpha, SturdyVec3* out_position, SturdyQuat* out_rotation);
+
+        /// Registers `name` (idempotent) and returns its index; `STURDY_ERROR_NOT_AVAILABLE` when all 64 are taken. A new layer collides with every layer.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_add(SturdyPhysicsLayers layers, byte* name, uint* out_index);
+
+        /// Every registered layer.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_all(SturdyPhysicsLayers layers, ulong* out_mask);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_collides(SturdyPhysicsLayers layers, uint a, uint b, byte* out_collides);
+
+        /// The layers `layer` collides with, ready to hand to a solver as a filter mask.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_collision_mask(SturdyPhysicsLayers layers, uint layer, ulong* out_mask);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_count(SturdyPhysicsLayers layers, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_create(SturdyPhysicsLayers* out_layers);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_destroy(SturdyPhysicsLayers layers);
+
+        /// `STURDY_ERROR_NOT_AVAILABLE` for an unregistered name.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_find(SturdyPhysicsLayers layers, byte* name, uint* out_index);
+
+        /// Union of the named layers' bits (unknown names are ignored).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_mask_of(SturdyPhysicsLayers layers, byte** names, uint name_count, ulong* out_mask);
+
+        /// Layer name (string-output convention); empty for an unregistered index.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_name(SturdyPhysicsLayers layers, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Symmetric. Indices past the registered layers are `STURDY_ERROR_INVALID_ARGUMENT`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_layers_set_collides(SturdyPhysicsLayers layers, uint a, uint b, byte collides);
+
+        /// Active-ragdoll PD drive: the angular velocity (rad/s, parent frame) that pulls a joint from `current` toward `target`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_pd_drive(SturdyQuat current, SturdyQuat target, SturdyVec3 angular_velocity, float stiffness, float damping, SturdyVec3* out_velocity);
+
+        /// Resolves one entry into one surface. `normal` faces the projectile; `thickness` is the distance the straight ray spends inside (very large for terrain); `random` is two uniform values in [0, 1) for scatter (pass fixed values for deterministic replays).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_resolve_impact(SturdyPhysicsProjectile* projectile, SturdyPhysicsSurfaceMaterial* material, SturdyVec3 entry_point, SturdyVec3 normal, float thickness, float random_x, float random_y, SturdyPhysicsImpactResult* out_result);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_shot_options_init(SturdyPhysicsShotOptions* options);
+
+        /// Adds `delta_seconds` and reports how many fixed steps are now due (beyond the per-frame cap time is dropped).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_advance(SturdyPhysicsStepper stepper, double delta_seconds, uint* out_steps);
+
+        /// Interpolation factor in [0, 1) after `advance`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_alpha(SturdyPhysicsStepper stepper, double* out_alpha);
+
+        /// `step_seconds` < = 0 selects 1/60; `max_steps_per_frame` 0 selects 8.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_create(double step_seconds, uint max_steps_per_frame, SturdyPhysicsStepper* out_stepper);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_destroy(SturdyPhysicsStepper stepper);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_dropped_seconds(SturdyPhysicsStepper stepper, double* out_seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_reset(SturdyPhysicsStepper stepper);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_set_step(SturdyPhysicsStepper stepper, double step_seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_simulated_time(SturdyPhysicsStepper stepper, double* out_seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_step(SturdyPhysicsStepper stepper, double* out_step_seconds);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_stepper_total_steps(SturdyPhysicsStepper stepper, ulong* out_steps);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surface_material_init(SturdyPhysicsSurfaceMaterial* material);
+
+        /// Appends a material and returns its id.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_add(SturdyPhysicsSurfaces surfaces, SturdyPhysicsSurfaceMaterial* material, uint* out_id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_count(SturdyPhysicsSurfaces surfaces, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_create(SturdyPhysicsSurfaces* out_surfaces);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_destroy(SturdyPhysicsSurfaces surfaces);
+
+        /// `STURDY_ERROR_NOT_AVAILABLE` for an unknown name.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_find(SturdyPhysicsSurfaces surfaces, byte* name, uint* out_id);
+
+        /// Fills `out_material` (its `name` is null here; use `sturdy_physics_surfaces_name`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_get(SturdyPhysicsSurfaces surfaces, uint id, SturdyPhysicsSurfaceMaterial* out_material);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_surfaces_name(SturdyPhysicsSurfaces surfaces, uint id, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Traces a projectile through the world (ray, impact, continue from the exit or ricochet). Writes up to `capacity` impacts and reports the total in `out_count`; `STURDY_ERROR_BUFFER_TOO_SMALL` (with the first `capacity` filled) when there were more. `out_impacts` may be null to count only.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_trace_shot(SturdyPhysicsSurfaces surfaces, SturdyPhysicsProjectile* projectile, SturdyPhysicsShotOptions* options, delegate* unmanaged[Cdecl]<void*, SturdyVec3, SturdyVec3, float, SturdyPhysicsSurfaceHit*, byte> query, void* user, SturdyPhysicsShotImpact* out_impacts, uint capacity, uint* out_count);
+
+        /// Signed twist angle in (-pi, pi] about `axis`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_twist_angle(SturdyQuat rotation, SturdyVec3 axis, float* out_angle);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_within_limits(SturdyQuat rotation, SturdyPhysicsSwingTwistLimits* limits, byte* out_within);
+
+        /// Appends a box; `out_index` (may be null) receives its index for `sturdy_physics_world_move_box`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_add_box(SturdyPhysicsWorld world, SturdyPhysicsBox* box, uint* out_index);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_add_plane(SturdyPhysicsWorld world, SturdyPhysicsPlane* plane);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_create(SturdyPhysicsWorld* out_world);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_destroy(SturdyPhysicsWorld world);
+
+        /// Moves a box (a platform) by `delta`; an index past the boxes is `STURDY_ERROR_INVALID_ARGUMENT`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_move_box(SturdyPhysicsWorld world, uint index, SturdyVec3 delta);
+
+        /// True when a vertical capsule (feet at `feet`) overlaps solid geometry.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_overlaps_capsule(SturdyPhysicsWorld world, SturdyVec3 feet, float radius, float height, byte* out_overlaps);
+
+        /// Sweeps a vertical capsule by `delta`. `out_hit_something` says whether `out_hit` (may be null) was filled.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_physics_world_sweep_capsule(SturdyPhysicsWorld world, SturdyVec3 feet, float radius, float height, SturdyVec3 delta, byte* out_hit_something, SturdyPhysicsSweepHit* out_hit);
+
         /// The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_plugin_language(SturdyPlugin plugin, byte* buffer, ulong capacity, ulong* out_length);
@@ -6149,6 +7588,43 @@ namespace Sturdy
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_quic_stream_stop_sending(SturdyAsyncObject stream, ulong error_code);
+
+        /// Writes simulated body orientations (model space, one per body) into the entity's current pose: every driven joint takes its body's rotation relative to its skeleton parent, the others keep the animation's. The result is local joint rotations, one per skeleton joint, in `out_joint_rotations`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_apply_body_rotations(SturdyEngine engine, SturdyRagdoll ragdoll, SturdyEntity entity, SturdyQuat* body_rotations, uint body_count, SturdyQuat* out_joint_rotations, uint capacity, uint* out_joint_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_body(SturdyRagdoll ragdoll, uint index, SturdyRagdollBody* out_body);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_body_count(SturdyRagdoll ragdoll, uint* out_count);
+
+        /// The body driving skeleton joint `joint`; `STURDY_ERROR_NOT_AVAILABLE` when none does.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_body_for_joint(SturdyRagdoll ragdoll, uint joint, uint* out_body);
+
+        /// Builds a definition for the humanoid skeleton of an animated entity (a skeleton animator or an animation-graph player). Fails with `STURDY_ERROR_NOT_AVAILABLE` when the entity has no skeleton or the rig has no usable humanoid mapping (hips, both legs and both arms).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_build(SturdyEngine engine, SturdyEntity entity, SturdyRagdollOptions* options, SturdyRagdoll* out_ragdoll);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_destroy(SturdyRagdoll ragdoll);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_joint(SturdyRagdoll ragdoll, uint index, SturdyRagdollJoint* out_joint);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_joint_count(SturdyRagdoll ragdoll, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_options_init(SturdyRagdollOptions* options);
+
+        /// Model-space orientation each body should have to match the entity's current animation pose, one per body: the targets a drive or a kinematic follow tracks. Writes up to `capacity` and reports the body count in `out_count`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_target_body_rotations(SturdyEngine engine, SturdyRagdoll ragdoll, SturdyEntity entity, SturdyQuat* out_rotations, uint capacity, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ragdoll_total_mass(SturdyRagdoll ragdoll, float* out_mass);
 
         /// A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -6420,6 +7896,46 @@ namespace Sturdy
         /// Follow with `sturdy_render_set_transform` to place it and `sturdy_render_set_model` or one of the light setters to give it something to contribute.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_render_spawn(SturdyEngine engine, SturdyEntity* out_entity);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_adjustment(SturdyEngine engine, SturdyRenderTarget target, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_config(SturdyEngine engine, SturdyRenderTarget target, SturdyRenderTargetConfig* out_config);
+
+        /// Creates a target. On failure the error text says why (unsupported format, zero size, `strict` request the device cannot meet).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_create(SturdyEngine engine, SturdyRenderTargetDesc* desc, SturdyRenderTarget* out_target);
+
+        /// Fills `desc` with the defaults (auto everything) and the correct `struct_size`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_desc_init(SturdyRenderTargetDesc* desc);
+
+        /// The description the target was last given. `out_desc->label` is null here; read it with `sturdy_render_target_label`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_description(SturdyEngine engine, SturdyRenderTarget target, SturdyRenderTargetDesc* out_desc);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_destroy(SturdyEngine engine, SturdyRenderTarget target);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_label(SturdyEngine engine, SturdyRenderTarget target, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Changes size, format and/or sampling in place; the handle and texture stay valid. On failure the target is left as it was.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_reconfigure(SturdyEngine engine, SturdyRenderTarget target, SturdyRenderTargetDesc* desc);
+
+        /// Renders the ECS scene into `target` through the view `callback` describes, synchronously. Only renderables whose visibility mask intersects the camera's culling mask appear, which keeps a viewer scene out of the window's own view. The target keeps per-target camera history for motion vectors and blur. Needs the primary window to exist (the renderer's per-surface frame state is borrowed from it; nothing is presented to it).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_render_view(SturdyEngine engine, SturdyRenderTarget target, delegate* unmanaged[Cdecl]<SturdyEngine, SturdyFrameInput*, SturdyFrame, void*, byte> callback, void* user);
+
+        /// Resizes in place; the handle and its texture stay valid and the contents are cleared.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_resize(SturdyEngine engine, SturdyRenderTarget target, uint width, uint height);
+
+        /// The target's backing texture (a renderer texture handle value, usable wherever the engine takes a texture, such as UI images). 0 for an unknown target.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_render_target_texture(SturdyEngine engine, SturdyRenderTarget target, ulong* out_texture);
 
         /// Fills `desc` with engine defaults (linear color space, mipmaps and compression both on) and the correct `struct_size`. `width`, `height`, and `rgba8` are left for the caller to set.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -7734,6 +9250,67 @@ namespace Sturdy
         /// Fills a text style with defaults: font 0, 16px, opaque white.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_text_style_init(SturdyUiTextStyle* style);
+
+        /// Types committed text (UTF-8) into the tree's focused field.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_add_text(SturdyEngine engine, SturdyEntity entity, byte* utf8);
+
+        /// How many trees the engine laid out at its last build.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_count(SturdyEngine engine, ulong* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_desc_init(SturdyUiTreeDesc* desc);
+
+        /// Message of the last failed build (string-output convention); empty if none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_last_error(SturdyEngine engine, SturdyEntity entity, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_layer(SturdyEngine engine, SturdyEntity entity, int* out_layer);
+
+        /// Points at the tree: `has_uv` false = the pointer is not on it (cancels a press in progress); otherwise `u` / `v` in [0, 1] across it. `down` is the primary button. The way to drive off-screen and headless trees.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_point_at(SturdyEngine engine, SturdyEntity entity, byte has_uv, float u, float v, byte down);
+
+        /// Whether the pointer was over the tree (or dragging in it) at its last build: the "did the UI take this click" answer.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_pointer_consumed(SturdyEngine engine, SturdyEntity entity, byte* out_consumed);
+
+        /// Renders every off-screen tree that has a frame its target has not shown yet. The application loop does this after each update; an embedder driving frames itself calls it at the same point. `out_rendered` (may be null) receives how many targets were rendered.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_render_targets(SturdyEngine engine, ulong* out_rendered);
+
+        /// Lays the tree out at the next update whatever its policy. Any thread.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_request_rebuild(SturdyEngine engine, SturdyEntity entity);
+
+        /// Scrolls the tree by `dx` / `dy`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_scroll(SturdyEngine engine, SturdyEntity entity, float dx, float dy);
+
+        /// Replaces the builder (and its `user` / `release_user`). The previous `release_user` runs once the old builder is no longer in use.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_set_builder(SturdyEngine engine, SturdyEntity entity, delegate* unmanaged[Cdecl]<SturdyEngine, SturdyUiTreeFrame*, void*, void> builder, void* user, delegate* unmanaged[Cdecl]<void*, void> release_user);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_set_layer(SturdyEngine engine, SturdyEntity entity, int layer);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_set_rebuild_policy(SturdyEngine engine, SturdyEntity entity, SturdyUiRebuildPolicy policy, float rebuild_hz);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_set_target(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeTarget* target);
+
+        /// Spawns an entity whose only component is the tree. `STURDY_ERROR_INVALID_ARGUMENT` for a null builder. Not callable from inside a builder.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_spawn(SturdyEngine engine, SturdyUiTreeDesc* desc, SturdyEntity* out_entity);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_stats(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeStats* out_stats);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_tree_target(SturdyEngine engine, SturdyEntity entity, SturdyUiTreeTarget* out_target);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_voice_fade_volume(SturdyVoice voice, float target, float seconds);

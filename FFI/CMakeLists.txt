@@ -69,7 +69,7 @@ endif()
 # CPU state, so EcsFfiTest exercises real behavior, not just argument validation, with no GPU or
 # window.) ReflectionFfiTest needs neither: TypeRegistry is a process-wide singleton rather than
 # something owned by a SturdyEngine session, so it builds in both configurations.
-set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest ScriptFfiTest)
+set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest ScriptFfiTest EngineControlFfiTest EditorFfiTest RagdollFfiTest)
 # PluginFfiTest is registered separately below: it needs the path of the fixture plugin it loads.
 # NetRustFixtureTest and ScriptRustFixtureTest likewise take the path of the Rust library they load.
 set(_sturdy_ffi_excluded_tests PluginFfiTest NetRustFixtureTest ScriptRustFixtureTest)
@@ -85,6 +85,10 @@ sturdy_add_tests(FFI
         AnimationFfiTest=FfiAnimationTest
         AudioFfiTest=FfiAudioTest
         ReflectionFfiTest=FfiReflectionTest
+        PhysicsFfiTest=FfiPhysicsTest
+        EngineControlFfiTest=FfiEngineControlTest
+        EditorFfiTest=FfiEditorTest
+        RagdollFfiTest=FfiRagdollTest
         TraceFfiTest=FfiTraceTest
         AsyncNetFfiTest=FfiAsyncNetTest
         AsyncServeFfiTest=FfiAsyncServeTest
