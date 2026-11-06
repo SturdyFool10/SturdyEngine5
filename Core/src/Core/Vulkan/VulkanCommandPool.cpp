@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanCommandPool.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -64,8 +66,8 @@ VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept 
                 .queueFamilyIndex = family_index,
             };
             VkCommandPool pool = VK_NULL_HANDLE;
-            if (vkCreateCommandPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateCommandPool failed.");
+            if (const VkResult result = vkCreateCommandPool(device, &info, nullptr, &pool); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateCommandPool", result));
             VulkanCommandPool out;
             out.device_ = device;
             out.pool_ = pool;
@@ -111,8 +113,8 @@ VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept 
                 .commandBufferCount = count,
             };
             vector<VkCommandBuffer> buffers(count, VK_NULL_HANDLE);
-            if (vkAllocateCommandBuffers(device_, &info, buffers.data()) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
+            if (const VkResult result = vkAllocateCommandBuffers(device_, &info, buffers.data()); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, vulkan_failure_message("vkAllocateCommandBuffers", result));
             return buffers;
         }
 
@@ -140,8 +142,8 @@ void VulkanCommandPool::free(vector<VkCommandBuffer> &buffers) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanCommandPool::reset(VkCommandPoolResetFlags flags) noexcept {
             ZoneScopedN("VulkanCommandPool::reset");
-            if (vkResetCommandPool(device_, pool_, flags) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandPool failed.");
+            if (const VkResult result = vkResetCommandPool(device_, pool_, flags); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkResetCommandPool", result));
             return {};
         }
 

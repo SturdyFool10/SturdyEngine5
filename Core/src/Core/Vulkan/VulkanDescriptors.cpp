@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanDescriptors.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -53,8 +55,8 @@ VulkanDescriptorSetLayout &VulkanDescriptorSetLayout::operator=(VulkanDescriptor
             const VkDescriptorSetLayoutCreateInfo &info) noexcept {
             ZoneScopedN("VulkanDescriptorSetLayout::create");
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-            if (vkCreateDescriptorSetLayout(device, &info, nullptr, &layout) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorSetLayout failed.");
+            if (const VkResult result = vkCreateDescriptorSetLayout(device, &info, nullptr, &layout); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateDescriptorSetLayout", result));
             VulkanDescriptorSetLayout out;
             out.device_ = device;
             out.layout_ = layout;
@@ -268,8 +270,8 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
             const VkDescriptorPoolCreateInfo &info) noexcept {
             ZoneScopedN("VulkanDescriptorPool::create");
             VkDescriptorPool pool = VK_NULL_HANDLE;
-            if (vkCreateDescriptorPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorPool failed.");
+            if (const VkResult result = vkCreateDescriptorPool(device, &info, nullptr, &pool); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateDescriptorPool", result));
             VulkanDescriptorPool out;
             out.device_ = device;
             out.pool_ = pool;
@@ -333,8 +335,10 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
                 .pSetLayouts = layouts.data(),
             };
             vector<VkDescriptorSet> sets(layouts.size(), VK_NULL_HANDLE);
-            if (vkAllocateDescriptorSets(device_, &info, sets.data()) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
+            if (const VkResult result = vkAllocateDescriptorSets(device_, &info, sets.data()); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory,
+                                              vulkan_failure_message("vkAllocateDescriptorSets", result,
+                                                                     std::format("{} sets requested", info.descriptorSetCount)));
             return sets;
         }
 
@@ -357,8 +361,8 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
                 .pSetLayouts = &layout,
             };
             VkDescriptorSet set = VK_NULL_HANDLE;
-            if (vkAllocateDescriptorSets(device_, &info, &set) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
+            if (const VkResult result = vkAllocateDescriptorSets(device_, &info, &set); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, vulkan_failure_message("vkAllocateDescriptorSets", result));
             return set;
         }
 
@@ -389,8 +393,8 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
                 .pSetLayouts = &layout,
             };
             VkDescriptorSet set = VK_NULL_HANDLE;
-            if (vkAllocateDescriptorSets(device_, &info, &set) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
+            if (const VkResult result = vkAllocateDescriptorSets(device_, &info, &set); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, vulkan_failure_message("vkAllocateDescriptorSets", result));
             return set;
         }
 
@@ -404,8 +408,8 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanDescriptorPool::free(span<const VkDescriptorSet> sets) noexcept {
             ZoneScopedN("VulkanDescriptorPool::free");
-            if (vkFreeDescriptorSets(device_, pool_, static_cast<u32>(sets.size()), sets.data()) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkFreeDescriptorSets failed.");
+            if (const VkResult result = vkFreeDescriptorSets(device_, pool_, static_cast<u32>(sets.size()), sets.data()); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkFreeDescriptorSets", result));
             return {};
         }
 
@@ -419,8 +423,8 @@ VulkanDescriptorPool &VulkanDescriptorPool::operator=(VulkanDescriptorPool &&o) 
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanDescriptorPool::reset(VkDescriptorPoolResetFlags flags) noexcept {
             ZoneScopedN("VulkanDescriptorPool::reset");
-            if (vkResetDescriptorPool(device_, pool_, flags) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetDescriptorPool failed.");
+            if (const VkResult result = vkResetDescriptorPool(device_, pool_, flags); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkResetDescriptorPool", result));
             return {};
         }
 

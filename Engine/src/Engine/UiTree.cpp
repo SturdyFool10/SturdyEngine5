@@ -366,7 +366,11 @@ namespace SFT::Engine {
                                                                                      : RHI::Format::BGRA8UnormSrgb;
                 }
             }
-            (void)inner->surface.ensure_ready(*device, format);
+            if (!inner->surface.ensure_ready(*device, format)) {
+                // ensure_ready logged the backend's reason once; the tree keeps laying out but draws nothing, so say that where the
+                // application looks for it (the tree's last error) instead of leaving a tree that is silently blank.
+                inner->stats.last_error = "the UI renderer could not be created, so this tree lays out but draws nothing (see the log)";
+            }
         }
         if (!inner->surface.ensure_context()) {
             return false;

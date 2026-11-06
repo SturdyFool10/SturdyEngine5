@@ -66,7 +66,10 @@ namespace {
         }
 
         if (enable_disk_cache) {
-            (void)store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected);
+            if (!store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected)) {
+                SFT_LOG_WARN_THROTTLED(10000, "Shader discovery: could not write a reflection cache entry under '{}'; startup will re-reflect shaders each launch",
+                                       cache_directory.string());
+            }
         }
         shaders.push_back(UnCompiledShader{std::move(source), std::move(*reflected)});
     }

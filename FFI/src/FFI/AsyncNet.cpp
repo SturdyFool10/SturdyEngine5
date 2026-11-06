@@ -244,7 +244,10 @@ SturdyResult STURDY_ABI_CALL sturdy_op_on_complete(SturdyAsyncOp op, SturdyAsync
             // Always delivered, even if the op was released meanwhile: the caller's `user_data` must be freeable.
             try {
                 callback(user_data, SturdyAsyncOp{token});
+            } catch (const std::exception &error) {
+                SFT::Foundation::log_error("sturdy_op_on_complete: the completion callback threw an exception, which was discarded: {}", error.what());
             } catch (...) {
+                SFT::Foundation::log_error("sturdy_op_on_complete: the completion callback threw a non-standard exception, which was discarded");
             }
         });
         return STURDY_OK;

@@ -223,7 +223,7 @@ pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let trace = capture();
-        eprintln!("sturdy: engine stack at panic:\n{trace}");
+        sturdy_sys::diagnostics::log_error(&format!("engine stack at panic:\n{trace}"));
         previous(info);
     }));
 }

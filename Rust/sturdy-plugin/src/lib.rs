@@ -169,7 +169,7 @@ extern "C" fn trampoline_shutdown(engine: ffi::SturdyEngine, user_data: *mut c_v
     let entry = unsafe { &*(user_data as *const Entry) };
     // Shutdown cannot report failure; a panic here would leave the module half torn down, so it aborts.
     if catch_unwind(AssertUnwindSafe(|| entry.module.on_shutdown(Engine { raw: engine, _scope: core::marker::PhantomData }))).is_err() {
-        eprintln!("sturdy-plugin: panic in on_shutdown; aborting");
+        sturdy_net::log_error("sturdy-plugin: panic in on_shutdown; aborting");
         std::process::abort();
     }
 }
@@ -182,7 +182,7 @@ fn guard<T>(what: &str, on_panic: T, body: impl FnOnce() -> T) -> T {
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(value) => value,
         Err(_) => {
-            eprintln!("sturdy-plugin: panic in {what}; the callback reports failure");
+            sturdy_net::log_error(&format!("sturdy-plugin: panic in {what}; the callback reports failure"));
             on_panic
         }
     }
@@ -321,24 +321,26 @@ pub unsafe fn run_entry(
 ) -> i32 {
     let Some(host) = (unsafe { host.as_ref() }) else { return ffi::STURDY_ERROR_INVALID_ARGUMENT };
     if host.abi_major != ffi::ABI_VERSION_MAJOR {
+        // The one deliberate stderr write: the engine's ABI differs from the one this plugin was built for, so calling its logging
+        // entry point would be calling an interface that may no longer mean what this code thinks it does.
         eprintln!("sturdy-plugin: built for ABI {} but the engine is {}", ffi::ABI_VERSION_MAJOR, host.abi_major);
         return ffi::STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE;
     }
     if reason == ffi::STURDY_PLUGIN_UNLOAD {
         // `Unload` frees whatever state is left when it drops, whether or not the hook looked at it.
         if catch_unwind(AssertUnwindSafe(|| unload(Unload { state }))).is_err() {
-            eprintln!("sturdy-plugin: panic in the unload hook; continuing to unload");
+            sturdy_net::log_error("sturdy-plugin: panic in the unload hook; continuing to unload");
         }
         return ffi::STURDY_OK;
     }
     match catch_unwind(AssertUnwindSafe(|| describe(&mut Plugin { host }))) {
         Ok(Ok(())) => ffi::STURDY_OK,
         Ok(Err(error)) => {
-            eprintln!("sturdy-plugin: refusing to load: {error}");
+            sturdy_net::log_error(&format!("sturdy-plugin: refusing to load: {error}"));
             if error.code == ffi::STURDY_OK { ffi::STURDY_ERROR_INTERNAL } else { error.code }
         }
         Err(_) => {
-            eprintln!("sturdy-plugin: panic while describing the plugin; refusing to load");
+            sturdy_net::log_error("sturdy-plugin: panic while describing the plugin; refusing to load");
             ffi::STURDY_ERROR_INTERNAL
         }
     }

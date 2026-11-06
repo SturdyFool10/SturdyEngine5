@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Sturdy {
     public static final int ABI_MAJOR = 0;
-    public static final int ABI_MINOR = 43;
+    public static final int ABI_MINOR = 44;
 
     private Sturdy() {}
 
@@ -9215,6 +9215,14 @@ public final class Sturdy {
     public static int sturdy_log_add_sink(MemorySegment callback, MemorySegment user_data, MemorySegment out_sink) throws Throwable {
         MethodHandle h = handle("sturdy_log_add_sink", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         return (int) h.invokeExact(callback, user_data, out_sink);
+    }
+
+    // Writes one message into the engine's log, so code on the far side of the ABI (a native plugin, a language binding) reports through the same stream as the engine: the same console, log file and registered sinks, filtered by the same level.
+    //
+    // The engine keeps a single severity for everything that is not a problem report: `STURDY_LOG_LEVEL_TRACE`, `_DEBUG` and `_INFO` are all emitted at trace, the lowest, exactly as the engine's own informational messages are. `_WARN`, `_ERROR` and `_CRITICAL` keep theirs.
+    public static int sturdy_log_message(int level, MemorySegment message, long message_length) throws Throwable {
+        MethodHandle h = handle("sturdy_log_message", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(level, message, message_length);
     }
 
     // Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.

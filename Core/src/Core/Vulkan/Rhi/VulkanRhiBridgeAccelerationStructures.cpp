@@ -457,7 +457,8 @@ namespace SFT::Core::Vulkan {
         if (const VkResult result =
                 vkCreateMicromapEXT(logical_device_->vk_handle(), &create_info, nullptr, &micromap);
             result != VK_SUCCESS) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_opacity_micromap: vkCreateMicromapEXT failed.");
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                  "create_opacity_micromap: " + vulkan_failure_message("vkCreateMicromapEXT", result));
         }
 
         return opacity_micromaps_.insert(OpacityMicromapRecord{std::move(*backing_buffer), micromap});

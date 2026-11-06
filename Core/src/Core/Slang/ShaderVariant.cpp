@@ -1,7 +1,12 @@
 #include <Core/Slang/ShaderVariant.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
+#include <chrono>
 #include <filesystem>
+#include <format>
 #include <string>
+#include <unordered_map>
+
+#include <Async/Mutex.hpp>
 
 namespace SFT::Core::Slang {
 
@@ -71,6 +76,68 @@ namespace {
             return std::filesystem::exists(cache_directory, error);
         }
         return shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
+    }
+
+    /// A compile that failed, remembered process-wide. Renderer features build their pipelines from `ensure_*` calls that run
+    /// every frame and each makes a fresh `ShaderVariantCache`; without this a shader that cannot compile is recompiled from
+    /// scratch (and its error re-logged) on every frame, which presents as an endless loop inside shader compilation.
+    struct RememberedShaderFailure {
+        ShaderError error;
+        std::chrono::steady_clock::time_point failed_at;
+        u64 suppressed = 0;
+    };
+
+    /// How long a failed compile is answered from memory before it is tried again. A retry (rather than "never") lets a fix to a
+    /// file the shader only `import`s -- which the key cannot see -- take effect without a restart.
+    constexpr std::chrono::seconds shader_failure_retry_interval{5};
+
+    Async::Mutex<std::unordered_map<u64, RememberedShaderFailure>> &remembered_shader_failures() {
+        static auto *table = new Async::Mutex<std::unordered_map<u64, RememberedShaderFailure>>();
+        return *table;
+    }
+
+    /// Key of one (source text, variant, options) compile. Covers the same inputs as the disk-cache key, so editing the shader
+    /// (or changing a macro, target or override) is a different key and compiles at once.
+    [[nodiscard]] u64 failure_memo_key(const ShaderSource &source, string_view variant_canonical, const ShaderCompileOptions &options) {
+        const u64 text_key = compute_shader_cache_key(source.module_name, resolve_source_text(source), variant_canonical, options);
+        // The path is not part of the text key, and two files can hold identical text.
+        u64 value = text_key;
+        for (const char c : source.path) {
+            value = (value ^ static_cast<u8>(c)) * 0x100000001b3ull;
+        }
+        return value;
+    }
+
+    /// The remembered failure for `key`, if one is still within the retry interval.
+    [[nodiscard]] optional<ShaderError> recall_shader_failure(u64 key) {
+        auto table = remembered_shader_failures().lock();
+        const auto it = table->find(key);
+        if (it == table->end()) {
+            return nullopt;
+        }
+        if (std::chrono::steady_clock::now() - it->second.failed_at >= shader_failure_retry_interval) {
+            table->erase(it);
+            return nullopt;
+        }
+        ++it->second.suppressed;
+        return it->second.error;
+    }
+
+    void remember_shader_failure(u64 key, const ShaderSource &source, const ShaderError &error) {
+        u64 suppressed_before = 0;
+        {
+            auto table = remembered_shader_failures().lock();
+            if (const auto it = table->find(key); it != table->end()) {
+                suppressed_before = it->second.suppressed;
+            }
+            (*table)[key] = RememberedShaderFailure{.error = error, .failed_at = std::chrono::steady_clock::now(), .suppressed = 0};
+        }
+        const string where = source.kind == ShaderSourceKind::File ? source.path : source.module_name;
+        Foundation::log_error(
+            "Shader '{}' failed to compile ({}): {}{}{}\n  It will not be recompiled for {}s unless its source changes{}.",
+            where, shader_error_code_name(error.code), error.message, error.diagnostics.empty() ? "" : "\n", error.diagnostics,
+            shader_failure_retry_interval.count(),
+            suppressed_before > 0 ? std::format("; {} repeat request(s) were answered from memory", suppressed_before) : string{});
     }
 
 } // namespace
@@ -226,7 +293,14 @@ void ShaderVariantCache::set_source(ShaderSource source) {
 ///
 /// @return Returns the current invalidate value.
 /// @note This function does not throw exceptions.
-void ShaderVariantCache::invalidate() noexcept { variants_.clear(); }
+void ShaderVariantCache::invalidate() noexcept {
+    variants_.clear();
+    // An explicit invalidate is a request to try again (a hot-reload after fixing an imported file, say), so remembered failures go too.
+    try {
+        remembered_shader_failures().lock()->clear();
+    } catch (...) {
+    }
+}
 
 /// Releases compiler memory using the supplied arguments and current state.
 ///
@@ -333,13 +407,35 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                 }
             }
 
+            const u64 failure_key = failure_memo_key(source_, canonical, options);
+            if (optional<ShaderError> remembered = recall_shader_failure(failure_key)) {
+                return unexpected(std::move(*remembered));
+            }
+
             ShaderExpected<Shader> compiled = compiler_.compile(source_, options);
             if (!compiled) {
+                remember_shader_failure(failure_key, source_, compiled.error());
                 return compiled;
             }
 
-            if (enable_disk_cache_) {
+            // Slang can compile a module that it then cannot generate code for (no DXC for DXIL, a construct a target rejects).
+            // Callers only find that out when they ask for bytecode, so check here: a failure then reaches the failure memo
+            // instead of being rediscovered, after a full recompile, on every frame.
+            if (!enable_disk_cache_) {
+                const usize entry_point_total = compiled->reflection().entry_points.size();
+                for (usize target_index = 0; target_index < options.targets.size(); ++target_index) {
+                    for (usize entry_point_index = 0; entry_point_index < entry_point_total; ++entry_point_index) {
+                        if (ShaderExpected<ShaderBytecode> bytecode = compiled->entry_point_code(entry_point_index, target_index);
+                            !bytecode) {
+                            remember_shader_failure(failure_key, source_, bytecode.error());
+                            return unexpected(std::move(bytecode.error()));
+                        }
+                    }
+                }
+            }
 
+            if (enable_disk_cache_) {
+                optional<ShaderError> codegen_error;
 
                 ShaderCacheEntry entry =
                     disk_cache_is_fresh_for_source(source_, disk_cache_directory_, disk_cache_key)
@@ -359,6 +455,7 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                         ShaderExpected<ShaderBytecode> bytecode = compiled->entry_point_code(entry_point_index, target_index);
                         if (!bytecode) {
                             all_ok = false;
+                            codegen_error = bytecode.error();
                             break;
                         }
                         artifact.bytecode.push_back(std::move(*bytecode));
@@ -379,8 +476,15 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                         *existing = std::move(artifact);
                     }
                 }
-                if (all_ok) {
-                    (void)store_shader_cache_entry(disk_cache_directory_, disk_cache_key, entry);
+                if (codegen_error) {
+                    remember_shader_failure(failure_key, source_, *codegen_error);
+                    return unexpected(std::move(*codegen_error));
+                }
+                if (all_ok && !store_shader_cache_entry(disk_cache_directory_, disk_cache_key, entry)) {
+                    // Not fatal -- the shader works, it just recompiles next launch -- but a cache that never saves is otherwise silent.
+                    Foundation::log_warn("Shader '{}': could not write its disk-cache entry under '{}'; it will be recompiled on the next launch.",
+                                         source_.kind == ShaderSourceKind::File ? source_.path : source_.module_name,
+                                         disk_cache_directory_.string());
                 }
             }
 

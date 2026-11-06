@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanImage.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -55,8 +57,8 @@ VulkanImageView &VulkanImageView::operator=(VulkanImageView &&o) noexcept {
             const VkImageViewCreateInfo &info) noexcept {
             ZoneScopedN("VulkanImageView::create");
             VkImageView view = VK_NULL_HANDLE;
-            if (vkCreateImageView(device, &info, nullptr, &view) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImageView failed.");
+            if (const VkResult result = vkCreateImageView(device, &info, nullptr, &view); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateImageView", result));
             VulkanImageView out;
             out.device_ = device;
             out.view_ = view;
@@ -167,8 +169,13 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
             const VkImageCreateInfo &info) noexcept {
             ZoneScopedN("VulkanImage::create");
             VkImage image = VK_NULL_HANDLE;
-            if (vkCreateImage(device, &info, nullptr, &image) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImage failed.");
+            if (const VkResult result = vkCreateImage(device, &info, nullptr, &image); result != VK_SUCCESS)
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vkCreateImage", result,
+                                           std::format("{}x{}x{}, {} mips, {} layers, format {}, usage 0x{:x}", info.extent.width,
+                                                       info.extent.height, info.extent.depth, info.mipLevels, info.arrayLayers,
+                                                       static_cast<int>(info.format), info.usage)));
             VulkanImage out;
             out.device_ = device;
             out.image_ = image;
@@ -236,8 +243,15 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
             ZoneScopedN("VulkanImage::create");
             VkImage image = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
-            if (vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaCreateImage failed.");
+            if (const VkResult result = vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr);
+                result != VK_SUCCESS)
+                return graphics_backend_error(
+                    result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY ? GraphicsBackendErrorCode::OutOfMemory
+                                                                                                     : GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vmaCreateImage", result,
+                                           std::format("{}x{}x{}, {} mips, {} layers, format {}, usage 0x{:x}", image_info.extent.width,
+                                                       image_info.extent.height, image_info.extent.depth, image_info.mipLevels,
+                                                       image_info.arrayLayers, static_cast<int>(image_info.format), image_info.usage)));
             VulkanImage out;
             out.device_ = device;
             out.allocator_ = allocator;
@@ -351,8 +365,8 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
 [[nodiscard]] RendererResult VulkanImage::bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset) noexcept {
             ZoneScopedN("VulkanImage::bind_memory");
-            if (vkBindImageMemory(device_, image_, memory, offset) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindImageMemory failed.");
+            if (const VkResult result = vkBindImageMemory(device_, image_, memory, offset); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkBindImageMemory", result));
             return {};
         }
 

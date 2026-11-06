@@ -28,14 +28,14 @@ namespace SFT::Foundation {
     /// @param message Text consumed by the operation.
     ///
     /// @note This function does not throw exceptions.
-    void log_debug(string_view message) noexcept { log(spdlog::level::debug, message); }
+    void log_debug(string_view message) noexcept { log(spdlog::level::trace, message); }
 
     /// Logs info using the supplied arguments and current state.
     ///
     /// @param message Text consumed by the operation.
     ///
     /// @note This function does not throw exceptions.
-    void log_info(string_view message) noexcept { log(spdlog::level::info, message); }
+    void log_info(string_view message) noexcept { log(spdlog::level::trace, message); }
 
     /// Logs warn using the supplied arguments and current state.
     ///

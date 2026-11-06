@@ -263,7 +263,7 @@ namespace SFT::Core::Vulkan {
         const VkResult result = vkGetSwapchainTimingPropertiesEXT(logical_device_->vk_handle(), record->swapchain.vk_handle(),
                                                                   &properties, &counter);
         if (result != VK_SUCCESS && result != VK_NOT_READY) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "vkGetSwapchainTimingPropertiesEXT failed.");
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, vulkan_failure_message("vkGetSwapchainTimingPropertiesEXT", result));
         }
         // refreshInterval == refreshDuration: fixed refresh; UINT64_MAX: variable refresh (refreshDuration is the
         // minimum cycle); 0: the presentation engine cannot tell (yet).
@@ -313,7 +313,7 @@ namespace SFT::Core::Vulkan {
             case VK_ERROR_SURFACE_LOST_KHR:
                 return rhi::rhi_error(rhi::RhiErrorCode::SurfaceLost, "wait_for_present: surface lost.");
             default:
-                return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "wait_for_present: vkWaitForPresent failed.");
+                return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "wait_for_present: " + vulkan_failure_message("vkWaitForPresent", result));
         }
     }
 
@@ -337,8 +337,8 @@ namespace SFT::Core::Vulkan {
 
         // Count, then fetch (each fetched completed result is removed from the presentation engine's queue).
         VkPastPresentationTimingPropertiesEXT properties{.sType = VK_STRUCTURE_TYPE_PAST_PRESENTATION_TIMING_PROPERTIES_EXT};
-        if (vkGetPastPresentationTimingEXT(device, &info, &properties) != VK_SUCCESS) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "vkGetPastPresentationTimingEXT (count) failed.");
+        if (const VkResult counted = vkGetPastPresentationTimingEXT(device, &info, &properties); counted != VK_SUCCESS) {
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, vulkan_failure_message("vkGetPastPresentationTimingEXT (count)", counted));
         }
         const u32 available = properties.presentationTimingCount;
         if (available == 0) {
@@ -360,7 +360,7 @@ namespace SFT::Core::Vulkan {
         properties.pPresentationTimings = results.data();
         const VkResult fetched = vkGetPastPresentationTimingEXT(device, &info, &properties);
         if (fetched != VK_SUCCESS && fetched != VK_INCOMPLETE) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "vkGetPastPresentationTimingEXT (fetch) failed.");
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, vulkan_failure_message("vkGetPastPresentationTimingEXT (fetch)", fetched));
         }
         const u32 returned = std::min(properties.presentationTimingCount, available);
 

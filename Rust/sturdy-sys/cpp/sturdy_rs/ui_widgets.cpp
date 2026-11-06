@@ -1,6 +1,8 @@
 #include "sturdy_rs/ui_widgets.hpp"
 
 #include <algorithm>
+#include <exception>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +22,21 @@ namespace sturdy_rs::ui_widgets {
     namespace {
 
         namespace U = SFT::UI;
+
+        /// Logs the exception being handled and which widget function it escaped from. A widget that throws hands Rust a default
+        /// "nothing happened" outcome; this is the only record of why.
+        void log_swallowed_exception(std::source_location where = std::source_location::current()) noexcept {
+            try {
+                try {
+                    throw;
+                } catch (const std::exception &error) {
+                    SFT::Foundation::log_error("UI widget '{}' threw and returned a default outcome: {}", where.function_name(), error.what());
+                } catch (...) {
+                    SFT::Foundation::log_error("UI widget '{}' threw a non-standard exception and returned a default outcome", where.function_name());
+                }
+            } catch (...) {
+            }
+        }
 
         U::Color color_of(const std::array<float, 4> &c) noexcept {
             return U::Color{static_cast<SFT::f64>(c[0]), static_cast<SFT::f64>(c[1]), static_cast<SFT::f64>(c[2]),
@@ -218,6 +235,7 @@ namespace sturdy_rs::ui_widgets {
                               std::span<const U::MasonryItem>{items});
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -312,6 +330,7 @@ namespace sturdy_rs::ui_widgets {
             out.focused_part = static_cast<std::uint8_t>(r.focused_part);
             return out;
         } catch (...) {
+            log_swallowed_exception();
             return ColorPickerOutcome{};
         }
     }
@@ -353,6 +372,7 @@ namespace sturdy_rs::ui_widgets {
             ui::ui_session_push_scope(std::move(result.scope));
             return out;
         } catch (...) {
+            log_swallowed_exception();
             return ToggleOutcome{};
         }
     }
@@ -368,6 +388,7 @@ namespace sturdy_rs::ui_widgets {
                                           static_cast<float>(delta_seconds(engine)), checked,
                                           static_cast<U::FontId>(font_id), enabled));
         } catch (...) {
+            log_swallowed_exception();
             return ToggleOutcome{};
         }
     }
@@ -382,6 +403,7 @@ namespace sturdy_rs::ui_widgets {
             return to_outcome(U::radio_button(*ctx, ui::ui_session_element_decl(desc), to_engine(style), state,
                                               static_cast<float>(delta_seconds(engine)), selected, enabled));
         } catch (...) {
+            log_swallowed_exception();
             return ToggleOutcome{};
         }
     }
@@ -396,6 +418,7 @@ namespace sturdy_rs::ui_widgets {
             return to_outcome(U::switch_toggle(*ctx, ui::ui_session_element_decl(desc), to_engine(style), state,
                                                static_cast<float>(delta_seconds(engine)), on, enabled));
         } catch (...) {
+            log_swallowed_exception();
             return ToggleOutcome{};
         }
     }
@@ -446,6 +469,7 @@ namespace sturdy_rs::ui_widgets {
             return SliderOutcome{true, r.value, r.changed, r.committed, r.adjusted, r.cancelled,
                                  r.hovered, r.dragging, r.focused};
         } catch (...) {
+            log_swallowed_exception();
             return SliderOutcome{};
         }
     }
@@ -464,6 +488,7 @@ namespace sturdy_rs::ui_widgets {
             forward_text_focus(engine, rust::Str{desc.id.data(), desc.id.size()}, desc, r.focused, r.caret_bounds);
             return TextEditOutcome{true, r.changed, r.submitted, r.focused};
         } catch (...) {
+            log_swallowed_exception();
             return TextEditOutcome{};
         }
     }
@@ -484,6 +509,7 @@ namespace sturdy_rs::ui_widgets {
             forward_text_focus(engine, rust::Str{desc.id.data(), desc.id.size()}, desc, r.focused, r.caret_bounds);
             return TextEditOutcome{true, r.changed, false, r.focused};
         } catch (...) {
+            log_swallowed_exception();
             return TextEditOutcome{};
         }
     }
@@ -534,7 +560,10 @@ namespace sturdy_rs::ui_widgets {
             if (ctx->clicked(ustring_of(rust::Str{desc.id.data(), desc.id.size()}))) {
                 out.clicked_scalar = static_cast<std::int64_t>(state.caret());
             }
+        } catch (const std::exception &error) {
+            SFT::Foundation::log_error("rich text area '{}': widget threw, nothing was drawn: {}", std::string{desc.id.data(), desc.id.size()}, error.what());
         } catch (...) {
+            SFT::Foundation::log_error("rich text area '{}': widget threw a non-standard exception, nothing was drawn", std::string{desc.id.data(), desc.id.size()});
         }
         return out;
     }
@@ -555,6 +584,7 @@ namespace sturdy_rs::ui_widgets {
                 [view, raw](U::Context &) { scroll_content_run(*raw, *view); }, enabled);
             return ScrollAreaOutcome{true, r.vertical_dragging, r.horizontal_dragging};
         } catch (...) {
+            log_swallowed_exception();
             return ScrollAreaOutcome{};
         }
     }
@@ -593,6 +623,7 @@ namespace sturdy_rs::ui_widgets {
                 std::span<const U::DropdownOption>{engine_options});
             return DropdownOutcome{true, r.changed, r.selected_index};
         } catch (...) {
+            log_swallowed_exception();
             return DropdownOutcome{};
         }
     }

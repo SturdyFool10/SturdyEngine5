@@ -71,10 +71,22 @@ int main() {
     }
     check(threw, "a null callback throws");
 
+    // Informational messages are emitted at trace, so a sink sees them only once the application admits that level.
+    Foundation::set_log_level(Foundation::LogLevel::Trace);
     Foundation::log_warn("cxxapi-log-test warning marker");
     Foundation::log_info("cxxapi-log-test info marker");
+    Foundation::log_debug("cxxapi-log-test debug marker");
     check(saw(captured, LogLevel::Warn, "warning marker"), "a warning arrives with the Warn level");
-    check(saw(captured, LogLevel::Info, "info marker"), "an info message arrives with the Info level");
+    check(saw(captured, LogLevel::Trace, "info marker"), "an info message arrives at the lowest (Trace) severity");
+    check(saw(captured, LogLevel::Trace, "debug marker"), "a debug message arrives at the lowest (Trace) severity");
+    check(!saw(captured, LogLevel::Info, "info marker"), "no engine message is delivered at Info severity");
+    Foundation::set_log_level(Foundation::LogLevel::Info);
+    {
+        const std::lock_guard<std::mutex> lock{captured.mutex};
+        captured.messages.clear();
+    }
+    Foundation::log_info("cxxapi-log-test hidden info marker");
+    check(!saw(captured, LogLevel::Trace, "hidden info marker"), "at the default level the lowest severity is not delivered");
 
     log_remove_sink(sink);
     {

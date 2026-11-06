@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
@@ -39,6 +40,21 @@ namespace sturdy_rs::ui {
     namespace {
 
         namespace E = SFT::Engine;
+
+        /// Logs the exception being handled and the bridge function it escaped from. These functions report only `false` to Rust, so
+        /// without this a throwing call is indistinguishable from an ordinary "no".
+        void log_swallowed_exception(std::source_location where = std::source_location::current()) noexcept {
+            try {
+                try {
+                    throw;
+                } catch (const std::exception &error) {
+                    SFT::Foundation::log_error("UI bridge '{}' threw and reported failure: {}", where.function_name(), error.what());
+                } catch (...) {
+                    SFT::Foundation::log_error("UI bridge '{}' threw a non-standard exception and reported failure", where.function_name());
+                }
+            } catch (...) {
+            }
+        }
 
         /// The UI frame currently being built, if any. Mirrors `FFI/src/FFI/Ui.cpp`'s `UiSession`
         /// (see that file's doc comment for why this is thread-local: a layout pass belongs to
@@ -396,6 +412,8 @@ namespace sturdy_rs::ui {
             }
         } catch (const std::exception &e) {
             error = rust::String(e.what());
+        } catch (...) {
+            error = rust::String("reading the font's variation axes threw a non-standard exception");
         }
         return out;
     }
@@ -442,6 +460,7 @@ namespace sturdy_rs::ui {
             apply_font_registrations(screen(engine).context());
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -502,6 +521,7 @@ namespace sturdy_rs::ui {
             }
             return true;
         } catch (...) {
+            log_swallowed_exception();
             reset_session();
             return false;
         }
@@ -603,6 +623,7 @@ namespace sturdy_rs::ui {
                 std::make_unique<SFT::UI::ElementScope>(g_session.context->element(decl)));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -635,6 +656,7 @@ namespace sturdy_rs::ui {
             g_session.context->text(SFT::ustr{std::string_view{text.data(), text.size()}}, engine_style);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -647,6 +669,7 @@ namespace sturdy_rs::ui {
             g_session.context->image(to_element_decl(desc), to_texture_handle(texture));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -660,6 +683,7 @@ namespace sturdy_rs::ui {
                                      nearest ? SFT::UI::ImageSampling::Nearest : SFT::UI::ImageSampling::Linear);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -699,6 +723,7 @@ namespace sturdy_rs::ui {
             g_session.context->svg(to_element_decl(desc), to_texture_handle(texture));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -945,6 +970,7 @@ namespace sturdy_rs::ui {
             g_session.context->stroke_paths(to_element_decl(desc), converted);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -968,6 +994,7 @@ namespace sturdy_rs::ui {
             g_session.context->fill_quads(to_element_decl(desc), converted);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -993,6 +1020,7 @@ namespace sturdy_rs::ui {
             g_session.context->fill_sectors(to_element_decl(desc), converted);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1006,6 +1034,7 @@ namespace sturdy_rs::ui {
                 g_session.context->custom_element(to_element_decl(desc), to_engine(shader))));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1020,6 +1049,7 @@ namespace sturdy_rs::ui {
             g_session.context->stroke_custom(to_element_decl(desc), converted, half_width, feather_px, to_engine(shader));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1119,6 +1149,7 @@ namespace sturdy_rs::ui {
             SFT::UI::GraphState state{};
             return SFT::UI::graph(*g_session.context, to_element_decl(desc), out, state).drawn;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1155,6 +1186,7 @@ namespace sturdy_rs::ui {
             }
             return workspace.add_panel(std::move(desc), engine_placement);
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1187,6 +1219,7 @@ namespace sturdy_rs::ui {
             origin.remove_panel(panel);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1228,6 +1261,7 @@ namespace sturdy_rs::ui {
             out.zone = static_cast<UiDockZone>(static_cast<std::uint8_t>(placement->zone));
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1241,6 +1275,7 @@ namespace sturdy_rs::ui {
             return workspace.preview_foreign_drag(*g_session.context, to_panel_id(foreign_panel),
                                                   glm::vec2{local_pointer[0], local_pointer[1]}, released);
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1276,6 +1311,7 @@ namespace sturdy_rs::ui {
                                   delta_seconds);
             return true;
         } catch (...) {
+            log_swallowed_exception();
             return false;
         }
     }
@@ -1292,7 +1328,11 @@ namespace sturdy_rs::ui {
             g_session.open_elements.push_back(
                 std::make_unique<SFT::UI::ElementScope>(g_session.context->element(*region)));
             return true;
+        } catch (const std::exception &error) {
+            SFT::Foundation::log_error("ui_dock_begin_panel: opening the panel's content region threw: {}", error.what());
+            return false;
         } catch (...) {
+            SFT::Foundation::log_error("ui_dock_begin_panel: opening the panel's content region threw a non-standard exception");
             return false;
         }
     }
@@ -1312,7 +1352,10 @@ namespace sturdy_rs::ui {
             for (const Dock::DockPanelId &panel : events.close_requests) {
                 out.close_requests.push_back(to_rust(panel));
             }
+        } catch (const std::exception &error) {
+            SFT::Foundation::log_error("ui_dock_end_frame: ending the dock workspace's frame threw, its tear-off/close events are lost: {}", error.what());
         } catch (...) {
+            SFT::Foundation::log_error("ui_dock_end_frame: ending the dock workspace's frame threw a non-standard exception, its events are lost");
         }
         return out;
     }

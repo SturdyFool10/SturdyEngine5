@@ -80,9 +80,10 @@ namespace SFT::Foundation {
         switch (severity) {
             case DiagnosticSeverity::Error: return spdlog::level::err;
             case DiagnosticSeverity::Warning: return spdlog::level::warn;
-            case DiagnosticSeverity::Note: return spdlog::level::info;
+            // A note is not a problem report, so it takes the engine's one non-error severity (see Foundation::log_info).
+            case DiagnosticSeverity::Note: return spdlog::level::trace;
         }
-        return spdlog::level::info;
+        return spdlog::level::trace;
     }
 
 } // namespace SFT::Foundation

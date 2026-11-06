@@ -1,6 +1,8 @@
 #define VMA_IMPLEMENTATION
 #include <Core/Vulkan/VulkanAllocator.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -59,8 +61,8 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             vmaImportVulkanFunctionsFromVolk(&info, &functions);
 
             VmaAllocator allocator = VK_NULL_HANDLE;
-            if (vmaCreateAllocator(&info, &allocator) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vmaCreateAllocator failed.");
+            if (const VkResult result = vmaCreateAllocator(&info, &allocator); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, vulkan_failure_message("vmaCreateAllocator", result));
 
             VulkanAllocator out;
             out.allocator_ = allocator;

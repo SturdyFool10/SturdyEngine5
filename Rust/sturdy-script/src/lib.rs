@@ -92,7 +92,7 @@ fn guard<T>(what: &str, on_panic: T, body: impl FnOnce() -> T) -> T {
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(value) => value,
         Err(_) => {
-            eprintln!("sturdy-script: panic in {what}; the callback reports failure");
+            sturdy_net::log_error(&format!("sturdy-script: panic in {what}; the callback reports failure"));
             on_panic
         }
     }

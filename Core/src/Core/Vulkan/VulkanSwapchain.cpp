@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanSwapchain.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -67,18 +69,23 @@ VulkanSwapchain &VulkanSwapchain::operator=(VulkanSwapchain &&o) noexcept {
             const VkSwapchainCreateInfoKHR &info) noexcept {
             ZoneScopedN("VulkanSwapchain::create");
             VkSwapchainKHR sc = VK_NULL_HANDLE;
-            if (vkCreateSwapchainKHR(device, &info, nullptr, &sc) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
+            if (const VkResult created = vkCreateSwapchainKHR(device, &info, nullptr, &sc); created != VK_SUCCESS)
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vkCreateSwapchainKHR", created,
+                                           std::format("requested {}x{}, {} images, format {}, present mode {}", info.imageExtent.width,
+                                                       info.imageExtent.height, info.minImageCount, static_cast<int>(info.imageFormat),
+                                                       static_cast<int>(info.presentMode))));
 
             u32 count = 0;
-            if (vkGetSwapchainImagesKHR(device, sc, &count, nullptr) != VK_SUCCESS) {
+            if (const VkResult counted = vkGetSwapchainImagesKHR(device, sc, &count, nullptr); counted != VK_SUCCESS) {
                 vkDestroySwapchainKHR(device, sc, nullptr);
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetSwapchainImagesKHR (count)", counted));
             }
             vector<VkImage> images(count, VK_NULL_HANDLE);
-            if (vkGetSwapchainImagesKHR(device, sc, &count, images.data()) != VK_SUCCESS) {
+            if (const VkResult populated = vkGetSwapchainImagesKHR(device, sc, &count, images.data()); populated != VK_SUCCESS) {
                 vkDestroySwapchainKHR(device, sc, nullptr);
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (populate) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetSwapchainImagesKHR (populate)", populated));
             }
 
             VulkanSwapchain out;
@@ -424,7 +431,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
             if (res == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkAcquireNextImage2KHR reported device loss.");
             if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkAcquireNextImage2KHR failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkAcquireNextImage2KHR", res));
             return index;
         }
 

@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanPhysicalDevice.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 #include <cstring>
@@ -37,14 +39,20 @@ VulkanPhysicalDevice::VulkanPhysicalDevice(VkPhysicalDevice device) : device_(de
 [[nodiscard]] RendererExpected<vector<VulkanPhysicalDevice>> VulkanPhysicalDevice::enumerate(VkInstance instance) {
             ZoneScopedN("VulkanPhysicalDevice::enumerate");
             u32 count = 0;
-            if (vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || count == 0) {
+            if (const VkResult counted = vkEnumeratePhysicalDevices(instance, &count, nullptr); counted != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
-                                      "No Vulkan-capable GPUs found on this system.");
+                                              vulkan_failure_message("vkEnumeratePhysicalDevices (count)", counted,
+                                                                     "the Vulkan driver could not be queried for GPUs"));
+            }
+            if (count == 0) {
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
+                                              "No Vulkan-capable GPUs found on this system: the Vulkan loader works but no installed driver "
+                                              "exposed a device (check the GPU driver and its Vulkan ICD, e.g. with vulkaninfo).");
             }
             vector<VkPhysicalDevice> raw(count);
-            if (vkEnumeratePhysicalDevices(instance, &count, raw.data()) != VK_SUCCESS) {
+            if (const VkResult populated = vkEnumeratePhysicalDevices(instance, &count, raw.data()); populated != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkEnumeratePhysicalDevices (populate) failed.");
+                                              vulkan_failure_message("vkEnumeratePhysicalDevices (populate)", populated));
             }
             // Call form rather than `| std::ranges::to<vector>()`: libstdc++ 14's range-adaptor closure for ranges::to
             // does not compile under clang (its forward_like overload is rejected), and that is what Ubuntu 24.04 ships.
@@ -388,14 +396,16 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 [[nodiscard]] RendererExpected<vector<VkExtensionProperties>> VulkanPhysicalDevice::enumerate_extensions() const {
             ZoneScopedN("VulkanPhysicalDevice::enumerate_extensions");
             u32 count = 0;
-            if (vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, nullptr) != VK_SUCCESS) {
+            if (const VkResult counted = vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, nullptr); counted != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkEnumerateDeviceExtensionProperties (count) failed.");
+                                              vulkan_failure_message("vkEnumerateDeviceExtensionProperties (count)", counted));
             }
             vector<VkExtensionProperties> extensions(count);
-            if (count > 0 && vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, extensions.data()) != VK_SUCCESS) {
+            if (const VkResult populated =
+                    count > 0 ? vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, extensions.data()) : VK_SUCCESS;
+                populated != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkEnumerateDeviceExtensionProperties (populate) failed.");
+                                              vulkan_failure_message("vkEnumerateDeviceExtensionProperties (populate)", populated));
             }
             return extensions;
         }
@@ -427,9 +437,10 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         VulkanPhysicalDevice::surface_capabilities(VkSurfaceKHR surface) const noexcept {
             ZoneScopedN("VulkanPhysicalDevice::surface_capabilities");
             VkSurfaceCapabilitiesKHR caps{};
-            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_, surface, &caps) != VK_SUCCESS) {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed.");
+            if (const VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_, surface, &caps); result != VK_SUCCESS) {
+                return graphics_backend_error(result == VK_ERROR_SURFACE_LOST_KHR ? GraphicsBackendErrorCode::SurfaceLost
+                                                                                  : GraphicsBackendErrorCode::OperationFailed,
+                                              vulkan_failure_message("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", result));
             }
             return caps;
         }
@@ -453,7 +464,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
                 }
                 if (count_result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfaceFormatsKHR (count) failed.");
+                                      vulkan_failure_message("vkGetPhysicalDeviceSurfaceFormatsKHR (count)", count_result));
                 }
                 vector<VkSurfaceFormatKHR> formats(count);
                 const VkResult populate_result =
@@ -463,7 +474,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
                 }
                 if (populate_result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfaceFormatsKHR (populate) failed.");
+                                      vulkan_failure_message("vkGetPhysicalDeviceSurfaceFormatsKHR (populate)", populate_result));
                 }
                 formats.resize(count);
                 if (!formats.empty()) {
@@ -493,7 +504,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
                 }
                 if (count_result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfacePresentModesKHR (count) failed.");
+                                      vulkan_failure_message("vkGetPhysicalDeviceSurfacePresentModesKHR (count)", count_result));
                 }
                 vector<VkPresentModeKHR> modes(count);
                 const VkResult populate_result =
@@ -503,7 +514,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
                 }
                 if (populate_result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfacePresentModesKHR (populate) failed.");
+                                      vulkan_failure_message("vkGetPhysicalDeviceSurfacePresentModesKHR (populate)", populate_result));
                 }
                 modes.resize(count);
                 if (!modes.empty()) {

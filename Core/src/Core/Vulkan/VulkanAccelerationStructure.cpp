@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanAccelerationStructure.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -73,8 +75,8 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
                 .deviceAddress = 0,
             };
             VkAccelerationStructureKHR as = VK_NULL_HANDLE;
-            if (vkCreateAccelerationStructureKHR(device, &info, nullptr, &as) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateAccelerationStructureKHR failed.");
+            if (const VkResult result = vkCreateAccelerationStructureKHR(device, &info, nullptr, &as); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateAccelerationStructureKHR", result));
             VulkanAccelerationStructure out;
             out.device_ = device;
             out.acceleration_structure_ = as;

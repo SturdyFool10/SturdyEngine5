@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 43; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 44; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -6760,6 +6760,12 @@ namespace Sturdy
         /// Registers a callback to receive every subsequent log message.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_log_add_sink(delegate* unmanaged[Cdecl]<SturdyLogLevel, byte*, ulong, void*, void> callback, void* user_data, SturdyLogSink* out_sink);
+
+        /// Writes one message into the engine's log, so code on the far side of the ABI (a native plugin, a language binding) reports through the same stream as the engine: the same console, log file and registered sinks, filtered by the same level.
+        ///
+        /// The engine keeps a single severity for everything that is not a problem report: `STURDY_LOG_LEVEL_TRACE`, `_DEBUG` and `_INFO` are all emitted at trace, the lowest, exactly as the engine's own informational messages are. `_WARN`, `_ERROR` and `_CRITICAL` keep theirs.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_log_message(SturdyLogLevel level, byte* message, ulong message_length);
 
         /// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

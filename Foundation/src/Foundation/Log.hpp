@@ -61,7 +61,9 @@ namespace SFT::Foundation {
     void log_trace(string_view message) noexcept;
 
 
-    /// Logs debug using the supplied arguments and current state.
+    /// Logs a debug-level message. The engine keeps one severity for everything that is not a problem report: it is emitted at
+    /// `trace`, the lowest, so an application chooses whether to see it by setting the log level (`set_log_level`), and a
+    /// registered sink receives it only when that level admits it. Only `log_warn` and `log_error` report problems.
     ///
     /// @param format Format used for the resource, render target, or conversion.
     /// @param args `args` value used by the operation.
@@ -69,10 +71,10 @@ namespace SFT::Foundation {
     /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_debug(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
-        log(spdlog::level::debug, format, std::forward<Args>(args)...);
+        log(spdlog::level::trace, format, std::forward<Args>(args)...);
     }
 
-    /// Logs debug using the supplied arguments and current state.
+    /// Logs a debug-level message at `trace` severity (see the formatted overload).
     ///
     /// @param message Text consumed by the operation.
     ///
@@ -80,7 +82,8 @@ namespace SFT::Foundation {
     void log_debug(string_view message) noexcept;
 
 
-    /// Logs info using the supplied arguments and current state.
+    /// Logs an informational message. Like `log_debug` it is emitted at `trace`, the lowest severity: progress, timing and status
+    /// lines are not problems and must not compete with warnings and errors for an application's attention by default.
     ///
     /// @param format Format used for the resource, render target, or conversion.
     /// @param args `args` value used by the operation.
@@ -88,10 +91,10 @@ namespace SFT::Foundation {
     /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_info(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
-        log(spdlog::level::info, format, std::forward<Args>(args)...);
+        log(spdlog::level::trace, format, std::forward<Args>(args)...);
     }
 
-    /// Logs info using the supplied arguments and current state.
+    /// Logs an informational message at `trace` severity (see the formatted overload).
     ///
     /// @param message Text consumed by the operation.
     ///

@@ -999,6 +999,11 @@ namespace SFT::WindowManager::GLFW {
                             "request WindowGraphicsApi::None."});
         }
 
+        // GLFW's default is to print its errors to stderr; route them through the engine log so an application's sinks see them.
+        // glfwGetError (used by glfw_error) keeps working with a callback installed.
+        glfwSetErrorCallback([](int code, const char *description) {
+            Foundation::log_error("GLFW error 0x{:x}: {}", static_cast<unsigned>(code), description != nullptr ? description : "(no description)");
+        });
         if (!glfwInit()) [[unlikely]] {
             const WindowError error = glfw_error(WindowErrorCode::BackendUnavailable,
                                                  "GLFW initialization failed.");

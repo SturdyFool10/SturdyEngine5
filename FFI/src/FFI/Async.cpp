@@ -126,7 +126,10 @@ SturdyResult STURDY_ABI_CALL sturdy_async_spawn(SturdyTaskFn task,
                 // out of an ABI call, where nothing is left to catch it.
                 try {
                     task(user_data);
+                } catch (const std::exception &error) {
+                    SFT::Foundation::log_error("sturdy_task_spawn: the task callback threw an exception, which was discarded: {}", error.what());
                 } catch (...) {
+                    SFT::Foundation::log_error("sturdy_task_spawn: the task callback threw a non-standard exception, which was discarded");
                 }
             },
             engine_weight);

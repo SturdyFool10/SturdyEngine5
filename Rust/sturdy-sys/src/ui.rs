@@ -828,8 +828,13 @@ pub struct UiDrawHandle {
 fn guard<R>(what: &str, f: impl FnOnce() -> R) -> R {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => value,
-        Err(_) => {
-            eprintln!("sturdy: `{what}` callback panicked; aborting (cannot unwind through C++)");
+        Err(payload) => {
+            let reason = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a non-string panic payload".to_owned());
+            crate::diagnostics::log_error(&format!("`{what}` callback panicked: {reason}; aborting (cannot unwind through C++)"));
             std::process::abort();
         }
     }

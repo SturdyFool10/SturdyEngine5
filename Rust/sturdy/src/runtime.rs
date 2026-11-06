@@ -60,8 +60,13 @@ pub trait GameLogic: Send + 'static {
 fn guard<R>(what: &str, f: impl FnOnce() -> R) -> R {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => value,
-        Err(_) => {
-            eprintln!("sturdy: game logic panicked in `{what}`; aborting (cannot unwind through C++)");
+        Err(payload) => {
+            let reason = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a non-string panic payload".to_owned());
+            sturdy_sys::diagnostics::log_error(&format!("game logic panicked in `{what}`: {reason}; aborting (cannot unwind through C++)"));
             std::process::abort();
         }
     }
@@ -139,7 +144,7 @@ pub fn run_with_args<L: GameLogic>(
 ) -> ExitCode {
     let unknown = config.unknown_features();
     if !unknown.is_empty() {
-        eprintln!("sturdy: RuntimeConfig names RHI features this engine build does not know: {unknown:?}");
+        sturdy_sys::diagnostics::log_error(&format!("RuntimeConfig names RHI features this engine build does not know: {unknown:?}"));
         return ExitCode::FAILURE;
     }
     let args: Vec<String> = args.into_iter().collect();

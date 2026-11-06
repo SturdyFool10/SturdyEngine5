@@ -370,7 +370,8 @@ namespace SFT::Renderer {
                 if (!base) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot recompile material template after backend rebuild: " +
-                                                            base.error().message);
+                                                            base.error().message +
+                                                            (base.error().diagnostics.empty() ? string{} : "\n" + base.error().diagnostics));
                 }
                 material_template.shader = *base;
                 material_template.variant_cache = std::move(rebuilt_cache);

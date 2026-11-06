@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanShaderModule.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -123,8 +125,10 @@ VulkanShaderModule &VulkanShaderModule::operator=(VulkanShaderModule &&o) noexce
                 .pCode = spirv.data(),
             };
             VkShaderModule mod = VK_NULL_HANDLE;
-            if (vkCreateShaderModule(device, &info, nullptr, &mod) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateShaderModule failed.");
+            if (const VkResult result = vkCreateShaderModule(device, &info, nullptr, &mod); result != VK_SUCCESS)
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vkCreateShaderModule", result, std::format("{} bytes of SPIR-V", info.codeSize)));
             VulkanShaderModule out;
             out.device_ = device;
             out.module_ = mod;

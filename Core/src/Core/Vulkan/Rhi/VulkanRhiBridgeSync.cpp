@@ -304,7 +304,12 @@ namespace SFT::Core::Vulkan {
             return false;
         }
         if (result != VK_SUCCESS) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "wait_fences: vkWaitForFences failed.");
+            // A lost device has to reach the recovery path as a lost device, not as an anonymous failure.
+            return rhi::rhi_error(result == VK_ERROR_DEVICE_LOST ? rhi::RhiErrorCode::DeviceLost
+                                  : result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY
+                                      ? rhi::RhiErrorCode::OutOfMemory
+                                      : rhi::RhiErrorCode::OperationFailed,
+                                  "wait_fences: " + vulkan_failure_message("vkWaitForFences", result));
         }
         return true;
     }
@@ -331,8 +336,9 @@ namespace SFT::Core::Vulkan {
             }
             vk_fences.push_back(fence->vk_handle());
         }
-        if (vkResetFences(logical_device_->vk_handle(), static_cast<u32>(vk_fences.size()), vk_fences.data()) != VK_SUCCESS) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "reset_fences: vkResetFences failed.");
+        if (const VkResult reset = vkResetFences(logical_device_->vk_handle(), static_cast<u32>(vk_fences.size()), vk_fences.data());
+            reset != VK_SUCCESS) {
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "reset_fences: " + vulkan_failure_message("vkResetFences", reset));
         }
         return {};
     }

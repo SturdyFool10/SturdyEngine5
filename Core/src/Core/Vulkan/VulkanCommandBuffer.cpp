@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanCommandBuffer.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -69,8 +71,8 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
             };
 
             VkCommandBuffer buffer = VK_NULL_HANDLE;
-            if (vkAllocateCommandBuffers(device, &info, &buffer) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
+            if (const VkResult result = vkAllocateCommandBuffers(device, &info, &buffer); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, vulkan_failure_message("vkAllocateCommandBuffers", result));
 
             VulkanCommandBuffer out;
             out.device_ = device;
@@ -150,8 +152,8 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
                 .flags = flags,
                 .pInheritanceInfo = inheritance,
             };
-            if (vkBeginCommandBuffer(buffer_, &info) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBeginCommandBuffer failed.");
+            if (const VkResult result = vkBeginCommandBuffer(buffer_, &info); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkBeginCommandBuffer", result));
             return {};
         }
 
@@ -163,8 +165,8 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanCommandBuffer::end() noexcept {
             ZoneScopedN("VulkanCommandBuffer::end");
-            if (vkEndCommandBuffer(buffer_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkEndCommandBuffer failed.");
+            if (const VkResult result = vkEndCommandBuffer(buffer_); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkEndCommandBuffer", result));
             return {};
         }
 
@@ -178,8 +180,8 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanCommandBuffer::reset(VkCommandBufferResetFlags flags) noexcept {
             ZoneScopedN("VulkanCommandBuffer::reset");
-            if (vkResetCommandBuffer(buffer_, flags) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandBuffer failed.");
+            if (const VkResult result = vkResetCommandBuffer(buffer_, flags); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkResetCommandBuffer", result));
             return {};
         }
 

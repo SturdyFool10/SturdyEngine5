@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 43u
+#define STURDY_ABI_VERSION_MINOR 44u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -358,6 +358,18 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_log_add_sink(SturdyLogCallback ca
 /// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed,
 /// is a no-op.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_log_remove_sink(SturdyLogSink sink);
+
+/// Writes one message into the engine's log, so code on the far side of the ABI (a native plugin, a language binding) reports through
+/// the same stream as the engine: the same console, log file and registered sinks, filtered by the same level.
+///
+/// The engine keeps a single severity for everything that is not a problem report: `STURDY_LOG_LEVEL_TRACE`, `_DEBUG` and `_INFO` are
+/// all emitted at trace, the lowest, exactly as the engine's own informational messages are. `_WARN`, `_ERROR` and `_CRITICAL` keep
+/// theirs.
+///
+/// @param level Severity. Anything other than the listed values fails with `STURDY_ERROR_INVALID_ARGUMENT`.
+/// @param message UTF-8 text, not required to be null-terminated. A null pointer is accepted only with `message_length` 0.
+/// @param message_length Byte length of `message`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_log_message(SturdyLogLevel level, const char *message, size_t message_length);
 
 // ---------------------------------------------------------------------------------------------
 // Handles

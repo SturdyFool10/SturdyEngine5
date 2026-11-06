@@ -109,6 +109,10 @@ namespace SFT::Renderer {
             .label = "skinned previous positions",
         });
         if (!created) {
+            // The caller carries on with whatever buffer exists (or none), so skinned motion vectors degrade without an error
+            // anywhere else; this is the only place that can say why.
+            SFT_LOG_ERROR_THROTTLED(10000, "Skinning: could not allocate the {}-byte previous-positions buffer for {} vertices ({}); skinned motion vectors and history are unavailable until it succeeds",
+                                    capacity * sizeof(glm::vec4), capacity, created.error().message);
             return skinning->previous_positions;
         }
         if (skinning->previous_positions) {

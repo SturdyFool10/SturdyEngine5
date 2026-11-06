@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanBuffer.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -78,8 +80,10 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
                 .sharingMode = sharing,
             };
             VkBuffer buf = VK_NULL_HANDLE;
-            if (vkCreateBuffer(device, &info, nullptr, &buf) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBuffer failed.");
+            if (const VkResult result = vkCreateBuffer(device, &info, nullptr, &buf); result != VK_SUCCESS)
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vkCreateBuffer", result, std::format("size {} bytes, usage 0x{:x}", info.size, info.usage)));
             VulkanBuffer out;
             out.device_ = device;
             out.buffer_ = buf;
@@ -107,8 +111,13 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
             ZoneScopedN("VulkanBuffer::create");
             VkBuffer buf = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
-            if (vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buf, &allocation, nullptr) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaCreateBuffer failed.");
+            if (const VkResult result = vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buf, &allocation, nullptr);
+                result != VK_SUCCESS)
+                return graphics_backend_error(
+                    result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY ? GraphicsBackendErrorCode::OutOfMemory
+                                                                                                     : GraphicsBackendErrorCode::OperationFailed,
+                    vulkan_failure_message("vmaCreateBuffer", result,
+                                           std::format("size {} bytes, usage 0x{:x}", buffer_info.size, buffer_info.usage)));
             VulkanBuffer out;
             out.device_ = device;
             out.allocator_ = allocator;
@@ -181,14 +190,14 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
 [[nodiscard]] RendererResult VulkanBuffer::upload(const void *data, VkDeviceSize bytes, VkDeviceSize offset) noexcept {
             ZoneScopedN("VulkanBuffer::upload");
             void *mapped = nullptr;
-            if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
+            if (const VkResult mapped_result = vmaMapMemory(allocator_, allocation_, &mapped); mapped_result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaMapMemory", mapped_result));
             std::memcpy(static_cast<std::byte *>(mapped) + offset, data, bytes);
 
 
-            if (vmaFlushAllocation(allocator_, allocation_, offset, bytes) != VK_SUCCESS) {
+            if (const VkResult flushed = vmaFlushAllocation(allocator_, allocation_, offset, bytes); flushed != VK_SUCCESS) {
                 vmaUnmapMemory(allocator_, allocation_);
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaFlushAllocation failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaFlushAllocation", flushed));
             }
             vmaUnmapMemory(allocator_, allocation_);
             return {};
@@ -207,8 +216,8 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
 [[nodiscard]] RendererResult VulkanBuffer::download(void *dst, VkDeviceSize bytes, VkDeviceSize offset) noexcept {
             ZoneScopedN("VulkanBuffer::download");
             void *mapped = nullptr;
-            if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
+            if (const VkResult mapped_result = vmaMapMemory(allocator_, allocation_, &mapped); mapped_result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaMapMemory", mapped_result));
             std::memcpy(dst, static_cast<const std::byte *>(mapped) + offset, bytes);
             vmaUnmapMemory(allocator_, allocation_);
             return {};
@@ -223,8 +232,8 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
 [[nodiscard]] RendererExpected<void *> VulkanBuffer::map() noexcept {
             ZoneScopedN("VulkanBuffer::map");
             void *mapped = nullptr;
-            if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
+            if (const VkResult mapped_result = vmaMapMemory(allocator_, allocation_, &mapped); mapped_result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaMapMemory", mapped_result));
             return mapped;
         }
 
@@ -250,8 +259,8 @@ void VulkanBuffer::unmap() noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanBuffer::flush(VkDeviceSize offset, VkDeviceSize size) noexcept {
             ZoneScopedN("VulkanBuffer::flush");
-            if (vmaFlushAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaFlushAllocation failed.");
+            if (const VkResult result = vmaFlushAllocation(allocator_, allocation_, offset, size); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaFlushAllocation", result));
             return {};
         }
 
@@ -266,8 +275,8 @@ void VulkanBuffer::unmap() noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanBuffer::invalidate(VkDeviceSize offset, VkDeviceSize size) noexcept {
             ZoneScopedN("VulkanBuffer::invalidate");
-            if (vmaInvalidateAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaInvalidateAllocation failed.");
+            if (const VkResult result = vmaInvalidateAllocation(allocator_, allocation_, offset, size); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vmaInvalidateAllocation", result));
             return {};
         }
 
@@ -310,8 +319,8 @@ void VulkanBuffer::unmap() noexcept {
 [[nodiscard]] RendererResult VulkanBuffer::bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset) noexcept {
             ZoneScopedN("VulkanBuffer::bind_memory");
-            if (vkBindBufferMemory(device_, buffer_, memory, offset) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindBufferMemory failed.");
+            if (const VkResult result = vkBindBufferMemory(device_, buffer_, memory, offset); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkBindBufferMemory", result));
             return {};
         }
 
@@ -417,8 +426,8 @@ VulkanBufferView &VulkanBufferView::operator=(VulkanBufferView &&o) noexcept {
                 .range = range,
             };
             VkBufferView view = VK_NULL_HANDLE;
-            if (vkCreateBufferView(device, &info, nullptr, &view) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBufferView failed.");
+            if (const VkResult result = vkCreateBufferView(device, &info, nullptr, &view); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateBufferView", result));
             VulkanBufferView out;
             out.device_ = device;
             out.view_ = view;

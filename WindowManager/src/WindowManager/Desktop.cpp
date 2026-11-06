@@ -6,6 +6,7 @@
 #include <memory>
 
 #include <WindowManager/Window.hpp>
+#include <WindowManager/SdlLog.hpp>
 #include <WindowManager/WindowLog.hpp>
 
 using std::expected;
@@ -65,6 +66,7 @@ namespace SFT::WindowManager::Desktop {
             // A second Cocoa application bring-up next to GLFW's is not safe to attempt.
             return false;
 #else
+            Detail::route_sdl_logging_to_foundation();
             return SDL_InitSubSystem(SDL_INIT_VIDEO);
 #endif
         }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Foundation/Foundation.hpp>
+
+#include <Core/Vulkan/VulkanHelpers.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

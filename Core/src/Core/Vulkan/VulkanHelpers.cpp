@@ -214,6 +214,15 @@ const char *physical_device_type_name(VkPhysicalDeviceType type) noexcept {
         }
     }
 
+std::string vulkan_failure_message(std::string_view call, VkResult result, std::string_view detail) {
+        std::string message = std::format("{} failed: {} ({})", call, vulkan_result_name(result), static_cast<int>(result));
+        if (!detail.empty()) {
+            message += ". ";
+            message += detail;
+        }
+        return message;
+    }
+
 /// Returns a human-readable name for the supplied Vulkan result value.
 ///
 /// @param result `result` value used by the operation.

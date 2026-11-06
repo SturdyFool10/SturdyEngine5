@@ -1291,12 +1291,26 @@ namespace SFT::Engine {
         try {
             auto health = render_health_.lock();
             if (result) {
+                if (health->consecutive_failures > 0) {
+                    Foundation::log_info("Rendering recovered after {} failed frame(s).", health->consecutive_failures);
+                }
                 ++health->frames_rendered;
                 health->consecutive_failures = 0;
             } else {
+                const bool new_reason = health->last_error != result.error().message;
                 ++health->frames_failed;
                 ++health->consecutive_failures;
                 health->last_error = result.error().message;
+                // Every path that renders (windows, offscreen views over the C and Rust FFIs) ends here, so this is the one place
+                // that is certain to say why frames are failing; callers that only return a status would otherwise leave the
+                // reason visible only to code that polls render_health.
+                if (new_reason || health->consecutive_failures == 1) {
+                    Foundation::log_error("Frame failed ({}): {}", Core::graphics_backend_error_code_name(result.error().code),
+                                          result.error().message);
+                } else {
+                    SFT_LOG_ERROR_THROTTLED(10000, "Frame still failing ({} in a row): {}", health->consecutive_failures,
+                                            result.error().message);
+                }
             }
         } catch (...) {
         }

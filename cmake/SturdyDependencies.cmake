@@ -616,6 +616,19 @@ function(sturdy_fetch_openssl)
 endfunction()
 
 function(sturdy_configure_dependencies)
+    # Resource files (version info in FreeType, FLAC, libtiff, ...) include <windows.h>/<winver.h>. A clang-cl cross build gets the SDK headers
+    # as /imsvc <dir> on the C/C++ flags, which llvm-rc never sees, so hand the same folders to it.
+    if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC" AND CMAKE_RC_COMPILER)
+        string(REGEX MATCHALL "/imsvc +[^ ]+" _sturdy_imsvc "${CMAKE_C_FLAGS}")
+        set(_sturdy_rc_includes "")
+        foreach(_flag IN LISTS _sturdy_imsvc)
+            string(REGEX REPLACE "^/imsvc +" "" _dir "${_flag}")
+            string(APPEND _sturdy_rc_includes " /I ${_dir}")
+        endforeach()
+        if(_sturdy_rc_includes AND NOT CMAKE_RC_FLAGS MATCHES "/I ")
+            set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS}${_sturdy_rc_includes}" CACHE STRING "Flags for the resource compiler" FORCE)
+        endif()
+    endif()
     # Vulkan is the desktop (Windows/MacOS/Linux/FreeBSD) graphics API. Web gets WebGPU only —
     # see sturdy_configure_webgpu() below — so it never finds/links Vulkan at all.
     if(NOT STURDY_OS STREQUAL "Web")
@@ -1911,6 +1924,12 @@ function(sturdy_fetch_audio_codecs)
         set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
         set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
         set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+        # Opus finds out which SSE levels it may use by testing GNU-style flags (-msse4.1), which clang-cl does not take
+        # without a /clang: prefix, so its SSE4.1 sources would be built with no target feature and fail ("_mm_shuffle_epi8
+        # requires target feature ssse3"). Leave the SIMD paths out of a clang-cl build; Opus uses its portable C code there.
+        if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+            set(OPUS_DISABLE_INTRINSICS ON CACHE BOOL "" FORCE)
+        endif()
         sturdy_fetchcontent_declare(opus
             GIT_REPOSITORY https://github.com/xiph/opus.git
             GIT_TAG ${STURDY_LIBOPUS_TAG}
@@ -2219,6 +2238,12 @@ function(sturdy_fetch_dawn)
         set(DAWN_ENABLE_D3D12 ON CACHE BOOL "" FORCE)
         set(DAWN_ENABLE_VULKAN ON CACHE BOOL "" FORCE)
         set(DAWN_ENABLE_METAL OFF CACHE BOOL "" FORCE)
+        if(NOT CMAKE_HOST_WIN32)
+            # Dawn copies d3dcompiler_47.dll out of the Windows SDK's registry-located folder next to the program. A build made on
+            # another OS has no such folder; let it load the DLL from the system folder at run time instead (every Windows 10+
+            # install has it).
+            set(DAWN_FORCE_SYSTEM_COMPONENT_LOAD ON CACHE BOOL "" FORCE)
+        endif()
     elseif(STURDY_OS STREQUAL "MacOS")
         set(DAWN_ENABLE_METAL ON CACHE BOOL "" FORCE)
         set(DAWN_ENABLE_D3D12 OFF CACHE BOOL "" FORCE)
@@ -2673,6 +2698,14 @@ function(sturdy_fetch_openexr)
     # duplicate logic" convention used elsewhere for shared dependencies.
     set(OPENEXR_FORCE_INTERNAL_DEFLATE ON CACHE BOOL "" FORCE)
     set(EXR_DEFLATE_LIB libdeflate_static)
+
+    # OpenJPH (bundled in OpenEXR for HTJ2K) builds one source file per SIMD level and gives the AVX/AVX2/AVX-512 ones /arch:AVX..
+    # under MSVC, but nothing at all to the SSSE3 one (real MSVC never enforces target features on intrinsics). Clang-cl does enforce
+    # them, so that file fails to build ("_mm_shuffle_epi8 requires target feature ssse3"). Leave the SSSE3 variant out of a clang-cl
+    # build: OpenJPH picks its decoder at run time, so it just uses the portable one on that tier.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+        set(OJPH_DISABLE_SSSE3 ON CACHE BOOL "" FORCE)
+    endif()
 
     sturdy_fetchcontent_declare(openexr
         GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openexr.git

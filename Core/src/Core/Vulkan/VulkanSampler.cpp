@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanSampler.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -52,8 +54,8 @@ VulkanSampler &VulkanSampler::operator=(VulkanSampler &&o) noexcept {
             const VkSamplerCreateInfo &info) noexcept {
             ZoneScopedN("VulkanSampler::create");
             VkSampler sampler = VK_NULL_HANDLE;
-            if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSampler failed.");
+            if (const VkResult result = vkCreateSampler(device, &info, nullptr, &sampler); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateSampler", result));
             VulkanSampler out;
             out.device_ = device;
             out.sampler_ = sampler;

@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 43)
+ABI_VERSION = (0, 44)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -4806,6 +4806,7 @@ _FUNCTIONS = {
     'sturdy_local_set_run_pending': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_local_set_spawn': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_log_add_sink': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyLogSink))),
+    'sturdy_log_message': (ctypes.c_int32, (ctypes.c_int32, ctypes.c_char_p, ctypes.c_uint64)),
     'sturdy_log_remove_sink': (ctypes.c_int32, (SturdyLogSink,)),
     'sturdy_main_thread_pump': (ctypes.c_int32, ()),
     'sturdy_main_thread_run': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p)),
@@ -5898,6 +5899,7 @@ _DOCS = {
     'sturdy_local_set_create': 'Tasks that run only on the thread that pumps the set. Object "local_set".',
     'sturdy_local_set_run_pending': 'Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.',
     'sturdy_log_add_sink': 'Registers a callback to receive every subsequent log message.',
+    'sturdy_log_message': "Writes one message into the engine's log, so code on the far side of the ABI (a native plugin, a language binding) reports through the same stream as the engine: the same console, log file and registered sinks, filtered by the same level.\n\nThe engine keeps a single severity for everything that is not a problem report: `STURDY_LOG_LEVEL_TRACE`, `_DEBUG` and `_INFO` are all emitted at trace, the lowest, exactly as the engine's own informational messages are. `_WARN`, `_ERROR` and `_CRITICAL` keep theirs.",
     'sturdy_log_remove_sink': 'Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.',
     'sturdy_main_thread_pump': 'Runs the queued main-thread work on the calling thread.',
     'sturdy_main_thread_run': "Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.",

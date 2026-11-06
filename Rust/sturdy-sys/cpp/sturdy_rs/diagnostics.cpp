@@ -357,6 +357,26 @@ namespace sturdy_rs::diagnostics {
 
     void log_set_console_enabled(bool enabled) noexcept { SFT::Foundation::set_console_logging_enabled(enabled); }
 
+    void log_message(std::uint8_t level, rust::Str message) noexcept {
+        const std::string_view text{message.data(), message.size()};
+        switch (level) {
+            // Trace/debug/info are not problem reports: they share the engine's lowest severity (see Foundation::log_info).
+            case 0:
+            case 1:
+            case 2:
+                SFT::Foundation::log_trace(text);
+                break;
+            case 3:
+                SFT::Foundation::log_warn(text);
+                break;
+            default:
+                SFT::Foundation::log_error(text);
+                // The caller is often about to abort; make sure the line reaches the file log first.
+                SFT::Foundation::flush_logs();
+                break;
+        }
+    }
+
     // -- Engine stack traces ----------------------------------------------------------------------
 
     namespace {

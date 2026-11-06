@@ -26,15 +26,28 @@ option(STURDY_ASYNC_WITH_IO_URING "Use io_uring for positional file IO (liburing
 if(STURDY_OS STREQUAL "Web")
     target_compile_definitions(Async PUBLIC STURDY_PLATFORM_WEB=1)
 else()
-    find_package(Boost 1.74 CONFIG REQUIRED)
+    # A Boost fetched into this build (sturdy_fetch_boost, when no system copy exists or is wanted) defines the Boost:: targets itself and
+    # leaves nothing for find_package(Boost CONFIG) to find, so only look for one when it did not.
+    if(NOT TARGET Boost::headers)
+        find_package(Boost 1.74 CONFIG REQUIRED)
+    endif()
     # Already defined when a prebuilt OpenSSL was handed in (a Windows build made from another OS; see sturdy_use_prebuilt_openssl).
     if(NOT TARGET OpenSSL::SSL)
         find_package(OpenSSL 3.0 REQUIRED)
     endif()
     target_link_libraries(Async PRIVATE Boost::headers OpenSSL::SSL OpenSSL::Crypto)
+    # In a Boost fetched into this build, Boost::headers does not carry the headers of the libraries that were asked for: those are
+    # the Boost::asio / Boost::beast targets (an installed Boost folds them all into Boost::headers).
+    foreach(_boost_lib asio beast)
+        if(TARGET Boost::${_boost_lib})
+            target_link_libraries(Async PRIVATE Boost::${_boost_lib})
+        endif()
+    endforeach()
     # Optional: child processes (Boost.Process v2 is a compiled component in newer Boost).
     if(STURDY_ASYNC_WITH_PROCESS)
-        find_package(Boost 1.74 CONFIG QUIET OPTIONAL_COMPONENTS process)
+        if(NOT TARGET Boost::process)
+            find_package(Boost 1.74 CONFIG QUIET OPTIONAL_COMPONENTS process)
+        endif()
         if(TARGET Boost::process)
             target_link_libraries(Async PRIVATE Boost::process)
             target_compile_definitions(Async PRIVATE STURDY_ASYNC_PROCESS=1)

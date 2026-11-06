@@ -200,6 +200,36 @@ const char *STURDY_ABI_CALL sturdy_last_error_message(void) {
     return SFT::Ffi::g_last_error_message.c_str();
 }
 
+// Lives here, with the error slot, rather than beside the sink registration: a plugin reports through this from inside the host, and
+// this translation unit is the one every host pulls out of the static archive (it owns handle and error handling). A separate unit
+// nothing in the host references would leave the plugin's `sturdy_log_message` undefined at load time.
+SturdyResult STURDY_ABI_CALL sturdy_log_message(SturdyLogLevel level, const char *message, size_t message_length) {
+    return SFT::Ffi::guarded([&]() -> SturdyResult {
+        if (message == nullptr && message_length != 0) {
+            return SFT::Ffi::set_error(STURDY_ERROR_INVALID_ARGUMENT, "message must not be null when message_length is not zero");
+        }
+        const std::string_view text{message != nullptr ? message : "", message_length};
+        switch (level) {
+            // Everything that is not a problem report shares the engine's lowest severity (see Foundation::log_info).
+            case STURDY_LOG_LEVEL_TRACE:
+            case STURDY_LOG_LEVEL_DEBUG:
+            case STURDY_LOG_LEVEL_INFO:
+                SFT::Foundation::log_trace(text);
+                return STURDY_OK;
+            case STURDY_LOG_LEVEL_WARN:
+                SFT::Foundation::log_warn(text);
+                return STURDY_OK;
+            case STURDY_LOG_LEVEL_ERROR:
+            case STURDY_LOG_LEVEL_CRITICAL:
+                SFT::Foundation::log_error(text);
+                return STURDY_OK;
+            case STURDY_LOG_LEVEL_FORCE_U32:
+                break;
+        }
+        return SFT::Ffi::set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized log level");
+    });
+}
+
 // ---- stack traces -----------------------------------------------------------------------------------------------------------------
 //
 // None of these touch the error slot (the message or the trace being read), even when they reject an argument: a foreign caller reads a

@@ -28,6 +28,7 @@
 #pragma endregion
 
 #include <Async/Mutex.hpp>
+#include <WindowManager/SdlLog.hpp>
 #include <WindowManager/Window.hpp>
 #include <WindowManager/WindowTextUtil.hpp>
 #include <WindowManager/Providers/SDL3/Window.hpp>
@@ -887,6 +888,7 @@ namespace SFT::WindowManager::SDL3 {
             SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_IDENTIFIER_STRING, config.app_id);
         }
 
+        ::SFT::WindowManager::Detail::route_sdl_logging_to_foundation();
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
             Foundation::log_error("SDL3 video subsystem init failed: message='{}'", error.message);

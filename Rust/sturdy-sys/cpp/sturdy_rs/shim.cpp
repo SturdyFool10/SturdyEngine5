@@ -1,6 +1,7 @@
 #include "sturdy_rs/shim.hpp"
 
 #include <cstdlib>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -332,9 +333,18 @@ namespace sturdy_rs {
         }
 
         g_pending_logic.emplace(std::move(logic));
-        const auto exit_code = SFT::Runtime::run(cli, std::move(config), &make_logic);
+        // `run_runtime` is declared infallible to Rust, so a C++ exception leaving here would be an unexplained terminate. Say what it
+        // was and report a failing exit code instead.
+        std::int32_t exit_code = 1;
+        try {
+            exit_code = static_cast<std::int32_t>(SFT::Runtime::run(cli, std::move(config), &make_logic));
+        } catch (const std::exception &error) {
+            SFT::Foundation::log_error("The engine runtime stopped on an unhandled C++ exception: {}", error.what());
+        } catch (...) {
+            SFT::Foundation::log_error("The engine runtime stopped on an unhandled non-standard C++ exception");
+        }
         g_pending_logic.reset();
-        return static_cast<std::int32_t>(exit_code);
+        return exit_code;
     }
 
     double engine_delta_seconds(const EngineView &e) noexcept { return e.frame_time().delta_seconds(); }

@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -57,8 +59,8 @@ VulkanFence &VulkanFence::operator=(VulkanFence &&o) noexcept {
                 .flags = signaled ? VK_FENCE_CREATE_SIGNALED_BIT : VkFenceCreateFlags{0},
             };
             VkFence fence = VK_NULL_HANDLE;
-            if (vkCreateFence(device, &info, nullptr, &fence) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateFence failed.");
+            if (const VkResult result = vkCreateFence(device, &info, nullptr, &fence); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateFence", result));
             VulkanFence out;
             out.device_ = device;
             out.fence_ = fence;
@@ -90,7 +92,7 @@ VulkanFence &VulkanFence::operator=(VulkanFence &&o) noexcept {
                 return true;
             if (res == VK_NOT_READY)
                 return false;
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetFenceStatus failed.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetFenceStatus", res));
         }
 
 /// Waits for the associated operation or synchronization primitive to complete.
@@ -105,7 +107,7 @@ VulkanFence &VulkanFence::operator=(VulkanFence &&o) noexcept {
             ZoneScopedN("VulkanFence::wait");
             VkResult res = vkWaitForFences(device_, 1, &fence_, VK_TRUE, timeout_ns);
             if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitForFences failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkWaitForFences", res));
             return {};
         }
 
@@ -117,8 +119,8 @@ VulkanFence &VulkanFence::operator=(VulkanFence &&o) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanFence::reset() noexcept {
             ZoneScopedN("VulkanFence::reset");
-            if (vkResetFences(device_, 1, &fence_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetFences failed.");
+            if (const VkResult result = vkResetFences(device_, 1, &fence_); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkResetFences", result));
             return {};
         }
 
@@ -231,8 +233,8 @@ VulkanSemaphore &VulkanSemaphore::operator=(VulkanSemaphore &&o) noexcept {
 [[nodiscard]] RendererExpected<u64> VulkanSemaphore::counter_value() const noexcept {
             ZoneScopedN("VulkanSemaphore::counter_value");
             u64 value = 0;
-            if (vkGetSemaphoreCounterValue(device_, semaphore_, &value) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSemaphoreCounterValue failed.");
+            if (const VkResult result = vkGetSemaphoreCounterValue(device_, semaphore_, &value); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetSemaphoreCounterValue", result));
             return value;
         }
 
@@ -252,8 +254,8 @@ VulkanSemaphore &VulkanSemaphore::operator=(VulkanSemaphore &&o) noexcept {
                 .semaphore = semaphore_,
                 .value = value,
             };
-            if (vkSignalSemaphore(device_, &info) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSignalSemaphore failed.");
+            if (const VkResult result = vkSignalSemaphore(device_, &info); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkSignalSemaphore", result));
             return {};
         }
 
@@ -278,7 +280,7 @@ VulkanSemaphore &VulkanSemaphore::operator=(VulkanSemaphore &&o) noexcept {
             };
             VkResult res = vkWaitSemaphores(device_, &info, timeout_ns);
             if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitSemaphores failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkWaitSemaphores", res));
             return {};
         }
 
@@ -341,8 +343,8 @@ void VulkanSemaphore::destroy() noexcept {
                 .flags = 0,
             };
             VkSemaphore sem = VK_NULL_HANDLE;
-            if (vkCreateSemaphore(device, &info, nullptr, &sem) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSemaphore failed.");
+            if (const VkResult result = vkCreateSemaphore(device, &info, nullptr, &sem); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateSemaphore", result));
             VulkanSemaphore out;
             out.device_ = device;
             out.semaphore_ = sem;
@@ -402,8 +404,8 @@ VulkanEvent &VulkanEvent::operator=(VulkanEvent &&o) noexcept {
                 .flags = device_only ? VK_EVENT_CREATE_DEVICE_ONLY_BIT : VkEventCreateFlags{0},
             };
             VkEvent event = VK_NULL_HANDLE;
-            if (vkCreateEvent(device, &info, nullptr, &event) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateEvent failed.");
+            if (const VkResult result = vkCreateEvent(device, &info, nullptr, &event); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateEvent", result));
             VulkanEvent out;
             out.device_ = device;
             out.event_ = event;
@@ -435,7 +437,7 @@ VulkanEvent &VulkanEvent::operator=(VulkanEvent &&o) noexcept {
                 return true;
             if (res == VK_EVENT_RESET)
                 return false;
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetEventStatus failed.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetEventStatus", res));
         }
 
 /// Returns the current or globally available set value.
@@ -446,8 +448,8 @@ VulkanEvent &VulkanEvent::operator=(VulkanEvent &&o) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanEvent::set() noexcept {
             ZoneScopedN("VulkanEvent::set");
-            if (vkSetEvent(device_, event_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSetEvent failed.");
+            if (const VkResult result = vkSetEvent(device_, event_); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkSetEvent", result));
             return {};
         }
 
@@ -459,8 +461,8 @@ VulkanEvent &VulkanEvent::operator=(VulkanEvent &&o) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanEvent::reset() noexcept {
             ZoneScopedN("VulkanEvent::reset");
-            if (vkResetEvent(device_, event_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetEvent failed.");
+            if (const VkResult result = vkResetEvent(device_, event_); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkResetEvent", result));
             return {};
         }
 

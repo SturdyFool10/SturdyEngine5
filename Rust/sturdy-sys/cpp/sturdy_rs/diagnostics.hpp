@@ -65,6 +65,7 @@ namespace sturdy_rs::diagnostics {
     void log_remove_sink(std::uint64_t id) noexcept;
     void log_set_level(std::uint8_t level) noexcept;
     void log_set_console_enabled(bool enabled) noexcept;
+    void log_message(std::uint8_t level, rust::Str message) noexcept;
 
     // -- Engine stack traces ----------------------------------------------------------------------
 

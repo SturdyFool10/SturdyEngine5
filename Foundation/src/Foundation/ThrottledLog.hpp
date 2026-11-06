@@ -96,5 +96,5 @@ namespace SFT::Foundation {
     ::SFT::Foundation::log_throttled(::spdlog::level::warn, std::chrono::milliseconds(interval_ms),                  \
                                      std::source_location::current(), __VA_ARGS__)
 #define SFT_LOG_INFO_THROTTLED(interval_ms, ...)                                                                     \
-    ::SFT::Foundation::log_throttled(::spdlog::level::info, std::chrono::milliseconds(interval_ms),                  \
+    ::SFT::Foundation::log_throttled(::spdlog::level::trace, std::chrono::milliseconds(interval_ms),                 \
                                      std::source_location::current(), __VA_ARGS__)

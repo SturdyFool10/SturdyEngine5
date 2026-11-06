@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanPipeline.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -53,8 +55,8 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             const VkPipelineLayoutCreateInfo &info) noexcept {
             ZoneScopedN("VulkanPipelineLayout::create");
             VkPipelineLayout layout = VK_NULL_HANDLE;
-            if (vkCreatePipelineLayout(device, &info, nullptr, &layout) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineLayout failed.");
+            if (const VkResult result = vkCreatePipelineLayout(device, &info, nullptr, &layout); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreatePipelineLayout", result));
             VulkanPipelineLayout out;
             out.device_ = device;
             out.layout_ = layout;
@@ -262,8 +264,8 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
 
             const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
-            if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines failed.");
+            if (const VkResult result = vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateGraphicsPipelines", result));
             Foundation::log_info("Vulkan: created graphics pipeline ({} stage(s)) in {}", info.stageCount, stopwatch.elapsed_human());
             VulkanPipeline out;
             out.device_ = device;
@@ -333,8 +335,8 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             ZoneScopedN("VulkanPipeline::create_compute");
             const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
-            if (vkCreateComputePipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines failed.");
+            if (const VkResult result = vkCreateComputePipelines(device, cache, 1, &info, nullptr, &pipeline); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateComputePipelines", result));
             Foundation::log_info("Vulkan: created compute pipeline in {}", stopwatch.elapsed_human());
             VulkanPipeline out;
             out.device_ = device;
@@ -364,8 +366,8 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkCreateRayTracingPipelinesKHR is not loaded (ray tracing pipeline extension not enabled).");
             VkPipeline pipeline = VK_NULL_HANDLE;
-            if (vkCreateRayTracingPipelinesKHR(device, deferred_op, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateRayTracingPipelinesKHR failed.");
+            if (const VkResult result = vkCreateRayTracingPipelinesKHR(device, deferred_op, cache, 1, &info, nullptr, &pipeline); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateRayTracingPipelinesKHR", result));
             VulkanPipeline out;
             out.device_ = device;
             out.pipeline_ = pipeline;
@@ -389,9 +391,10 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             if (vkGetRayTracingShaderGroupHandlesKHR == nullptr)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetRayTracingShaderGroupHandlesKHR is not loaded.");
-            if (vkGetRayTracingShaderGroupHandlesKHR(device_, pipeline_, first_group, group_count,
-                                                     handle_data.size_bytes(), handle_data.data()) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetRayTracingShaderGroupHandlesKHR failed.");
+            if (const VkResult result = vkGetRayTracingShaderGroupHandlesKHR(device_, pipeline_, first_group, group_count,
+                                                                             handle_data.size_bytes(), handle_data.data());
+                result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetRayTracingShaderGroupHandlesKHR", result));
             return {};
         }
 
@@ -1010,8 +1013,8 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
                 .pInitialData = initial_data.empty() ? nullptr : initial_data.data(),
             };
             VkPipelineCache cache = VK_NULL_HANDLE;
-            if (vkCreatePipelineCache(device, &info, nullptr, &cache) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineCache failed.");
+            if (const VkResult result = vkCreatePipelineCache(device, &info, nullptr, &cache); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreatePipelineCache", result));
             VulkanPipelineCache out;
             out.device_ = device;
             out.cache_ = cache;
@@ -1038,11 +1041,11 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
 [[nodiscard]] RendererExpected<vector<u8>> VulkanPipelineCache::serialize() const {
             ZoneScopedN("VulkanPipelineCache::serialize");
             usize size = 0;
-            if (vkGetPipelineCacheData(device_, cache_, &size, nullptr) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (size) failed.");
+            if (const VkResult sized = vkGetPipelineCacheData(device_, cache_, &size, nullptr); sized != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetPipelineCacheData (size)", sized));
             vector<u8> data(size);
-            if (vkGetPipelineCacheData(device_, cache_, &size, data.data()) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (read) failed.");
+            if (const VkResult read = vkGetPipelineCacheData(device_, cache_, &size, data.data()); read != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetPipelineCacheData (read)", read));
             return data;
         }
 

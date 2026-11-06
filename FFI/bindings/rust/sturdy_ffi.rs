@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 43;
+pub const ABI_VERSION_MINOR: u32 = 44;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -9714,6 +9714,10 @@ unsafe extern "C" {
     pub fn sturdy_local_set_spawn(set: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
     /// Registers a callback to receive every subsequent log message.
     pub fn sturdy_log_add_sink(callback: Option<SturdyLogCallback>, user_data: *mut c_void, out_sink: *mut SturdyLogSink) -> i32;
+    /// Writes one message into the engine's log, so code on the far side of the ABI (a native plugin, a language binding) reports through the same stream as the engine: the same console, log file and registered sinks, filtered by the same level.
+    ///
+    /// The engine keeps a single severity for everything that is not a problem report: `STURDY_LOG_LEVEL_TRACE`, `_DEBUG` and `_INFO` are all emitted at trace, the lowest, exactly as the engine's own informational messages are. `_WARN`, `_ERROR` and `_CRITICAL` keep theirs.
+    pub fn sturdy_log_message(level: i32, message: *const c_char, message_length: u64) -> i32;
     /// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.
     pub fn sturdy_log_remove_sink(sink: SturdyLogSink) -> i32;
     /// Runs the queued main-thread work on the calling thread.

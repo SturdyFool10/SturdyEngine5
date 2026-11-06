@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanQueryPool.hpp>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -68,8 +70,8 @@ VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
                 .pipelineStatistics = pipeline_stats,
             };
             VkQueryPool pool = VK_NULL_HANDLE;
-            if (vkCreateQueryPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateQueryPool failed.");
+            if (const VkResult result = vkCreateQueryPool(device, &info, nullptr, &pool); result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkCreateQueryPool", result));
             VulkanQueryPool out;
             out.device_ = device;
             out.pool_ = pool;
@@ -123,7 +125,7 @@ VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
             ZoneScopedN("VulkanQueryPool::get_results");
             VkResult res = vkGetQueryPoolResults(device_, pool_, first_query, count, data.size_bytes(), data.data(), stride, flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkGetQueryPoolResults", res));
             return {};
         }
 

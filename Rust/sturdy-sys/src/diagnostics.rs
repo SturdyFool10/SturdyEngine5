@@ -252,6 +252,10 @@ pub mod ffi {
         fn log_set_level(level: u8);
         /// Turns the engine's own console output on/off; file log and registered sinks are untouched.
         fn log_set_console_enabled(enabled: bool);
+        /// Writes one message into the engine's log (`LogLevel` ordinal; trace/debug/info all land at the engine's lowest severity).
+        /// Rust code in this workspace reports through this instead of printing, so the message reaches the same console, log file
+        /// and sinks as the engine's own.
+        fn log_message(level: u8, message: &str);
 
         // -- Engine stack traces ----------------------------------------------------------------------
         //
@@ -302,6 +306,17 @@ pub mod ffi {
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+/// Reports an error through the engine's log (console, log file and every registered sink) rather than printing to stderr. Errors are
+/// flushed immediately so they survive an abort that follows.
+pub fn log_error(message: &str) {
+    ffi::log_message(4, message);
+}
+
+/// Reports a warning through the engine's log; see [`log_error`].
+pub fn log_warn(message: &str) {
+    ffi::log_message(3, message);
+}
+
 /// A panic must never unwind into C++ frames (undefined behavior); report it and abort.
 ///
 /// Mirrors `guard()` in `sturdy/src/runtime.rs`; duplicated here (this crate cannot reach that
@@ -314,8 +329,13 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 pub(crate) fn guard<R>(what: &str, f: impl FnOnce() -> R) -> R {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => value,
-        Err(_) => {
-            eprintln!("sturdy: `{what}` callback panicked; aborting (cannot unwind through C++)");
+        Err(payload) => {
+            let reason = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a non-string panic payload".to_owned());
+            log_error(&format!("`{what}` callback panicked: {reason}; aborting (cannot unwind through C++)"));
             std::process::abort();
         }
     }

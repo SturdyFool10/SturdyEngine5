@@ -492,8 +492,9 @@ namespace SFT::Core::Vulkan {
                     .dpy = static_cast<Display *>(desc.display),
                     .window = static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(desc.window)),
                 };
-                if (create_xlib_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
-                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateXlibSurfaceKHR failed.");
+                if (const VkResult created = create_xlib_surface(instance_, &info, nullptr, &surface); created != VK_SUCCESS) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                          "create_surface: " + vulkan_failure_message("vkCreateXlibSurfaceKHR", created));
                 }
                 break;
             }
@@ -509,8 +510,9 @@ namespace SFT::Core::Vulkan {
                     .connection = static_cast<xcb_connection_t *>(desc.display),
                     .window = static_cast<xcb_window_t>(reinterpret_cast<std::uintptr_t>(desc.window)),
                 };
-                if (create_xcb_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
-                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateXcbSurfaceKHR failed.");
+                if (const VkResult created = create_xcb_surface(instance_, &info, nullptr, &surface); created != VK_SUCCESS) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                          "create_surface: " + vulkan_failure_message("vkCreateXcbSurfaceKHR", created));
                 }
                 break;
             }
@@ -526,8 +528,9 @@ namespace SFT::Core::Vulkan {
                     .display = static_cast<wl_display *>(desc.display),
                     .surface = static_cast<wl_surface *>(desc.window),
                 };
-                if (create_wayland_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
-                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateWaylandSurfaceKHR failed.");
+                if (const VkResult created = create_wayland_surface(instance_, &info, nullptr, &surface); created != VK_SUCCESS) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                          "create_surface: " + vulkan_failure_message("vkCreateWaylandSurfaceKHR", created));
                 }
                 break;
             }

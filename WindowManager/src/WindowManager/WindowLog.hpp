@@ -41,7 +41,7 @@ namespace SFT::WindowManager::Detail {
     /// @note This function does not throw exceptions.
     template <typename... Args>
     void window_debug(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
-        window_log(spdlog::level::debug, format, std::forward<Args>(args)...);
+        window_log(spdlog::level::trace, format, std::forward<Args>(args)...);
     }
 
     /// Performs the window info operation for `Detail` using the supplied arguments.
@@ -52,7 +52,7 @@ namespace SFT::WindowManager::Detail {
     /// @note This function does not throw exceptions.
     template <typename... Args>
     void window_info(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
-        window_log(spdlog::level::info, format, std::forward<Args>(args)...);
+        window_log(spdlog::level::trace, format, std::forward<Args>(args)...);
     }
 
     /// Performs the window warn operation for `Detail` using the supplied arguments.

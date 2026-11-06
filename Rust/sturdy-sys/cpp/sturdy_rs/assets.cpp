@@ -5,10 +5,13 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <Foundation/Foundation.hpp>
 
 #include <Engine/AssetManager.hpp>
 #include <Engine/Asset.hpp>
@@ -144,10 +147,19 @@ namespace sturdy_rs::assets {
             return make_failure(Outcome{}, error, std::move(message));
         }
 
+        /// Must be called from inside a catch handler: it re-reads the exception being handled so the caller learns what was thrown,
+        /// not just that something was.
         template <typename Outcome>
-        Outcome make_exception_failure() {
-            return make_failure<Outcome>(AssetErrorCode::BackendFailure,
-                                         rust::String{"an unexpected C++ exception was caught at the FFI boundary"});
+        Outcome make_exception_failure(std::source_location where = std::source_location::current()) {
+            std::string detail = "an unexpected C++ exception was caught at the FFI boundary";
+            try {
+                throw;
+            } catch (const std::exception &error) {
+                detail = std::string{"C++ exception in "} + where.function_name() + ": " + error.what();
+            } catch (...) {
+            }
+            SFT::Foundation::log_error("Asset bridge: {}", detail);
+            return make_failure<Outcome>(AssetErrorCode::BackendFailure, rust::String::lossy(detail));
         }
 
         AssetOutcome asset_outcome(const E::AssetExpected<E::Asset> &result) {
@@ -273,9 +285,10 @@ namespace sturdy_rs::assets {
     void assets_pump_texture_streaming(EngineView &engine) noexcept {
         try {
             engine.assets().pump_texture_streaming();
-        } catch (const std::exception &) {
-            // Streaming progress is not something the caller can react to; swallow and try again
-            // next tick rather than propagating a C++ exception across the FFI boundary.
+        } catch (const std::exception &error) {
+            // Streaming progress is not something the caller can react to; try again next tick rather than propagating a C++
+            // exception across the FFI boundary. A texture that throws every tick would otherwise stall silently.
+            SFT_LOG_ERROR_THROTTLED(5000, "Asset bridge: texture streaming threw (retrying next tick): {}", error.what());
         }
     }
 
@@ -400,7 +413,8 @@ namespace sturdy_rs::assets {
                 out_indices.push_back(index);
             }
             return true;
-        } catch (const std::exception &) {
+        } catch (const std::exception &error) {
+            SFT::Foundation::log_error("Asset bridge: reading the mesh's vertices threw: {}", error.what());
             return false;
         }
     }

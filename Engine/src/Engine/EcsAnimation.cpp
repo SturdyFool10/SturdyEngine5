@@ -260,7 +260,9 @@ namespace SFT::Engine {
         Animation::skin_matrices(*player.skeleton, player.pose, player.matrices);
         if (player.model) {
             // Blend shapes ride along on a graph's first clip that has them (mixing weights across clips is not defined).
-            (void)assets.set_skinned_pose(player.model, player.matrices, player.morph_weights);
+            if (const auto posed = assets.set_skinned_pose(player.model, player.matrices, player.morph_weights); !posed) {
+                SFT_LOG_WARN_THROTTLED(5000, "Animation: could not apply the pose to the model, it will not move: {}", posed.error().message);
+            }
         }
         return root;
     }
@@ -296,7 +298,9 @@ namespace SFT::Engine {
                 Animation::sample_weights(*track, Animation::wrap_time(*clip, animator.time, false), animator.morph_weights);
             }
         }
-        (void)assets.set_skinned_pose(animator.model, animator.matrices, animator.morph_weights);
+        if (const auto posed = assets.set_skinned_pose(animator.model, animator.matrices, animator.morph_weights); !posed) {
+            SFT_LOG_WARN_THROTTLED(5000, "Animation: could not apply the pose to the model, it will not move: {}", posed.error().message);
+        }
     }
 
 } // namespace SFT::Engine

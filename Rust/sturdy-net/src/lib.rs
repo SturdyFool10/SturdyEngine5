@@ -59,6 +59,24 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::Duration;
 
+/// Writes `message` into the engine's log at `level` (an `ffi::STURDY_LOG_LEVEL_*` value), so a plugin or script reports through the
+/// same console, log file and registered sinks as the engine instead of printing to stderr. Informational levels are emitted at the
+/// engine's lowest severity.
+///
+/// Only meaningful while the engine is loaded (it is, for anything that calls the C ABI). A failure to log is ignored: there is
+/// nowhere left to report it.
+pub fn log(level: ffi::SturdyLogLevel, message: &str) {
+    // SAFETY: the pointer and length describe `message`, which outlives the call; the engine copies what it keeps.
+    unsafe {
+        ffi::sturdy_log_message(level, message.as_ptr() as *const c_char, message.len() as u64);
+    }
+}
+
+/// [`log`] at error severity.
+pub fn log_error(message: &str) {
+    log(ffi::STURDY_LOG_LEVEL_ERROR, message);
+}
+
 /// What went wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {

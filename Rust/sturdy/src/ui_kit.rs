@@ -1138,8 +1138,8 @@ impl AnimatedImage {
                 if changed {
                     let pixels = &self.image.frames[self.frame].pixels;
                     if let Err(error) = engine.assets().update_texture(self.asset, pixels) {
-                        // A failed upload leaves the previous frame on screen; try again next frame.
-                        let _ = error;
+                        // A failed upload leaves the previous frame on screen and is not retried until the next frame change.
+                        sturdy_sys::diagnostics::log_error(&format!("animated image frame {} could not be uploaded: {error}", self.frame));
                     }
                 }
                 return Some(Duration::from_secs_f64(((duration - self.elapsed_ms) / 1000.0).max(0.001)));

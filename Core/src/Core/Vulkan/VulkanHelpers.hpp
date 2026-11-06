@@ -57,6 +57,15 @@ namespace SFT::Core::Vulkan {
     /// @note This function does not throw exceptions.
     [[nodiscard]] const char *vulkan_result_name(VkResult result) noexcept;
 
+    /// Message for a failed Vulkan call that names the call and the `VkResult` the driver returned ("vkCreateBuffer failed:
+    /// VK_ERROR_OUT_OF_DEVICE_MEMORY (-2)"). Without the result a device loss, an out-of-memory and a validation misuse all read
+    /// the same.
+    ///
+    /// @param call Name of the Vulkan entry point, e.g. "vkCreateBuffer".
+    /// @param result What it returned.
+    /// @param detail Optional extra context appended after the result (a size, a label); empty for none.
+    [[nodiscard]] std::string vulkan_failure_message(std::string_view call, VkResult result, std::string_view detail = {});
+
     /// Returns a human-readable name for the supplied vendor value.
     ///
     /// @param vendor_id Identifier of the target object or resource.

@@ -15,6 +15,7 @@
 #include <Foundation/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanBackend.hpp>
+#include <Core/Vulkan/VulkanHelpers.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Renderer.hpp>
@@ -77,7 +78,20 @@ namespace SFT::Core::Vulkan {
     RendererResult VulkanBackend::createVulkanInstance(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::createVulkanInstance");
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
+            // volk only fails when it cannot load the Vulkan loader library itself, so say what to look for.
+#if defined(_WIN32)
+            const char *loader = "vulkan-1.dll";
+#elif defined(__APPLE__)
+            const char *loader = "libvulkan.1.dylib / libMoltenVK.dylib";
+#else
+            const char *loader = "libvulkan.so.1";
+#endif
+            return graphics_backend_error(
+                GraphicsBackendErrorCode::OperationFailed,
+                vulkan_failure_message("volkInitialize", res,
+                                       std::format("the Vulkan loader ({}) could not be loaded; install the GPU vendor's Vulkan driver "
+                                                   "or the Vulkan loader package, or choose another graphics API",
+                                                   loader)));
         }
 
 
@@ -176,8 +190,16 @@ namespace SFT::Core::Vulkan {
         };
 #pragma clang diagnostic pop
 
-        if (vkCreateInstance(&instCreateInfo, nullptr, &this->vulkan_instance) != VK_SUCCESS) [[unlikely]] {
-            return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vkCreateInstance failed");
+        if (const VkResult instance_result = vkCreateInstance(&instCreateInfo, nullptr, &this->vulkan_instance); instance_result != VK_SUCCESS) [[unlikely]] {
+            return graphics_backend_error(
+                GraphicsBackendErrorCode::InitializationFailed,
+                vulkan_failure_message("vkCreateInstance", instance_result,
+                                       instance_result == VK_ERROR_INCOMPATIBLE_DRIVER
+                                           ? "no Vulkan driver supports the requested API version"
+                                       : instance_result == VK_ERROR_EXTENSION_NOT_PRESENT
+                                           ? "a required instance extension is not available (check the Vulkan loader and driver)"
+                                       : instance_result == VK_ERROR_LAYER_NOT_PRESENT ? "a requested validation layer is not installed"
+                                                                                       : ""));
         }
 
         volkLoadInstance(this->vulkan_instance);

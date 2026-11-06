@@ -347,16 +347,14 @@ unsafe fn rust_global_system_run(
         let channels: &mut [*mut u8] =
             if event_count == 0 { &mut [] } else { core::slice::from_raw_parts_mut(events, event_count) };
         if channels.iter().any(|c| c.is_null()) {
-            eprintln!("sturdy: global ECS system skipped this dispatch: a declared event channel is not bound yet");
+            crate::diagnostics::log_warn("global ECS system skipped this dispatch: a declared event channel is not bound yet");
             return;
         }
         let mut slices: Vec<&mut [u8]> = Vec::with_capacity(sys.sizes.len());
         for (index, &size) in sys.sizes.iter().enumerate() {
             let pointer = *resources.add(index);
             if pointer.is_null() {
-                eprintln!(
-                    "sturdy: global ECS system skipped this dispatch: a declared resource is not bound yet"
-                );
+                crate::diagnostics::log_warn("global ECS system skipped this dispatch: a declared resource is not bound yet");
                 return;
             }
             slices.push(core::slice::from_raw_parts_mut(pointer, size));

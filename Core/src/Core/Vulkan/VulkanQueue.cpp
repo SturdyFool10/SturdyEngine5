@@ -2,6 +2,8 @@
 
 #include <chrono>
 
+#include <Core/Vulkan/VulkanHelpers.hpp>
+
 #include <tracy/Tracy.hpp>
 
 using std::chrono::duration;
@@ -80,7 +82,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             if (result == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueSubmit2 reported device loss.");
             if (result != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueSubmit2 failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkQueueSubmit2", result));
             return {};
         }
 
@@ -148,7 +150,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::FullScreenExclusiveLost,
                                               "vkQueuePresentKHR reported loss of exclusive-fullscreen ownership.");
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkQueuePresentKHR", res));
         }
 
 /// Waits for idle to complete.
@@ -167,7 +169,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             if (result == VK_ERROR_DEVICE_LOST) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueWaitIdle reported device loss.");
             if (result != VK_SUCCESS) [[unlikely]]
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueWaitIdle failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkQueueWaitIdle", result));
             return {};
         }
 
@@ -191,7 +193,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             if (result == VK_ERROR_DEVICE_LOST) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueBindSparse reported device loss.");
             if (result != VK_SUCCESS) [[unlikely]]
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueBindSparse failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, vulkan_failure_message("vkQueueBindSparse", result));
             return {};
         }
 
