@@ -112,6 +112,7 @@ namespace SFT::WindowManager {
                kind != WindowEffectKind::KeyboardGrab;
 #elif defined(__linux__)
         return kind == WindowEffectKind::Blur || kind == WindowEffectKind::Opacity ||
+               kind == WindowEffectKind::Transparent ||
                kind == WindowEffectKind::DarkMode || kind == WindowEffectKind::CornerRadius ||
                kind == WindowEffectKind::MousePassthrough || kind == WindowEffectKind::Focusable ||
                kind == WindowEffectKind::KeyboardGrab;

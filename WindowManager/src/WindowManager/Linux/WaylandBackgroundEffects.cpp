@@ -400,6 +400,8 @@ namespace SFT::WindowManager::Detail {
             org_kde_kwin_blur_set_region(effect, region);
             wl_region_destroy(region);
             org_kde_kwin_blur_commit(effect);
+            // The blur state is applied with the surface's next commit, as the ext route does.
+            wl_surface_commit(surface);
             (void)wl_display_flush(connection.display);
             window_info("Wayland background blur enabled via org_kde_kwin_blur compatibility route.");
             return WindowEffectResult::success("org_kde_kwin_blur applied.");
@@ -507,6 +509,35 @@ namespace SFT::WindowManager::Detail {
         wl_surface_commit(surface);
         (void)wl_display_flush(display);
         return WindowEffectResult::success("wp_alpha_modifier_v1 opacity applied.");
+    }
+
+    WindowEffectResult set_wayland_window_transparency(NativeWindowHandle handle, bool transparent) noexcept {
+        ZoneScopedN("Windowing::set_wayland_window_transparency");
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+            return WindowEffectResult::failed("Wayland transparency requires a wl_display and wl_surface.");
+        }
+        auto *display = static_cast<wl_display *>(handle.display);
+        auto *surface = static_cast<wl_surface *>(handle.window);
+        const std::lock_guard lock{connection_mutex()};
+        WaylandBackgroundEffectConnection *connection = ensure_connection(display);
+        if (connection == nullptr || connection->compositor == nullptr) {
+            return WindowEffectResult::failed("Failed to reach the Wayland compositor global.");
+        }
+        if (transparent) {
+            wl_surface_set_opaque_region(surface, nullptr); // null = nothing is known to be opaque
+        } else {
+            wl_region *whole = wl_compositor_create_region(connection->compositor);
+            if (whole == nullptr) {
+                return WindowEffectResult::failed("Could not create a wl_region.");
+            }
+            // The compositor clips the region to the surface.
+            wl_region_add(whole, 0, 0, INT_MAX, INT_MAX);
+            wl_surface_set_opaque_region(surface, whole);
+            wl_region_destroy(whole);
+        }
+        wl_surface_commit(surface);
+        (void)wl_display_flush(display);
+        return WindowEffectResult::success("Wayland surface opaque region set.");
     }
 
     WindowEffectResult set_wayland_mouse_passthrough(NativeWindowHandle handle, bool enabled) noexcept {

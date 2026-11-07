@@ -514,6 +514,8 @@ namespace SFT::WindowManager::SDL3 {
         /// Re-applies the active blur when its region is derived from the window size (rounded corners).
         void reapply_blur_region_locked() noexcept;
         void reapply_corner_outline_locked() noexcept;
+        /// Wayland: SDL sets the surface's opaque region itself on every resize, so a live transparency request is put back.
+        void reapply_transparency_locked() noexcept;
 
         SDL_Window *window_ = nullptr;
         deque<WindowEvent> events_;
@@ -543,6 +545,8 @@ namespace SFT::WindowManager::SDL3 {
 
 
         optional<WindowEffect> active_blur_effect_;
+        /// The last live `Transparent` request.
+        optional<WindowEffect> active_transparency_effect_;
         /// The `CornerRadius` request in force; its outline is rebuilt from the window size on every resize.
         optional<WindowEffect> active_corner_effect_;
         /// Custom title bar regions. Own lock: the OS calls the hit test while SDL pumps events, outside

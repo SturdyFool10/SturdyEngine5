@@ -264,9 +264,7 @@ namespace SFT::WindowManager {
 #if defined(__linux__)
         if (!operating_system_may_support_window_effect(effect.kind)) [[unlikely]] {
             Detail::window_warn(
-                "Linux window effect kind={} enabled={} is not supported on this OS; no-op. "
-                "(Window transparency on Linux is a creation-time-only WindowConfig::transparent flag — "
-                "see its doc comment for why — not something Window::set_transparent() can toggle live.)",
+                "Linux window effect kind={} enabled={} is not supported on this OS; no-op.",
                 static_cast<int>(effect.kind),
                 effect.enabled);
             return WindowEffectResult::failed("This window effect is not supported on the current OS.");
@@ -274,6 +272,15 @@ namespace SFT::WindowManager {
 
         if (effect.kind == WindowEffectKind::Blur) [[likely]] {
             return try_linux_blur(handle, effect);
+        }
+
+        if (effect.kind == WindowEffectKind::Transparent) {
+            // Wayland: the surface's opaque region, live. X11: whether the window can be see-through is its visual,
+            // which is chosen when it is created (`WindowConfig::transparent`) and cannot change after.
+            return handle.system == NativeWindowSystem::Wayland
+                       ? Detail::set_wayland_window_transparency(handle, effect.enabled)
+                       : WindowEffectResult::failed(
+                             "An X11 window's transparency is its visual, fixed when the window is created.");
         }
 
         if (effect.kind == WindowEffectKind::Opacity) {

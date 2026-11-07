@@ -616,6 +616,7 @@ namespace SFT::WindowManager::SDL3 {
             }
             active_blur_effect_.reset();
             active_corner_effect_.reset();
+            active_transparency_effect_.reset();
             native_effect_handle_.reset();
             Foundation::log_info("Closing window via SDL3");
             SDL_DestroyWindow(window_);
@@ -1186,6 +1187,7 @@ namespace SFT::WindowManager::SDL3 {
                         // A rounded-corner blur region is built from the window size, so it follows every resize.
                         target->reapply_blur_region_locked();
                         target->reapply_corner_outline_locked();
+                        target->reapply_transparency_locked();
                     }
                 }
             } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
@@ -2246,6 +2248,17 @@ namespace SFT::WindowManager::SDL3 {
         (void)enable_native_window_effect(*handle, *active_blur_effect_);
     }
 
+    void SDL3Window::reapply_transparency_locked() noexcept {
+        if (!active_transparency_effect_) {
+            return;
+        }
+        const auto handle = native_window_handle_locked();
+        if (!handle || handle->system != NativeWindowSystem::Wayland) {
+            return;
+        }
+        (void)enable_native_window_effect(*handle, *active_transparency_effect_);
+    }
+
     void SDL3Window::reapply_corner_outline_locked() noexcept {
         if (!active_corner_effect_ || !active_corner_effect_->options.outline_follows_window_size()) {
             return;
@@ -2306,6 +2319,9 @@ namespace SFT::WindowManager::SDL3 {
             } else {
                 active_blur_effect_.reset();
             }
+        }
+        if (result.succeeded() && effect.kind == WindowEffectKind::Transparent) {
+            active_transparency_effect_ = effect;
         }
         if (result.succeeded() && effect.kind == WindowEffectKind::CornerRadius) {
             if (effect.enabled && effect.options.outline_follows_window_size()) {

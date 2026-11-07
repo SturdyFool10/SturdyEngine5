@@ -19,6 +19,11 @@ namespace SFT::WindowManager::Detail {
     /// Sets or clears whole-surface opacity through `wp_alpha_modifier_v1` (`effect.options.opacity`).
     [[nodiscard]] WindowEffectResult set_wayland_window_opacity(NativeWindowHandle handle, WindowEffect effect) noexcept;
 
+    /// Whether the compositor may see through the surface: the surface's opaque region (core protocol). A transparent
+    /// surface declares none, so the compositor blends it with what is behind; an opaque one declares all of itself,
+    /// so the compositor can skip that. The buffer's own alpha (the swapchain's composite alpha) is separate.
+    [[nodiscard]] WindowEffectResult set_wayland_window_transparency(NativeWindowHandle handle, bool transparent) noexcept;
+
     /// Click-through: an empty `wl_surface` input region (core protocol, so every compositor), or the whole surface again.
     [[nodiscard]] WindowEffectResult set_wayland_mouse_passthrough(NativeWindowHandle handle, bool enabled) noexcept;
 
