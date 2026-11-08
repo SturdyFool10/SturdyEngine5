@@ -694,6 +694,72 @@ namespace sturdy_rs::assets {
         }
     }
 
+    AssetOutcome assets_load_texture_managed(EngineView &engine,
+                                             rust::Str source,
+                                             TextureColorSpace color_space,
+                                             TextureKind kind,
+                                             rust::Str label,
+                                             bool nearest_sampling,
+                                             std::uint32_t max_dimension,
+                                             bool watch,
+                                             bool evictable) {
+        try {
+            return asset_outcome(engine.assets().load_texture_managed(
+                std::filesystem::path{to_std_string(source)},
+                SFT::Engine::TextureLoadOptions{.color_space = map(color_space),
+                                           .kind = map(kind),
+                                           .nearest_sampling = nearest_sampling,
+                                           .max_dimension = max_dimension,
+                                           .watch = watch,
+                                           .evictable = evictable},
+                to_ustring(label)));
+        } catch (const std::exception &) {
+            return make_exception_failure<AssetOutcome>();
+        }
+    }
+
+    AssetOutcome assets_create_texture_managed_from_bytes(EngineView &engine,
+                                                          rust::Str name,
+                                                          rust::Slice<const std::uint8_t> encoded,
+                                                          TextureColorSpace color_space,
+                                                          TextureKind kind,
+                                                          rust::Str label,
+                                                          bool nearest_sampling,
+                                                          std::uint32_t max_dimension,
+                                                          bool evictable) {
+        try {
+            return asset_outcome(engine.assets().create_texture_managed_from_bytes(
+                to_std_string(name), to_byte_vector(encoded),
+                SFT::Engine::TextureLoadOptions{.color_space = map(color_space),
+                                           .kind = map(kind),
+                                           .nearest_sampling = nearest_sampling,
+                                           .max_dimension = max_dimension,
+                                           .watch = false,
+                                           .evictable = evictable},
+                to_ustring(label)));
+        } catch (const std::exception &) {
+            return make_exception_failure<AssetOutcome>();
+        }
+    }
+
+    rust::String assets_reload(EngineView &engine, AssetHandle asset) {
+        try {
+            if (const auto reloaded = engine.assets().reload(to_engine_asset(asset)); !reloaded) {
+                return to_rust_string(reloaded.error().message);
+            }
+            return rust::String();
+        } catch (const std::exception &e) {
+            return rust::String(e.what());
+        }
+    }
+
+    void assets_set_texture_residency_limit(EngineView &engine, std::uint64_t max_resident) {
+        try {
+            engine.assets().set_texture_residency_limit(static_cast<std::size_t>(max_resident));
+        } catch (const std::exception &) {
+        }
+    }
+
     TextureProgressOutcome assets_texture_progress(const EngineView &engine, AssetHandle asset) {
         try {
             const auto result = engine.assets().texture_progress(to_engine_asset(asset));

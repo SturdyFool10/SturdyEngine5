@@ -131,6 +131,20 @@ namespace SFT::Engine {
 
     /// How much of a texture asset's final image its GPU texture currently shows. The asset handle (and the renderer
     /// texture behind it) stays the same through every step; only the pixels get better.
+    /// How `AssetManager::load_texture_managed` / `create_texture_managed_from_bytes` treat an image.
+    struct TextureLoadOptions {
+        TextureColorSpace color_space = TextureColorSpace::Srgb;
+        TextureKind kind = TextureKind::ColorAlpha;
+        bool nearest_sampling = false;
+        /// Longest edge of the texture (0 = as big as the file). Bigger images are shrunk while decoding, off the render
+        /// thread, so a screenshot grid does not hold a full-size texture per tile.
+        u32 max_dimension = 0;
+        /// Reload the image in place when its file changes on disk (files only).
+        bool watch = true;
+        /// May be released when the residency limit is exceeded and loaded again when drawn.
+        bool evictable = true;
+    };
+
     enum class TextureDetail : u8 {
         /// Nothing decoded yet; the texture is a transparent 1x1 stand-in.
         Placeholder,
@@ -310,6 +324,27 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<Asset> create_texture_progressive_from_bytes(
             std::vector<std::byte> encoded, TextureColorSpace color_space = TextureColorSpace::Srgb, UString label = {},
             bool nearest_sampling = false, TextureKind kind = TextureKind::ColorAlpha);
+
+        /// The way to put an image from a file on screen and forget about it. Returns at once; the image decodes off the render
+        /// thread (shrunk to `options.max_dimension`) and appears on the same asset, which then keeps itself current:
+        ///   * the file changing on disk reloads it in place (once it has stopped changing, so a file still being written is
+        ///     not read half-way), and a failed load is retried the same way;
+        ///   * with `set_texture_residency_limit`, textures nothing has drawn lately are released and come back, by
+        ///     themselves, the next time they are drawn;
+        ///   * a graphics device change is handled by the engine.
+        /// Loading the same file with the same options again returns the same asset.
+        [[nodiscard]] AssetExpected<Asset> load_texture_managed(const std::filesystem::path &source,
+                                                                TextureLoadOptions options = {}, UString label = {});
+        /// `load_texture_managed` for encoded bytes the caller holds (a download, an embedded picture). `name` identifies the
+        /// picture; asking again with the same name and different bytes reloads the same asset with them.
+        [[nodiscard]] AssetExpected<Asset> create_texture_managed_from_bytes(std::string_view name,
+                                                                             std::vector<std::byte> encoded,
+                                                                             TextureLoadOptions options = {}, UString label = {});
+        /// Loads a texture again from its source now (a file, the bytes it was made from, or its SVG).
+        [[nodiscard]] AssetResult reload(Asset asset);
+        /// The most managed textures kept in memory at once (0 = no limit). Beyond it, the ones drawn least recently are
+        /// released (never ones a model uses, or ones drawn in the last two seconds) and reload when drawn again.
+        void set_texture_residency_limit(usize max_resident);
 
         /// How far a texture asset's image has got; see `TextureProgress`. Valid for every texture asset (a texture made
         /// any other way is simply `Complete`).

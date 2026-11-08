@@ -28,6 +28,7 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -323,6 +324,10 @@ namespace SFT::Engine {
             /// The SVG text when it was given in memory (nothing is read from `path`); null for a file.
             std::shared_ptr<const std::string> data;
             u32 raster_px = 0;
+            std::filesystem::file_time_type loaded_time{};
+            std::uintmax_t loaded_size = 0;
+            std::filesystem::file_time_type seen_time{};
+            std::uintmax_t seen_size = 0;
         };
 
         /// Edge of the squares a progressive load compares and re-uploads.
@@ -334,10 +339,57 @@ namespace SFT::Engine {
             return static_cast<u32>(std::ceil(clamped / 4.0f)) * 4u;
         }
 
-        /// The body of a progressive load, run on the asset manager's decode thread.
+        /// Shrinks 8-bit RGBA so its longest edge is at most `limit`, averaging boxes of source pixels (no ringing, and alpha
+        /// is averaged premultiplied so transparent edges do not darken).
+        void downscale_rgba8(std::vector<std::byte> &pixels, u32 &width, u32 &height, u32 limit) {
+            const u32 longest = std::max(width, height);
+            if (limit == 0 || longest <= limit) {
+                return;
+            }
+            const f64 scale = static_cast<f64>(limit) / longest;
+            const u32 out_w = std::max<u32>(1, static_cast<u32>(std::lround(width * scale)));
+            const u32 out_h = std::max<u32>(1, static_cast<u32>(std::lround(height * scale)));
+            std::vector<std::byte> out(static_cast<usize>(out_w) * out_h * 4);
+            const auto *in = reinterpret_cast<const u8 *>(pixels.data());
+            for (u32 y = 0; y < out_h; ++y) {
+                const u32 y0 = static_cast<u32>(static_cast<u64>(y) * height / out_h);
+                const u32 y1 = std::max(y0 + 1, static_cast<u32>(static_cast<u64>(y + 1) * height / out_h));
+                for (u32 x = 0; x < out_w; ++x) {
+                    const u32 x0 = static_cast<u32>(static_cast<u64>(x) * width / out_w);
+                    const u32 x1 = std::max(x0 + 1, static_cast<u32>(static_cast<u64>(x + 1) * width / out_w));
+                    f64 r = 0, g = 0, b = 0, a = 0;
+                    for (u32 sy = y0; sy < y1; ++sy) {
+                        for (u32 sx = x0; sx < x1; ++sx) {
+                            const u8 *px = in + (static_cast<usize>(sy) * width + sx) * 4;
+                            const f64 alpha = px[3];
+                            r += px[0] * alpha;
+                            g += px[1] * alpha;
+                            b += px[2] * alpha;
+                            a += alpha;
+                        }
+                    }
+                    const f64 count = static_cast<f64>(y1 - y0) * (x1 - x0);
+                    auto *dst = reinterpret_cast<u8 *>(out.data()) + (static_cast<usize>(y) * out_w + x) * 4;
+                    if (a > 0) {
+                        dst[0] = static_cast<u8>(std::lround(r / a));
+                        dst[1] = static_cast<u8>(std::lround(g / a));
+                        dst[2] = static_cast<u8>(std::lround(b / a));
+                    } else {
+                        dst[0] = dst[1] = dst[2] = 0;
+                    }
+                    dst[3] = static_cast<u8>(std::lround(a / count));
+                }
+            }
+            pixels = std::move(out);
+            width = out_w;
+            height = out_h;
+        }
+
+        /// The body of a progressive load, run on the asset manager's decode thread. `max_dimension` (0 = none) shrinks the
+        /// finished image to that longest edge before it is uploaded; the low-detail intermediate passes are skipped then.
         void run_progressive_load(const std::shared_ptr<ProgressiveLoad> &load, const std::filesystem::path &source,
                                   std::vector<std::byte> encoded_bytes, TextureColorSpace color_space, TextureKind kind,
-                                  bool allow_bc) {
+                                  bool allow_bc, u32 max_dimension = 0) {
             const auto push = [&](ProgressiveUpdate update) {
                 std::lock_guard lock{load->mutex};
                 load->updates.push_back(std::move(update));
@@ -463,7 +515,13 @@ namespace SFT::Engine {
                 return true;
             };
 
-            auto image = Detail::decode_image_progressive(*encoded, Detail::DecodeOptions{}, sink, source);
+            Detail::DecodeOptions decode_options;
+            decode_options.preview_min_dimension = max_dimension;
+            auto image = max_dimension != 0 ? Detail::decode_image(*encoded, decode_options, source)
+                                            : Detail::decode_image_progressive(*encoded, decode_options, sink, source);
+            if (image && max_dimension != 0 && !image->is_preview) {
+                downscale_rgba8(image->pixels(), image->width, image->height, max_dimension);
+            }
             if (!image) {
                 if (!load->cancel.load(std::memory_order_acquire)) {
                     fail(std::string{image.error().message.c_str()});
@@ -529,8 +587,30 @@ namespace SFT::Engine {
             u64 paused_at_ms = 0;
         };
 
+        /// Where a managed texture's image comes from, and what the manager does about it: reload when the file changes,
+        /// reload after being evicted, shrink while decoding.
+        struct ManagedSource {
+            std::string key;
+            std::filesystem::path path;
+            std::shared_ptr<const std::vector<std::byte>> bytes;
+            TextureColorSpace color_space = TextureColorSpace::Srgb;
+            TextureKind kind = TextureKind::ColorAlpha;
+            u32 max_dimension = 0;
+            bool watch = true;
+            bool evictable = true;
+            /// The file as it was when the current load started, and as it was at the last look (a change counts once it
+            /// has stopped moving: a screenshot still being written is not reloaded half-way).
+            std::filesystem::file_time_type loaded_time{};
+            std::uintmax_t loaded_size = 0;
+            std::filesystem::file_time_type seen_time{};
+            std::uintmax_t seen_size = 0;
+            bool evicted = false;
+            std::chrono::steady_clock::time_point last_drawn = std::chrono::steady_clock::now();
+        };
+
         struct TextureData {
             SFT::Renderer::TextureHandle texture{};
+            std::optional<ManagedSource> managed;
             std::optional<TextureAnimation> animation;
             TextureAssetInfo info{};
             bool nearest_sampling = false;
@@ -682,6 +762,10 @@ namespace SFT::Engine {
                 if (texture->progressive) {
                     texture->progressive->cancel.store(true, std::memory_order_release);
                 }
+                if (texture->managed) {
+                    managed_by_handle.erase(texture->texture.value);
+                    path_cache.erase(texture->managed->key);
+                }
                 if (texture->svg) {
                     svg_records.erase(texture->texture.value);
                     if (texture->svg->data) {
@@ -723,6 +807,12 @@ namespace SFT::Engine {
         void pump_progressive();
         /// Moves animated images on to the frame the clock says they are at.
         void advance_animations();
+        /// Starts (or restarts) the decode of a managed texture's source; the old pixels keep showing until the new ones arrive.
+        void start_load_locked(usize index);
+        /// Reloads managed textures and SVG files whose files changed on disk.
+        void watch_sources();
+        /// Evicts the least recently drawn managed textures beyond `residency_limit`.
+        void enforce_residency();
         /// Grows SVG rasters to the size the UI actually drew them at.
         void apply_texture_demand();
         AssetResult replace_locked(Record &record, TextureData &data, TextureAssetDesc desc);
@@ -739,6 +829,12 @@ namespace SFT::Engine {
         std::vector<usize> active_progressive;
         /// Records holding an animated image, so the per-frame advance does not scan every asset.
         std::vector<usize> animated;
+        /// Records holding a managed texture, and the renderer handle -> record index for them (UI draw demand finds them).
+        std::vector<usize> managed_list;
+        std::unordered_map<u64, usize> managed_by_handle;
+        usize residency_limit = 0;
+        u64 frame = 0;
+        std::chrono::steady_clock::time_point last_watch{};
         /// Renderer texture handle -> record index, for the SVG textures (so the UI's drawn sizes can find them).
         std::unordered_map<u64, usize> svg_records;
         /// Declared last: destroyed first, so its worker has stopped before anything the worker's jobs touch goes away.
@@ -1045,6 +1141,8 @@ namespace SFT::Engine {
         impl_->apply_texture_demand();
         impl_->pump_progressive();
         impl_->advance_animations();
+        impl_->watch_sources();
+        impl_->enforce_residency();
     }
 
     void AssetManager::Impl::advance_animations() {
@@ -1198,10 +1296,29 @@ namespace SFT::Engine {
 
     void AssetManager::Impl::apply_texture_demand() {
         const auto demand = renderer.take_texture_demand();
+        ++frame;
         if (demand.empty()) {
             return;
         }
         std::unique_lock lock{mutex};
+        // Drawn textures are in use: note when, and bring back one that was evicted.
+        if (!managed_by_handle.empty()) {
+            const auto now = std::chrono::steady_clock::now();
+            for (const auto &[handle, pixels] : demand) {
+                const auto found = managed_by_handle.find(handle.value);
+                if (found == managed_by_handle.end()) {
+                    continue;
+                }
+                auto *data = records[found->second].loaded ? std::get_if<TextureData>(&records[found->second].data) : nullptr;
+                if (data == nullptr || !data->managed) {
+                    continue;
+                }
+                data->managed->last_drawn = now;
+                if (data->managed->evicted) {
+                    start_load_locked(found->second);
+                }
+            }
+        }
         if (svg_records.empty()) {
             return;
         }
@@ -1227,6 +1344,177 @@ namespace SFT::Engine {
                 Foundation::log_warn("AssetManager: could not re-rasterise '{}': {}", data->svg->path.string(),
                                      grown.error().message);
             }
+        }
+    }
+
+    void AssetManager::Impl::start_load_locked(usize index) {
+        Record &record = records[index];
+        auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+        if (data == nullptr || !data->managed) {
+            return;
+        }
+        ManagedSource &managed = *data->managed;
+        if (data->progressive) {
+            data->progressive->cancel.store(true, std::memory_order_release);
+        }
+        auto load = std::make_shared<ProgressiveLoad>();
+        data->progressive = load;
+        if (std::ranges::find(active_progressive, index) == active_progressive.end()) {
+            active_progressive.push_back(index);
+        }
+        if (!managed.path.empty()) {
+            std::error_code ec;
+            const auto time = std::filesystem::last_write_time(managed.path, ec);
+            const auto size = ec ? 0 : std::filesystem::file_size(managed.path, ec);
+            managed.loaded_time = ec ? std::filesystem::file_time_type{} : time;
+            managed.loaded_size = ec ? 0 : size;
+            managed.seen_time = managed.loaded_time;
+            managed.seen_size = managed.loaded_size;
+        }
+        managed.evicted = false;
+        managed.last_drawn = std::chrono::steady_clock::now();
+        std::vector<std::byte> bytes;
+        if (managed.bytes) {
+            bytes = *managed.bytes;
+        }
+        const bool allow_bc = device_allows_bc(renderer);
+        (void)decode_thread.run([load, path = managed.path, bytes = std::move(bytes), cs = managed.color_space,
+                                 kind = managed.kind, allow_bc, max = managed.max_dimension]() mutable {
+            run_progressive_load(load, path, std::move(bytes), cs, kind, allow_bc, max);
+        });
+    }
+
+    void AssetManager::Impl::watch_sources() {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_watch < std::chrono::milliseconds(500)) {
+            return;
+        }
+        last_watch = now;
+        std::unique_lock lock{mutex};
+        for (usize slot = 0; slot < managed_list.size();) {
+            const usize index = managed_list[slot];
+            Record &record = records[index];
+            auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || !data->managed) {
+                managed_list[slot] = managed_list.back();
+                managed_list.pop_back();
+                continue;
+            }
+            ++slot;
+            ManagedSource &managed = *data->managed;
+            if (!managed.watch || managed.path.empty() || managed.evicted) {
+                continue;
+            }
+            std::error_code ec;
+            const auto time = std::filesystem::last_write_time(managed.path, ec);
+            if (ec) {
+                continue;
+            }
+            const auto size = std::filesystem::file_size(managed.path, ec);
+            if (ec) {
+                continue;
+            }
+            const bool differs = time != managed.loaded_time || size != managed.loaded_size;
+            const bool still = time == managed.seen_time && size == managed.seen_size;
+            managed.seen_time = time;
+            managed.seen_size = size;
+            if (differs && still) {
+                Foundation::log_info("AssetManager: '{}' changed on disk; reloading.", managed.path.string());
+                start_load_locked(index);
+            }
+        }
+        for (const auto &[handle, index] : svg_records) {
+            Record &record = records[index];
+            auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || !data->svg || data->svg->data) {
+                continue;
+            }
+            SvgSource &svg = *data->svg;
+            std::error_code ec;
+            const auto time = std::filesystem::last_write_time(svg.path, ec);
+            if (ec) {
+                continue;
+            }
+            const auto size = std::filesystem::file_size(svg.path, ec);
+            if (ec) {
+                continue;
+            }
+            const bool differs = time != svg.loaded_time || size != svg.loaded_size;
+            const bool still = time == svg.seen_time && size == svg.seen_size;
+            svg.seen_time = time;
+            svg.seen_size = size;
+            if (differs && still) {
+                svg.loaded_time = time;
+                svg.loaded_size = size;
+                const u32 px = svg.raster_px;
+                svg.raster_px = 0; // forces the re-rasterisation
+                if (auto again = rasterize_svg_locked(record, *data, px); !again) {
+                    svg.raster_px = px;
+                    Foundation::log_warn("AssetManager: could not reload '{}': {}", svg.path.string(), again.error().message);
+                }
+            }
+        }
+    }
+
+    void AssetManager::Impl::enforce_residency() {
+        if (residency_limit == 0 || frame % 30 != 0) {
+            return;
+        }
+        std::unique_lock lock{mutex};
+        struct Candidate {
+            std::chrono::steady_clock::time_point last_drawn;
+            usize index;
+        };
+        std::vector<Candidate> candidates;
+        usize resident = 0;
+        for (const usize index : managed_list) {
+            const Record &record = records[index];
+            const auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || !data->managed || data->managed->evicted) {
+                continue;
+            }
+            ++resident;
+            if (data->managed->evictable && data->progressive == nullptr && data->detail != TextureDetail::Placeholder) {
+                candidates.push_back({data->managed->last_drawn, index});
+            }
+        }
+        if (resident <= residency_limit || candidates.empty()) {
+            return;
+        }
+        // A texture a model uses is not drawn through the UI, so its draw time says nothing: never evict those.
+        std::unordered_set<u64> in_models;
+        for (const Record &record : records) {
+            const auto *model = record.loaded ? std::get_if<ModelData>(&record.data) : nullptr;
+            if (model == nullptr) {
+                continue;
+            }
+            for (const ModelPrimitiveData &primitive : model->primitives) {
+                for (const Asset &texture : primitive.textures) {
+                    in_models.insert(texture.id_);
+                }
+            }
+        }
+        std::ranges::sort(candidates, {}, &Candidate::last_drawn);
+        const auto now = std::chrono::steady_clock::now();
+        for (const Candidate &candidate : candidates) {
+            if (resident <= residency_limit || now - candidate.last_drawn < std::chrono::seconds(2)) {
+                break;
+            }
+            Record &record = records[candidate.index];
+            if (in_models.contains(static_cast<u64>(candidate.index + 1))) {
+                continue;
+            }
+            auto &data = std::get<TextureData>(record.data);
+            const std::vector<std::byte> clear(4, std::byte{0});
+            if (auto replaced = renderer.replace_texture(data.texture, 1, 1, RHI::Format::RGBA8Unorm, clear, 1); !replaced) {
+                continue;
+            }
+            // The texture keeps its logical size (`info`), so layouts that depend on a picture's aspect do not jump.
+            data.managed->evicted = true;
+            data.detail = TextureDetail::Placeholder;
+            ++data.version;
+            record.memory_bytes = 4;
+            --resident;
         }
     }
 
@@ -1423,6 +1711,129 @@ namespace SFT::Engine {
         return placeholder;
     }
 
+    namespace {
+        std::string managed_key(std::string_view origin, const TextureLoadOptions &options) {
+            return "managed|" + std::string{origin} + (options.color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear") +
+                   "|kind" + std::to_string(static_cast<int>(options.kind)) + "|max" + std::to_string(options.max_dimension) +
+                   (options.nearest_sampling ? "|nearest" : "");
+        }
+    } // namespace
+
+    AssetExpected<Asset> AssetManager::load_texture_managed(const std::filesystem::path &source, TextureLoadOptions options,
+                                                            UString label) {
+        const std::string key = managed_key(source.string(), options);
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+        if (label.empty()) {
+            label = path_label(source, "texture");
+        }
+        auto placeholder = create_texture(TextureAssetDesc{
+            .width = 1, .height = 1, .color_space = options.color_space, .pixels = std::vector<std::byte>(4, std::byte{0}),
+            .label = label, .kind = options.kind, .allow_compression = false, .generate_mipmaps = false,
+            .nearest_sampling = options.nearest_sampling});
+        if (!placeholder) {
+            return placeholder;
+        }
+        std::unique_lock lock{impl_->mutex};
+        const usize index = static_cast<usize>(placeholder->id_ - 1);
+        if (Impl::Record *record = impl_->find(*placeholder)) {
+            record->source = source;
+            if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                data->detail = TextureDetail::Placeholder;
+                data->refined_fraction = 0.0f;
+                data->managed = Impl::ManagedSource{.key = key, .path = source, .color_space = options.color_space,
+                                                    .kind = options.kind, .max_dimension = options.max_dimension,
+                                                    .watch = options.watch, .evictable = options.evictable};
+                impl_->managed_list.push_back(index);
+                impl_->managed_by_handle[data->texture.value] = index;
+                impl_->start_load_locked(index);
+            }
+        }
+        impl_->path_cache.emplace(key, *placeholder);
+        return placeholder;
+    }
+
+    AssetExpected<Asset> AssetManager::create_texture_managed_from_bytes(std::string_view name, std::vector<std::byte> encoded,
+                                                                         TextureLoadOptions options, UString label) {
+        if (encoded.empty()) {
+            return std::unexpected(error(AssetErrorCode::InvalidDescription, "No image data was given."));
+        }
+        const std::string key = managed_key("bytes:" + std::string{name}, options);
+        auto shared = std::make_shared<const std::vector<std::byte>>(std::move(encoded));
+        {
+            std::unique_lock lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                // Same name: the same asset. Different bytes under it mean the picture changed (a new avatar), so it reloads.
+                Impl::Record *record = impl_->find(it->second);
+                auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+                if (data != nullptr && data->managed && (!data->managed->bytes || *data->managed->bytes != *shared)) {
+                    data->managed->bytes = shared;
+                    impl_->start_load_locked(static_cast<usize>(it->second.id_ - 1));
+                }
+                return it->second;
+            }
+        }
+        if (label.empty()) {
+            label = UString{std::string{name}};
+        }
+        auto placeholder = create_texture(TextureAssetDesc{
+            .width = 1, .height = 1, .color_space = options.color_space, .pixels = std::vector<std::byte>(4, std::byte{0}),
+            .label = label, .kind = options.kind, .allow_compression = false, .generate_mipmaps = false,
+            .nearest_sampling = options.nearest_sampling});
+        if (!placeholder) {
+            return placeholder;
+        }
+        std::unique_lock lock{impl_->mutex};
+        const usize index = static_cast<usize>(placeholder->id_ - 1);
+        if (Impl::Record *record = impl_->find(*placeholder)) {
+            if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                data->detail = TextureDetail::Placeholder;
+                data->refined_fraction = 0.0f;
+                data->managed = Impl::ManagedSource{.key = key, .bytes = shared, .color_space = options.color_space,
+                                                    .kind = options.kind, .max_dimension = options.max_dimension,
+                                                    .watch = false, .evictable = options.evictable};
+                impl_->managed_list.push_back(index);
+                impl_->managed_by_handle[data->texture.value] = index;
+                impl_->start_load_locked(index);
+            }
+        }
+        impl_->path_cache.emplace(key, *placeholder);
+        return placeholder;
+    }
+
+    AssetResult AssetManager::reload(Asset asset) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::Unsupported : AssetErrorCode::InvalidAsset,
+                                         "reload supports texture assets loaded from a file, bytes or SVG."));
+        }
+        if (data->managed) {
+            impl_->start_load_locked(static_cast<usize>(asset.id_ - 1));
+            return {};
+        }
+        if (data->svg) {
+            const u32 px = data->svg->raster_px;
+            data->svg->raster_px = 0;
+            auto again = impl_->rasterize_svg_locked(*record, *data, px);
+            if (!again) {
+                data->svg->raster_px = px;
+            }
+            return again;
+        }
+        return std::unexpected(error(AssetErrorCode::Unsupported, "This texture has no source to reload from."));
+    }
+
+    void AssetManager::set_texture_residency_limit(usize max_resident) {
+        std::unique_lock lock{impl_->mutex};
+        impl_->residency_limit = max_resident;
+    }
+
     AssetExpected<TextureProgress> AssetManager::texture_progress(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -1476,6 +1887,11 @@ namespace SFT::Engine {
         }
         data->svg.reset();
         data->animation.reset();
+        if (data->managed) {
+            impl_->managed_by_handle.erase(data->texture.value);
+            impl_->path_cache.erase(data->managed->key);
+            data->managed.reset();
+        }
         data->detail = TextureDetail::Complete;
         data->refined_fraction = 1.0f;
         return {};
@@ -1553,6 +1969,13 @@ namespace SFT::Engine {
             record->source = source;
             if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
                 data->svg = SvgSource{.path = source, .raster_px = px};
+                std::error_code ec;
+                const auto time = std::filesystem::last_write_time(source, ec);
+                const auto size = ec ? 0 : std::filesystem::file_size(source, ec);
+                if (!ec) {
+                    data->svg->loaded_time = data->svg->seen_time = time;
+                    data->svg->loaded_size = data->svg->seen_size = size;
+                }
                 impl_->svg_records[data->texture.value] = static_cast<usize>(asset->id_ - 1);
             }
         }

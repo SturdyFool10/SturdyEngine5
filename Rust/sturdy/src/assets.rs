@@ -234,6 +234,33 @@ pub enum TextureDetail {
     Failed,
 }
 
+/// How [`Assets::load_texture_managed`] treats an image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureLoadOptions {
+    pub color_space: TextureColorSpace,
+    pub kind: TextureKind,
+    pub nearest_sampling: bool,
+    /// Longest edge of the texture (0 = as big as the file); bigger images are shrunk while decoding.
+    pub max_dimension: u32,
+    /// Reload in place when the file changes on disk (files only).
+    pub watch: bool,
+    /// May be released over the residency limit and loaded again when drawn.
+    pub evictable: bool,
+}
+
+impl Default for TextureLoadOptions {
+    fn default() -> Self {
+        Self {
+            color_space: TextureColorSpace::Srgb,
+            kind: TextureKind::ColorAlpha,
+            nearest_sampling: false,
+            max_dimension: 0,
+            watch: true,
+            evictable: true,
+        }
+    }
+}
+
 /// Progress of a texture asset; see [`Assets::texture_progress`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextureProgress {
@@ -856,6 +883,74 @@ impl<'a> Assets<'a> {
             Some(err) => Err(err),
             None => Ok(Asset::from_ffi(out.asset)),
         }
+    }
+
+    /// The way to put an image file on screen and forget about it: returns at once, decodes off the render thread (shrunk to
+    /// `options.max_dimension` if set), and keeps the asset current by itself. The file changing on disk reloads it in
+    /// place (once it stops changing), a failed or not-yet-existing file loads when it appears, and with
+    /// [`set_texture_residency_limit`](Self::set_texture_residency_limit) textures nothing draws are released and come
+    /// back when drawn. The asset and its [`RendererTextureHandle`] never change. Loading the same file with the same
+    /// options returns the same asset.
+    pub fn load_texture_managed(
+        &mut self,
+        source: impl AsRef<str>,
+        options: TextureLoadOptions,
+        label: impl AsRef<str>,
+    ) -> AssetResult<Asset> {
+        let out = sys::assets_load_texture_managed(
+            self.view.as_mut(),
+            source.as_ref(),
+            options.color_space.into(),
+            options.kind.into(),
+            label.as_ref(),
+            options.nearest_sampling,
+            options.max_dimension,
+            options.watch,
+            options.evictable,
+        );
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(Asset::from_ffi(out.asset)),
+        }
+    }
+
+    /// [`load_texture_managed`](Self::load_texture_managed) for encoded bytes you hold (a download, an embedded picture).
+    /// `name` identifies the picture: asking again with the same name returns the same asset, and with different bytes
+    /// reloads that asset with them.
+    pub fn create_texture_managed_from_bytes(
+        &mut self,
+        name: impl AsRef<str>,
+        encoded: &[u8],
+        options: TextureLoadOptions,
+        label: impl AsRef<str>,
+    ) -> AssetResult<Asset> {
+        let out = sys::assets_create_texture_managed_from_bytes(
+            self.view.as_mut(),
+            name.as_ref(),
+            encoded,
+            options.color_space.into(),
+            options.kind.into(),
+            label.as_ref(),
+            options.nearest_sampling,
+            options.max_dimension,
+            options.evictable,
+        );
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(Asset::from_ffi(out.asset)),
+        }
+    }
+
+    /// Loads a texture again from its source now (its file, the bytes it was made from, or its SVG).
+    pub fn reload(&mut self, asset: Asset) -> Result<(), String> {
+        let error = sys::assets_reload(self.view.as_mut(), asset.inner);
+        if error.is_empty() { Ok(()) } else { Err(error) }
+    }
+
+    /// The most managed textures kept in memory at once (0 = no limit). Beyond it the ones drawn least recently are
+    /// released, never ones a model uses or ones drawn in the last two seconds, and load again by themselves when drawn.
+    pub fn set_texture_residency_limit(&mut self, max_resident: u64) {
+        sys::assets_set_texture_residency_limit(self.view.as_mut(), max_resident);
     }
 
     /// How far a texture asset's image has got. Valid for every texture asset; one made any other way is simply

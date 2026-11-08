@@ -496,6 +496,40 @@ pub mod ffi {
             nearest_sampling: bool,
         ) -> AssetOutcome;
 
+        /// Mirrors `AssetManager::load_texture_managed`.
+        #[allow(clippy::too_many_arguments)]
+        fn assets_load_texture_managed(
+            engine: Pin<&mut EngineView>,
+            source: &str,
+            color_space: TextureColorSpace,
+            kind: TextureKind,
+            label: &str,
+            nearest_sampling: bool,
+            max_dimension: u32,
+            watch: bool,
+            evictable: bool,
+        ) -> AssetOutcome;
+
+        /// Mirrors `AssetManager::create_texture_managed_from_bytes`.
+        #[allow(clippy::too_many_arguments)]
+        fn assets_create_texture_managed_from_bytes(
+            engine: Pin<&mut EngineView>,
+            name: &str,
+            encoded: &[u8],
+            color_space: TextureColorSpace,
+            kind: TextureKind,
+            label: &str,
+            nearest_sampling: bool,
+            max_dimension: u32,
+            evictable: bool,
+        ) -> AssetOutcome;
+
+        /// Mirrors `AssetManager::reload`; an empty string on success, else the reason.
+        fn assets_reload(engine: Pin<&mut EngineView>, asset: AssetHandle) -> String;
+
+        /// Mirrors `AssetManager::set_texture_residency_limit`.
+        fn assets_set_texture_residency_limit(engine: Pin<&mut EngineView>, max_resident: u64);
+
         /// Mirrors `AssetManager::texture_progress`.
         fn assets_texture_progress(engine: &EngineView, asset: AssetHandle) -> TextureProgressOutcome;
 

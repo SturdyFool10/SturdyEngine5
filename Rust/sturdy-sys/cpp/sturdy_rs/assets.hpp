@@ -136,6 +136,26 @@ namespace sturdy_rs::assets {
                                                               TextureKind kind,
                                                               rust::Str label,
                                                               bool nearest_sampling);
+    AssetOutcome assets_load_texture_managed(EngineView &engine,
+                                             rust::Str source,
+                                             TextureColorSpace color_space,
+                                             TextureKind kind,
+                                             rust::Str label,
+                                             bool nearest_sampling,
+                                             std::uint32_t max_dimension,
+                                             bool watch,
+                                             bool evictable);
+    AssetOutcome assets_create_texture_managed_from_bytes(EngineView &engine,
+                                                          rust::Str name,
+                                                          rust::Slice<const std::uint8_t> encoded,
+                                                          TextureColorSpace color_space,
+                                                          TextureKind kind,
+                                                          rust::Str label,
+                                                          bool nearest_sampling,
+                                                          std::uint32_t max_dimension,
+                                                          bool evictable);
+    rust::String assets_reload(EngineView &engine, AssetHandle asset);
+    void assets_set_texture_residency_limit(EngineView &engine, std::uint64_t max_resident);
     TextureProgressOutcome assets_texture_progress(const EngineView &engine, AssetHandle asset);
     AssetOutcome assets_load_svg(EngineView &engine, rust::Str source, float target_px, rust::Str label);
     rust::String assets_set_svg_size(EngineView &engine, AssetHandle asset, float target_px);
