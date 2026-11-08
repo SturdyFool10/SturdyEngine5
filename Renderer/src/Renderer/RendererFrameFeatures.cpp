@@ -1530,7 +1530,7 @@ namespace SFT::Renderer {
                 : RenderGraphTextureHandle{};
             submission.render_graph.hdr_output = hdr_output;
             submission.render_graph.linear_output = context.linear_output;
-            submission.render_graph.hdr_color_space = record.presentation.hdr_color_space;
+            submission.render_graph.hdr_color_space = record.presentation.effective_hdr_color_space();
             const RenderGraphTextureHandle scene_source = graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
             const RenderGraphTextureHandle tonemap_target = tonemap_destination
                 ? tonemap_destination

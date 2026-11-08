@@ -185,7 +185,7 @@ namespace SFT::Renderer {
             // RGB10A2Unorm throws "is not a supported context format" and aborts the module.
             return RHI::Format::RGBA16Float;
 #else
-            switch (presentation.hdr_color_space) {
+            switch (presentation.effective_hdr_color_space()) {
 
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::Format::RGBA16Float;
 
@@ -212,7 +212,7 @@ namespace SFT::Renderer {
             // Mirrors hdr_presentation_format() above: the web platform only ever gets scRGB linear.
             return RHI::ColorSpace::ScrgbLinear;
 #else
-            switch (presentation.hdr_color_space) {
+            switch (presentation.effective_hdr_color_space()) {
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::ColorSpace::ScrgbLinear;
                 case Core::HdrColorSpaceMode::Hdr10Hlg: return RHI::ColorSpace::Hdr10Hlg;
                 case Core::HdrColorSpaceMode::DolbyVision: return RHI::ColorSpace::DolbyVision;
@@ -2537,7 +2537,7 @@ namespace SFT::Renderer {
             .transient_bind_groups = submission.transient_bind_groups,
             .output_format = output_format,
             .hdr_output = hdr_output,
-            .hdr_color_space = record.presentation.hdr_color_space,
+            .hdr_color_space = record.presentation.effective_hdr_color_space(),
             .linear_output = linear_output,
             .direct_overlay_presentation = direct_overlay_presentation,
             .final_output = final_output,

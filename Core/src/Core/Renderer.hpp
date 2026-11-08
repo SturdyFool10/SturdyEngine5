@@ -181,6 +181,16 @@ namespace SFT::Core {
 
         b8 transparent_composition = false;
 
+        /// The HDR signal the swapchain really uses. HDR10 and HLG surfaces are 10-bit with only 2 bits of alpha, so a
+        /// window composited with transparency (anti-aliased edges, translucent panels, rounded window corners) would
+        /// get its alpha rounded to one of four levels. scRGB is a half-float surface with full alpha, so a transparent
+        /// window uses it whatever HDR signal was asked for.
+        [[nodiscard]] HdrColorSpaceMode effective_hdr_color_space() const noexcept {
+            return static_cast<bool>(hdr_enabled) && static_cast<bool>(transparent_composition)
+                       ? HdrColorSpaceMode::ScrgbLinear
+                       : hdr_color_space;
+        }
+
         u32 swapchain_image_count = 0;
 
 
