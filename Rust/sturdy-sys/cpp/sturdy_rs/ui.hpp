@@ -98,6 +98,7 @@ namespace sturdy_rs::ui {
     bool ui_image(const UiElementDesc &desc, UiTexture texture);
     bool ui_image_sampled(const UiElementDesc &desc, UiTexture texture, bool nearest);
     UiSvgOutcome ui_load_svg(EngineView &engine, rust::Str path, float target_px);
+    UiSvgOutcome ui_load_svg_data(EngineView &engine, rust::Str name, rust::Slice<const std::uint8_t> svg, float target_px);
     void ui_clear_svg_cache(EngineView &engine);
     bool ui_svg(const UiElementDesc &desc, UiTexture texture);
 

@@ -614,6 +614,10 @@ pub mod ffi {
         /// not yet bound -- see this module's doc comment for what's out of scope).
         fn ui_load_svg(engine: Pin<&mut EngineView>, path: &str, target_px: f32) -> UiSvgOutcome;
 
+        /// [`ui_load_svg`] for SVG text held in memory: nothing is read from or written to the filesystem. `name`
+        /// identifies the icon (the same name is the same asset; the text of the first call is kept).
+        fn ui_load_svg_data(engine: Pin<&mut EngineView>, name: &str, svg: &[u8], target_px: f32) -> UiSvgOutcome;
+
         /// Drops every cached SVG rasterisation and unloads its texture (`UiSvgCache::clear_and_unload`). Call it when
         /// the raster size inputs change for good (UI scale, anti-aliasing mode) so stale sizes do not pile up; handles
         /// returned earlier are invalid, so re-run `ui_load_svg` the next time a frame draws an icon.

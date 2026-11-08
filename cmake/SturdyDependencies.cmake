@@ -2177,8 +2177,8 @@ function(sturdy_find_ufbx)
 endfunction()
 
 function(sturdy_fetch_bc7enc)
-    # bc7enc.c/.h is the actual BC7 encoder; everything else in the upstream repo (rgbcx.h/
-    # rgbcx_table4.h for BC1/3/4/5, bc7decomp.cpp for decoding, lodepng.cpp/test.cpp for its own
+    # bc7enc.c/.h is the actual BC7 encoder, and bc7decomp.cpp its decoder (for .dds/.ktx2 files); everything else in the
+    # upstream repo (rgbcx.h/rgbcx_table4.h for BC1/3/4/5, lodepng.cpp/test.cpp for its own
     # CLI tool) is unused by this engine and deliberately not built — see STURDY_BC7ENC_TAG's own
     # comment for why add_subdirectory isn't used here. STATIC (not INTERFACE, unlike stb_image/
     # cgltf) because bc7enc.c is real source that needs compiling, not a header-only library.
@@ -2205,7 +2205,8 @@ function(sturdy_fetch_bc7enc)
     cmake_policy(POP)
 
     if(NOT TARGET bc7enc)
-        add_library(bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.c")
+        # bc7decomp.cpp is the matching BC7 decoder, used to read .dds/.ktx2 textures.
+        add_library(bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.c" "${bc7enc_SOURCE_DIR}/bc7decomp.cpp")
         target_include_directories(bc7enc PUBLIC "${bc7enc_SOURCE_DIR}")
     endif()
     sturdy_mark_dependency_targets_exclude_from_all(bc7enc)
@@ -2860,7 +2861,7 @@ function(sturdy_find_bc7enc)
     endif()
 
     if(NOT TARGET bc7enc)
-        add_library(bc7enc STATIC "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c")
+        add_library(bc7enc STATIC "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c" "${STURDY_BC7ENC_INCLUDE_DIR}/bc7decomp.cpp")
         target_include_directories(bc7enc PUBLIC "${STURDY_BC7ENC_INCLUDE_DIR}")
     endif()
 endfunction()

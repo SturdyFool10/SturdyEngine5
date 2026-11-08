@@ -319,6 +319,22 @@ namespace SFT::Engine {
         /// same. Cancels a progressive load still in flight for it. A texture created as an SVG becomes a plain texture.
         [[nodiscard]] AssetResult replace_texture(Asset asset, TextureAssetDesc desc);
 
+        /// Loads an image that may be animated (GIF, APNG, animated WebP, AVIF sequence, animated JXL). The handle is an
+        /// ordinary texture; for an animation the manager changes what it shows as time passes (driven by
+        /// `pump_texture_streaming`), honouring each frame's delay and the loop count. A still image is just a texture.
+        [[nodiscard]] AssetExpected<Asset> load_texture_animated(const std::filesystem::path &source,
+                                                                 TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                                 UString label = {});
+        /// `load_texture_animated` for encoded bytes already in memory; `name` identifies the asset.
+        [[nodiscard]] AssetExpected<Asset> create_texture_animated_from_bytes(std::string_view name,
+                                                                              std::vector<std::byte> encoded,
+                                                                              TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                                              UString label = {});
+        /// Pauses or resumes an animated texture (a no-op for a still one).
+        [[nodiscard]] AssetResult set_animation_playing(Asset asset, bool playing);
+        /// Whether `asset` is a texture with more than one frame.
+        [[nodiscard]] bool is_animated(Asset asset) const;
+
         /// Loads an SVG file as a texture asset: vector source, raster managed by the asset manager. The raster is made at
         /// `target_px` (the largest dimension, rounded up to a multiple of 4 so block compression applies) with a mip
         /// chain, so drawing it smaller stays clean. Asking again for the same file returns the same asset, and a larger
@@ -326,6 +342,12 @@ namespace SFT::Engine {
         /// `set_svg_size`).
         [[nodiscard]] AssetExpected<Asset> load_svg(const std::filesystem::path &source, f32 target_px,
                                                     UString label = {});
+
+        /// [`load_svg`] for SVG text the caller holds (nothing is read from or written to the filesystem). `name` identifies
+        /// the icon: asking again with the same name returns the same asset (the text of the first call is kept and used for
+        /// every later re-rasterisation), and a larger `target_px` grows its raster in place.
+        [[nodiscard]] AssetExpected<Asset> load_svg_data(std::string_view name, std::string_view svg, f32 target_px,
+                                                         UString label = {});
 
         /// Sets an SVG texture asset's raster size exactly, growing or shrinking it in place. Use it when the sizes the
         /// UI draws it at changed for good (a UI-scale or anti-aliasing setting). A no-op when the size is unchanged.
@@ -387,6 +409,23 @@ namespace SFT::Engine {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] AssetExpected<Asset> load_file(const std::filesystem::path &source,
                                                      UString label = {});
+
+        /// Makes a file asset from bytes already in memory. `name` identifies it (asking again with the same name returns
+        /// the same asset); nothing touches the filesystem.
+        [[nodiscard]] AssetExpected<Asset> create_file_from_bytes(std::string_view name, std::vector<std::byte> bytes,
+                                                                  UString label = {});
+        /// Swaps a file asset's contents. The handle stays valid; readers holding the old bytes keep them.
+        [[nodiscard]] AssetResult replace_file(Asset asset, std::vector<std::byte> bytes);
+        /// Decodes encoded audio (WAV, FLAC, MP3, Ogg, ...) held in memory into a sound asset named `name`.
+        /// `extension_hint` (like ".ogg", optional) breaks ties between codecs.
+        [[nodiscard]] AssetExpected<Asset> create_sound_from_bytes(std::string_view name, std::vector<std::byte> encoded,
+                                                                   std::string_view extension_hint = {}, UString label = {});
+        /// Swaps a sound asset's audio. The handle stays valid; voices already playing finish on the old buffer.
+        [[nodiscard]] AssetResult replace_sound(Asset asset, std::vector<std::byte> encoded,
+                                                std::string_view extension_hint = {});
+        /// Rebuilds a model asset from `desc` under the same handle (a re-import, an edited mesh, an LOD swap). The new
+        /// model is built first, so on failure the old one is left as it was.
+        [[nodiscard]] AssetResult replace_model(Asset asset, ModelAssetDesc desc);
 
         /// Creates a model from the supplied parameters.
         ///

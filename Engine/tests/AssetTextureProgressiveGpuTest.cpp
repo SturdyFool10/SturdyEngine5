@@ -154,6 +154,44 @@ int main() {
         return 0;
     }
 
+    // ---- animated images: one handle, the shown frame follows the clock ----
+    {
+        // A 1x1 GIF with two frames, red then blue, 50 ms each, looping forever.
+        std::vector<std::byte> gif;
+        const auto put = [&](std::initializer_list<u8> bytes) { for (u8 b : bytes) gif.push_back(static_cast<std::byte>(b)); };
+        put({'G', 'I', 'F', '8', '9', 'a', 1, 0, 1, 0, 0x80, 0, 0});               // header, 1x1, 2-colour global table
+        put({255, 0, 0, 0, 0, 255});                                                  // red, blue
+        put({0x21, 0xFF, 0x0B, 'N', 'E', 'T', 'S', 'C', 'A', 'P', 'E', '2', '.', '0', 3, 1, 0, 0, 0}); // loop forever
+        for (u8 index : {u8{0}, u8{1}}) {
+            put({0x21, 0xF9, 4, 0, 5, 0, 0, 0});                                      // 50 ms delay
+            put({0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0});                                   // 1x1 image
+            put({2, 2, index == 0 ? u8{0x44} : u8{0x4C}, 1, 0});                      // LZW data for one index
+        }
+        put({0x3B});
+        auto animated = engine->assets().create_texture_animated_from_bytes("test.gif", gif);
+        if (check(animated.has_value(), "an animated GIF must load") && check(engine->assets().is_animated(*animated), "a two-frame GIF is animated")) {
+            auto handle = engine->assets().texture_handle(*animated);
+            bool saw_red = false, saw_blue = false;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (std::chrono::steady_clock::now() < deadline && !(saw_red && saw_blue)) {
+                engine->assets().pump_texture_streaming();
+                if (const auto pixels = read_rgba(*engine, *handle); pixels && pixels->size() >= 4) {
+                    saw_red = saw_red || ((*pixels)[0] == 255 && (*pixels)[2] == 0);
+                    saw_blue = saw_blue || ((*pixels)[0] == 0 && (*pixels)[2] == 255);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            check(saw_red && saw_blue, "the animated texture must show both frames over time on the same handle");
+            check(engine->assets().set_animation_playing(*animated, false).has_value(), "pausing must succeed");
+            engine->assets().pump_texture_streaming();
+            const auto frozen = read_rgba(*engine, *handle);
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            engine->assets().pump_texture_streaming();
+            const auto later = read_rgba(*engine, *handle);
+            check(frozen && later && *frozen == *later, "a paused animation must hold its frame");
+        }
+    }
+
     // ---- replace_texture: same handle, new size and pixels, moving revision ----
     {
         Renderer::Renderer &renderer = *engine->renderer();

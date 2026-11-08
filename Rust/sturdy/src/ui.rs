@@ -662,6 +662,18 @@ impl<'a> Ui<'a> {
         }
     }
 
+    /// [`Ui::load_svg`] for SVG text the application holds: nothing is read from or written to the filesystem. `name`
+    /// identifies the icon (the same name is the same asset; the text of the first call is kept and used whenever its
+    /// raster is made again), so an app that generates its icons (a tinted or rotated copy) just passes the text.
+    pub fn load_svg_data(&mut self, name: &str, svg: &[u8], target_px: f32) -> Result<RendererTextureHandle, String> {
+        let out = ffi::ui_load_svg_data(self.view.as_mut(), name, svg, target_px);
+        if out.ok {
+            Ok(RendererTextureHandle(out.texture.value))
+        } else {
+            Err(out.message)
+        }
+    }
+
     /// Starts a new sizing epoch for SVGs: the next [`Ui::load_svg`] of each file sets its raster to exactly the size
     /// then asked for, shrinking it if need be, instead of only ever growing. Use it when the sizes you draw icons at
     /// changed for good (a UI-scale or anti-aliasing setting): anti-aliasing is just rasterising at a multiple of the

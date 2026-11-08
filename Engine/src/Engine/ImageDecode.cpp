@@ -8,6 +8,8 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#include <bc7decomp.h>
+#include <rgbcx.h>
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -114,6 +116,150 @@ namespace SFT::Engine::Detail {
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool wants_wide_decode(const DecodeOptions &options) noexcept {
             return options.precision != DecodePrecision::Rgba8Srgb;
+        }
+
+        /// Reads the Orientation tag (0x0112) out of a TIFF structure, the form EXIF takes inside JPEG, PNG and WebP.
+        /// Returns 1..8, or 1 ("as stored") for anything missing or malformed.
+        [[nodiscard]] int tiff_orientation(std::span<const std::byte> tiff) noexcept {
+            if (tiff.size() < 8) {
+                return 1;
+            }
+            const auto byte = [&](usize at) { return static_cast<u32>(static_cast<u8>(tiff[at])); };
+            const bool little = byte(0) == 'I' && byte(1) == 'I';
+            if (!little && !(byte(0) == 'M' && byte(1) == 'M')) {
+                return 1;
+            }
+            const auto u16_at = [&](usize at) -> u32 {
+                return little ? byte(at) | (byte(at + 1) << 8) : (byte(at) << 8) | byte(at + 1);
+            };
+            const auto u32_at = [&](usize at) -> u32 {
+                return little ? u16_at(at) | (u16_at(at + 2) << 16) : (u16_at(at) << 16) | u16_at(at + 2);
+            };
+            if (u16_at(2) != 42) {
+                return 1;
+            }
+            const usize ifd = u32_at(4);
+            if (ifd + 2 > tiff.size()) {
+                return 1;
+            }
+            const u32 count = u16_at(ifd);
+            for (u32 i = 0; i < count; ++i) {
+                const usize entry = ifd + 2 + static_cast<usize>(i) * 12;
+                if (entry + 12 > tiff.size()) {
+                    break;
+                }
+                if (u16_at(entry) == 0x0112) {
+                    const u32 value = u16_at(entry + 8);
+                    return value >= 1 && value <= 8 ? static_cast<int>(value) : 1;
+                }
+            }
+            return 1;
+        }
+
+        /// The EXIF orientation of a JPEG, PNG or WebP file (1 when it has none). Other containers either apply their own
+        /// orientation in the decoder (TIFF, JPEG XL) or carry it as transforms handled there (AVIF).
+        [[nodiscard]] int exif_orientation(std::span<const std::byte> encoded) noexcept {
+            const auto byte = [&](usize at) { return static_cast<u8>(encoded[at]); };
+            const auto tag_is = [&](usize at, const char *tag) {
+                return at + 4 <= encoded.size() && std::memcmp(encoded.data() + at, tag, 4) == 0;
+            };
+            if (encoded.size() > 4 && byte(0) == 0xFF && byte(1) == 0xD8) {
+                usize at = 2;
+                while (at + 4 <= encoded.size() && byte(at) == 0xFF) {
+                    const u8 marker = byte(at + 1);
+                    if (marker == 0xD9 || marker == 0xDA) {
+                        break; // end of image / start of scan: no more metadata
+                    }
+                    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+                        at += 2;
+                        continue;
+                    }
+                    const usize length = (static_cast<usize>(byte(at + 2)) << 8) | byte(at + 3);
+                    if (length < 2 || at + 2 + length > encoded.size()) {
+                        break;
+                    }
+                    if (marker == 0xE1 && length >= 8 && tag_is(at + 4, "Exif")) {
+                        return tiff_orientation(encoded.subspan(at + 10, length - 8));
+                    }
+                    at += 2 + length;
+                }
+                return 1;
+            }
+            if (encoded.size() > 16 && tag_is(1, "PNG\r")) {
+                usize at = 8;
+                while (at + 12 <= encoded.size()) {
+                    const usize length = (static_cast<usize>(byte(at)) << 24) | (static_cast<usize>(byte(at + 1)) << 16) |
+                                         (static_cast<usize>(byte(at + 2)) << 8) | byte(at + 3);
+                    if (tag_is(at + 4, "eXIf") && at + 8 + length <= encoded.size()) {
+                        return tiff_orientation(encoded.subspan(at + 8, length));
+                    }
+                    if (tag_is(at + 4, "IDAT") || tag_is(at + 4, "IEND")) {
+                        break; // eXIf must precede the image data
+                    }
+                    at += 12 + length;
+                }
+                return 1;
+            }
+            if (encoded.size() > 12 && tag_is(0, "RIFF") && tag_is(8, "WEBP")) {
+                usize at = 12;
+                while (at + 8 <= encoded.size()) {
+                    const usize length = static_cast<usize>(byte(at + 4)) | (static_cast<usize>(byte(at + 5)) << 8) |
+                                         (static_cast<usize>(byte(at + 6)) << 16) | (static_cast<usize>(byte(at + 7)) << 24);
+                    if (tag_is(at, "EXIF") && at + 8 + length <= encoded.size()) {
+                        auto body = encoded.subspan(at + 8, length);
+                        if (body.size() > 6 && std::memcmp(body.data(), "Exif", 4) == 0) {
+                            body = body.subspan(6);
+                        }
+                        return tiff_orientation(body);
+                    }
+                    at += 8 + length + (length & 1);
+                }
+            }
+            return 1;
+        }
+
+        /// Turns every frame of `image` so the picture is upright for EXIF orientation `orientation` (1..8; 1 is a no-op),
+        /// the way a browser shows the file by default. 5-8 swap the width and height.
+        void apply_orientation(DecodedImage &image, int orientation) {
+            if (orientation < 2 || orientation > 8 || image.width == 0 || image.height == 0) {
+                return;
+            }
+            const u32 source_w = image.width;
+            const u32 source_h = image.height;
+            const bool swap = orientation >= 5;
+            const u32 w = swap ? source_h : source_w;
+            const u32 h = swap ? source_w : source_h;
+            const usize pixel = bytes_per_pixel(image.format);
+            for (ImageFrame &frame : image.frames) {
+                if (frame.pixels.size() < static_cast<usize>(source_w) * source_h * pixel) {
+                    continue;
+                }
+                std::vector<std::byte> out(frame.pixels.size());
+                for (u32 y = 0; y < h; ++y) {
+                    for (u32 x = 0; x < w; ++x) {
+                        u32 sx = x;
+                        u32 sy = y;
+                        switch (orientation) {
+                        case 2: sx = source_w - 1 - x; break;
+                        case 3: sx = source_w - 1 - x; sy = source_h - 1 - y; break;
+                        case 4: sy = source_h - 1 - y; break;
+                        case 5: sx = y; sy = x; break;
+                        case 6: sx = y; sy = source_h - 1 - x; break;
+                        case 7: sx = source_w - 1 - y; sy = source_h - 1 - x; break;
+                        case 8: sx = source_w - 1 - y; sy = x; break;
+                        default: break;
+                        }
+                        std::memcpy(out.data() + (static_cast<usize>(y) * w + x) * pixel,
+                                    frame.pixels.data() + (static_cast<usize>(sy) * source_w + sx) * pixel, pixel);
+                    }
+                }
+                frame.pixels = std::move(out);
+            }
+            image.width = w;
+            image.height = h;
+            if (image.full_width != 0 && swap) {
+                std::swap(image.full_width, image.full_height);
+            }
         }
 
         /// Reports whether `encoded` begins with either GIF signature (`GIF87a` or `GIF89a`).
@@ -1408,6 +1554,18 @@ namespace SFT::Engine::Detail {
                 // a duration on it would make an animation-aware consumer wait on nothing.
                 image.frames.front().duration_ms = 0;
             }
+            if (options.apply_orientation) {
+                // HEIF-family orientation is the irot (rotate counter-clockwise) and imir (mirror) item properties,
+                // applied in that order, not EXIF. libavif only reports them.
+                const uint32_t flags = decoder->image->transformFlags;
+                if ((flags & AVIF_TRANSFORM_IROT) != 0) {
+                    static constexpr int ccw_to_exif[4] = {1, 8, 3, 6};
+                    apply_orientation(image, ccw_to_exif[decoder->image->irot.angle & 3]);
+                }
+                if ((flags & AVIF_TRANSFORM_IMIR) != 0) {
+                    apply_orientation(image, decoder->image->imir.axis == 0 ? 4 : 2);
+                }
+            }
             return image;
         }
 #endif // STURDY_IMAGE_AVIF
@@ -2663,6 +2821,9 @@ namespace SFT::Engine::Detail {
             return encoded;
         }
 
+#include "ImageContainers.inl"
+
+
         /// Converts `image` in place to the color space `precision` names, applying the full input
         /// color transform: the source's transfer function is inverted to linear light, the
         /// source's primaries are converted to the engine's working primaries with Bradford
@@ -2812,6 +2973,12 @@ namespace SFT::Engine::Detail {
         const Foundation::Stopwatch stopwatch;
 
         AssetExpected<DecodedImage> image = [&]() -> AssetExpected<DecodedImage> {
+            if (looks_like_dds(encoded)) {
+                return decode_dds(encoded, source);
+            }
+            if (looks_like_ktx2(encoded)) {
+                return decode_ktx2(encoded, source);
+            }
             if (looks_like_ico(encoded)) {
                 return decode_ico(encoded, options, source);
             }
@@ -2881,6 +3048,10 @@ namespace SFT::Engine::Detail {
                 .message = UString{"Image decoder produced no frames for '" + source.string() + "'."},
                 .source = source,
             });
+        }
+
+        if (options.apply_orientation) {
+            apply_orientation(*image, exif_orientation(encoded));
         }
 
         image->hdr = scan_png_hdr_metadata(encoded);

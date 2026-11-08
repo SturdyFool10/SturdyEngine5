@@ -81,6 +81,9 @@ namespace SFT::Engine::Detail {
         /// animated JXL) yields every frame in `DecodedImage::frames` rather than just the first.
         /// Ignored by still formats, which always produce exactly one frame.
         bool decode_all_frames = false;
+        /// Turn the picture upright the way a browser does by default: the EXIF orientation of a JPEG, PNG or WebP, and the
+        /// irot/imir transforms of an AVIF. (TIFF and JPEG XL always apply their own.) Turn off to get the stored pixels.
+        bool apply_orientation = true;
         /// When non-zero, ask the decoder for the cheapest approximation it can produce that is
         /// still at least this many pixels on both axes — a fast low-detail pass to show while the
         /// full-resolution decode runs. Codecs that support it natively (JPEG 2000's resolution

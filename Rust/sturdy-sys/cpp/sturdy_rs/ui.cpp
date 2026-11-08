@@ -715,6 +715,32 @@ namespace sturdy_rs::ui {
         }
     }
 
+    UiSvgOutcome ui_load_svg_data(EngineView &engine, rust::Str name, rust::Slice<const std::uint8_t> svg, float target_px) {
+        UiSvgOutcome outcome{};
+        try {
+            const std::string_view text{reinterpret_cast<const char *>(svg.data()), svg.size()};
+            const auto result = engine.ui_svg_cache().resolve_data(
+                engine.assets(), std::string_view{name.data(), name.size()}, text, target_px);
+            if (!result) {
+                const auto view = result.error().message.cpp_string_view();
+                outcome.ok = false;
+                outcome.message = rust::String::lossy(view.data(), view.size());
+                return outcome;
+            }
+            outcome.ok = true;
+            outcome.texture = UiTexture{result->value};
+            return outcome;
+        } catch (const std::exception &e) {
+            outcome.ok = false;
+            outcome.message = rust::String::lossy(e.what());
+            return outcome;
+        } catch (...) {
+            outcome.ok = false;
+            outcome.message = rust::String{"an unexpected C++ exception was caught at the FFI boundary"};
+            return outcome;
+        }
+    }
+
     bool ui_svg(const UiElementDesc &desc, UiTexture texture) {
         if (!g_session.open) {
             return false;

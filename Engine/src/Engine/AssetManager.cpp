@@ -318,7 +318,10 @@ namespace SFT::Engine {
         };
 
         struct SvgSource {
+            /// The file the SVG came from, or the caller's name for it when it was given as text.
             std::filesystem::path path;
+            /// The SVG text when it was given in memory (nothing is read from `path`); null for a file.
+            std::shared_ptr<const std::string> data;
             u32 raster_px = 0;
         };
 
@@ -512,8 +515,23 @@ namespace SFT::Engine {
             SFT::Renderer::MaterialTemplateHandle material_template{};
         };
 
+        /// Playback state of an animated image (GIF, APNG, animated WebP/AVIF/JXL): every frame decoded, the clock decides
+        /// which one the texture currently shows.
+        struct TextureAnimation {
+            std::vector<std::vector<std::byte>> frames; // Rgba8
+            std::vector<u32> duration_ms;
+            u64 total_ms = 0;
+            u32 loop_count = 0; // 0 = forever
+            std::chrono::steady_clock::time_point start{};
+            usize shown = 0;
+            bool playing = true;
+            /// Time already played when paused, so resuming continues where it stopped.
+            u64 paused_at_ms = 0;
+        };
+
         struct TextureData {
             SFT::Renderer::TextureHandle texture{};
+            std::optional<TextureAnimation> animation;
             TextureAssetInfo info{};
             bool nearest_sampling = false;
             TextureKind kind = TextureKind::ColorAlpha;
@@ -666,6 +684,9 @@ namespace SFT::Engine {
                 }
                 if (texture->svg) {
                     svg_records.erase(texture->texture.value);
+                    if (texture->svg->data) {
+                        path_cache.erase("svg-data|" + texture->svg->path.string());
+                    }
                 }
                 if (texture->texture) {
                     renderer.destroy_texture(texture->texture);
@@ -700,6 +721,8 @@ namespace SFT::Engine {
 
         /// Applies what the progressive loads' workers have produced; see `pump_texture_streaming`.
         void pump_progressive();
+        /// Moves animated images on to the frame the clock says they are at.
+        void advance_animations();
         /// Grows SVG rasters to the size the UI actually drew them at.
         void apply_texture_demand();
         AssetResult replace_locked(Record &record, TextureData &data, TextureAssetDesc desc);
@@ -714,6 +737,8 @@ namespace SFT::Engine {
         std::unordered_map<std::string, Asset> path_cache;
         /// Records with a progressive load in flight, so the per-frame pump does not scan every asset.
         std::vector<usize> active_progressive;
+        /// Records holding an animated image, so the per-frame advance does not scan every asset.
+        std::vector<usize> animated;
         /// Renderer texture handle -> record index, for the SVG textures (so the UI's drawn sizes can find them).
         std::unordered_map<u64, usize> svg_records;
         /// Declared last: destroyed first, so its worker has stopped before anything the worker's jobs touch goes away.
@@ -1019,6 +1044,156 @@ namespace SFT::Engine {
     void AssetManager::pump_texture_streaming() {
         impl_->apply_texture_demand();
         impl_->pump_progressive();
+        impl_->advance_animations();
+    }
+
+    void AssetManager::Impl::advance_animations() {
+        if (animated.empty()) {
+            return;
+        }
+        std::unique_lock lock{mutex};
+        const auto now = std::chrono::steady_clock::now();
+        for (usize slot = 0; slot < animated.size();) {
+            Record &record = records[animated[slot]];
+            auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || !data->animation) {
+                animated[slot] = animated.back(); // destroyed or replaced by a still
+                animated.pop_back();
+                continue;
+            }
+            ++slot;
+            TextureAnimation &animation = *data->animation;
+            if (!animation.playing || animation.total_ms == 0) {
+                continue;
+            }
+            const u64 elapsed = animation.paused_at_ms + static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                              now - animation.start).count());
+            const u64 cycle = elapsed / animation.total_ms;
+            usize target = animation.frames.size() - 1;
+            if (animation.loop_count == 0 || cycle < animation.loop_count) {
+                u64 into = elapsed % animation.total_ms;
+                for (usize frame = 0; frame < animation.frames.size(); ++frame) {
+                    if (into < animation.duration_ms[frame]) {
+                        target = frame;
+                        break;
+                    }
+                    into -= animation.duration_ms[frame];
+                }
+            } else {
+                animation.playing = false; // played its last loop: rests on the final frame
+            }
+            if (target == animation.shown) {
+                continue;
+            }
+            auto replaced = replace_locked(record, *data,
+                                           TextureAssetDesc{.width = data->info.width,
+                                                            .height = data->info.height,
+                                                            .color_space = data->info.color_space,
+                                                            .pixels = animation.frames[target],
+                                                            .allow_compression = false,
+                                                            .generate_mipmaps = false});
+            if (!replaced) {
+                Foundation::log_warn("AssetManager: could not show animation frame {}: {}", target, replaced.error().message);
+                continue;
+            }
+            animation.shown = target;
+        }
+    }
+
+    AssetExpected<Asset> AssetManager::create_texture_animated_from_bytes(std::string_view name, std::vector<std::byte> encoded,
+                                                                          TextureColorSpace color_space, UString label) {
+        const std::string key = "anim|" + std::string{name} + (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear");
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+        Detail::DecodeOptions options;
+        options.decode_all_frames = true;
+        auto decoded = Detail::decode_image(encoded, options, std::filesystem::path{std::string{name}});
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        const usize frame_count = decoded->frames.size();
+        if (label.empty()) {
+            label = UString{std::string{name}};
+        }
+        auto first = std::move(decoded->frames.front().pixels);
+        auto texture = create_texture(TextureAssetDesc{.width = decoded->width,
+                                                       .height = decoded->height,
+                                                       .color_space = color_space,
+                                                       .pixels = frame_count > 1 ? first : std::move(first),
+                                                       .label = std::move(label),
+                                                       .allow_compression = frame_count == 1,
+                                                       .generate_mipmaps = frame_count == 1});
+        if (!texture) {
+            return texture;
+        }
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(*texture);
+        auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data != nullptr && frame_count > 1) {
+            Impl::TextureAnimation animation;
+            animation.loop_count = decoded->loop_count;
+            animation.frames.push_back(std::move(first));
+            for (usize i = 1; i < frame_count; ++i) {
+                animation.frames.push_back(std::move(decoded->frames[i].pixels));
+            }
+            for (const Detail::ImageFrame &frame : decoded->frames) {
+                // A frame with no delay would spin the animation; browsers treat it as 100 ms.
+                const u32 delay = frame.duration_ms == 0 ? 100u : frame.duration_ms;
+                animation.duration_ms.push_back(delay);
+                animation.total_ms += delay;
+            }
+            animation.start = std::chrono::steady_clock::now();
+            data->animation = std::move(animation);
+            impl_->animated.push_back(static_cast<usize>(texture->id_ - 1));
+        }
+        if (record != nullptr) {
+            record->source = key;
+        }
+        impl_->path_cache.emplace(key, *texture);
+        return texture;
+    }
+
+    AssetExpected<Asset> AssetManager::load_texture_animated(const std::filesystem::path &source,
+                                                             TextureColorSpace color_space, UString label) {
+        auto bytes = read_binary_file(source);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        return create_texture_animated_from_bytes(source.string(), std::move(*bytes), color_space, std::move(label));
+    }
+
+    AssetResult AssetManager::set_animation_playing(Asset asset, bool playing) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "set_animation_playing requires a live texture asset."));
+        }
+        if (!data->animation || data->animation->playing == playing) {
+            return {};
+        }
+        Impl::TextureAnimation &animation = *data->animation;
+        const auto now = std::chrono::steady_clock::now();
+        if (playing) {
+            animation.start = now;
+        } else {
+            animation.paused_at_ms += static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - animation.start).count());
+        }
+        animation.playing = playing;
+        return {};
+    }
+
+    bool AssetManager::is_animated(Asset asset) const {
+        std::shared_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(asset);
+        const auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        return data != nullptr && data->animation.has_value();
     }
 
     void AssetManager::Impl::apply_texture_demand() {
@@ -1300,6 +1475,7 @@ namespace SFT::Engine {
             data->progressive.reset();
         }
         data->svg.reset();
+        data->animation.reset();
         data->detail = TextureDetail::Complete;
         data->refined_fraction = 1.0f;
         return {};
@@ -1314,7 +1490,8 @@ namespace SFT::Engine {
             return {};
         }
         std::optional<UI::Svg::RasterizedSvg> rasterized =
-            UI::Svg::rasterize_svg_file(data.svg->path, static_cast<f32>(px));
+            data.svg->data ? UI::Svg::rasterize_svg_data(*data.svg->data, static_cast<f32>(px))
+                           : UI::Svg::rasterize_svg_file(data.svg->path, static_cast<f32>(px));
         if (!rasterized) {
             return std::unexpected(error(AssetErrorCode::DecodeFailure, "Failed to load/rasterize SVG.",
                                          data.svg->path));
@@ -1376,6 +1553,59 @@ namespace SFT::Engine {
             record->source = source;
             if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
                 data->svg = SvgSource{.path = source, .raster_px = px};
+                impl_->svg_records[data->texture.value] = static_cast<usize>(asset->id_ - 1);
+            }
+        }
+        impl_->path_cache[key] = *asset;
+        return asset;
+    }
+
+    AssetExpected<Asset> AssetManager::load_svg_data(std::string_view name, std::string_view svg, f32 target_px,
+                                                     UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_svg_data");
+        const u32 px = svg_raster_px(target_px);
+        const std::string key = "svg-data|" + std::string{name};
+        std::shared_ptr<const std::string> text;
+        {
+            std::unique_lock lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                Impl::Record *record = impl_->find(it->second);
+                auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+                if (data != nullptr && data->svg) {
+                    // The same name is the same icon; the source is kept from the first time. Only ever bigger.
+                    if (data->svg->raster_px < px) {
+                        if (auto grown = impl_->rasterize_svg_locked(*record, *data, px); !grown) {
+                            return std::unexpected(grown.error());
+                        }
+                    }
+                    return it->second;
+                }
+            }
+        }
+        text = std::make_shared<const std::string>(svg);
+        std::optional<UI::Svg::RasterizedSvg> rasterized = UI::Svg::rasterize_svg_data(*text, static_cast<f32>(px));
+        if (!rasterized) {
+            return std::unexpected(error(AssetErrorCode::DecodeFailure, "Failed to parse/rasterize SVG data.",
+                                         std::filesystem::path{std::string{name}}));
+        }
+        if (label.empty()) {
+            label = UString{std::string_view{name}.empty() ? std::string_view{"svg"} : name};
+        }
+        auto asset = create_texture(TextureAssetDesc{
+            .width = rasterized->width,
+            .height = rasterized->height,
+            .color_space = TextureColorSpace::Srgb,
+            .pixels = std::move(rasterized->rgba),
+            .label = std::move(label),
+        });
+        if (!asset) {
+            return asset;
+        }
+        std::unique_lock lock{impl_->mutex};
+        if (Impl::Record *record = impl_->find(*asset)) {
+            // No `source`: there is no file, and the path cache key below is what finds this asset again.
+            if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                data->svg = SvgSource{.path = std::filesystem::path{std::string{name}}, .data = std::move(text), .raster_px = px};
                 impl_->svg_records[data->texture.value] = static_cast<usize>(asset->id_ - 1);
             }
         }
@@ -2135,6 +2365,178 @@ namespace SFT::Engine {
         }
 
         impl_->destroy(*record);
+        return {};
+    }
+
+    namespace {
+        std::string memory_key(std::string_view kind, std::string_view name) {
+            return "mem|" + std::string{kind} + "|" + std::string{name};
+        }
+    } // namespace
+
+    AssetExpected<Asset> AssetManager::create_file_from_bytes(std::string_view name, std::vector<std::byte> bytes,
+                                                              UString label) {
+        const std::string key = memory_key("file", name);
+        std::unique_lock lock{impl_->mutex};
+        if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+            return it->second;
+        }
+        if (label.empty()) {
+            label = UString{std::string{name}};
+        }
+        const usize size = bytes.size();
+        const Asset asset = impl_->insert(Impl::Record{
+            .type = AssetType::File,
+            .label = std::move(label),
+            .source = key,
+            .memory_bytes = size,
+            .data = Impl::FileData{.bytes = std::make_shared<std::vector<std::byte>>(std::move(bytes))},
+        });
+        impl_->path_cache.emplace(key, asset);
+        return asset;
+    }
+
+    AssetResult AssetManager::replace_file(Asset asset, std::vector<std::byte> bytes) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::FileData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "replace_file requires a live file asset."));
+        }
+        record->memory_bytes = bytes.size();
+        // Readers holding the old shared bytes keep them; new reads see the replacement.
+        data->bytes = std::make_shared<std::vector<std::byte>>(std::move(bytes));
+        return {};
+    }
+
+    namespace {
+        struct DecodedSound {
+            std::shared_ptr<const Audio::SampleBuffer> buffer;
+            SoundAssetInfo info;
+        };
+
+        AssetExpected<DecodedSound> decode_sound_bytes(std::vector<std::byte> encoded, std::string_view extension_hint) {
+            auto decoded = Audio::load_sound_memory(Foundation::Io::ByteBlob::from_vector(std::move(encoded)),
+                                                    UString{std::string{extension_hint}});
+            if (!decoded) {
+                return std::unexpected(AssetError{AssetErrorCode::DecodeFailure,
+                                                  UString{"Could not decode sound data: " + decoded.error().cpp_string()}, {}});
+            }
+            DecodedSound out;
+            out.buffer = *decoded;
+            out.info = SoundAssetInfo{
+                .channels = out.buffer->channels,
+                .sample_rate = out.buffer->sample_rate,
+                .frame_count = out.buffer->frames(),
+                .duration_seconds = out.buffer->sample_rate != 0
+                                        ? static_cast<f64>(out.buffer->frames()) / out.buffer->sample_rate
+                                        : 0.0,
+            };
+            return out;
+        }
+    } // namespace
+
+    AssetExpected<Asset> AssetManager::create_sound_from_bytes(std::string_view name, std::vector<std::byte> encoded,
+                                                               std::string_view extension_hint, UString label) {
+        const std::string key = memory_key("sound", name);
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+        auto decoded = decode_sound_bytes(std::move(encoded), extension_hint);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        if (label.empty()) {
+            label = UString{std::string{name}};
+        }
+        std::unique_lock lock{impl_->mutex};
+        if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+            return it->second;
+        }
+        const usize bytes = decoded->buffer->samples->size() * sizeof(f32);
+        const Asset asset = impl_->insert(Impl::Record{
+            .type = AssetType::Sound,
+            .label = std::move(label),
+            .source = key,
+            .memory_bytes = bytes,
+            .data = Impl::SoundData{.buffer = std::move(decoded->buffer), .info = decoded->info},
+        });
+        impl_->path_cache.emplace(key, asset);
+        return asset;
+    }
+
+    AssetResult AssetManager::replace_sound(Asset asset, std::vector<std::byte> encoded,
+                                            std::string_view extension_hint) {
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            const Impl::Record *record = impl_->find(asset);
+            if (record == nullptr || !std::holds_alternative<Impl::SoundData>(record->data)) {
+                return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                             "replace_sound requires a live sound asset."));
+            }
+        }
+        auto decoded = decode_sound_bytes(std::move(encoded), extension_hint);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::SoundData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(AssetErrorCode::InvalidAsset, "The sound asset was unloaded while replacing it."));
+        }
+        record->memory_bytes = decoded->buffer->samples->size() * sizeof(f32);
+        // The mixer keeps playing voices on the buffer they started with; new plays use the replacement.
+        data->buffer = std::move(decoded->buffer);
+        data->info = decoded->info;
+        return {};
+    }
+
+    AssetResult AssetManager::replace_model(Asset asset, ModelAssetDesc desc) {
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            const Impl::Record *record = impl_->find(asset);
+            if (record == nullptr || !std::holds_alternative<Impl::ModelData>(record->data)) {
+                return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                             "replace_model requires a live model asset."));
+            }
+        }
+        // Build the replacement first so a failure leaves the old model untouched.
+        auto built = create_model(std::move(desc));
+        if (!built) {
+            return std::unexpected(built.error());
+        }
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *target = impl_->find(asset);
+        Impl::Record *fresh = impl_->find(*built);
+        if (target == nullptr || fresh == nullptr) {
+            if (fresh != nullptr) {
+                impl_->destroy(*fresh);
+            }
+            return std::unexpected(error(AssetErrorCode::InvalidAsset, "The model asset was unloaded while replacing it."));
+        }
+        // Free the old GPU resources, move the new ones under the old handle, and retire the temporary record without
+        // destroying what it handed over.
+        Impl::Data replacement = std::move(fresh->data);
+        const usize bytes = fresh->memory_bytes;
+        UString label = std::move(fresh->label);
+        fresh->data = std::monostate{};
+        fresh->loaded = false;
+        fresh->memory_bytes = 0;
+        const std::filesystem::path source = target->source;
+        const u32 generation = target->generation;
+        impl_->destroy(*target);
+        // `destroy` retires the generation; the whole point here is that the handle stays valid.
+        target->generation = generation;
+        target->data = std::move(replacement);
+        target->loaded = true;
+        target->memory_bytes = bytes;
+        target->label = std::move(label);
+        target->source = source;
         return {};
     }
 

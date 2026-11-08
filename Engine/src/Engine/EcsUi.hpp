@@ -144,6 +144,10 @@ namespace SFT::Engine {
             AssetManager &assets, const std::filesystem::path &path, f32 target_px);
 
 
+        /// [`resolve`] for SVG text held in memory (`AssetManager::load_svg_data`): nothing is cached on the filesystem.
+        [[nodiscard]] AssetExpected<Renderer::TextureHandle> resolve_data(
+            AssetManager &assets, std::string_view name, std::string_view svg, f32 target_px);
+
         /// Forgets what was asked for, without touching any texture.
         ///
         /// @note This function does not throw exceptions.

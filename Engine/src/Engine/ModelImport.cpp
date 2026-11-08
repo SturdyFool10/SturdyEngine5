@@ -1,6 +1,7 @@
 #include <Engine/ModelImport.hpp>
 
 #include <Engine/AssetManager.hpp>
+#include <Engine/MeshFileImport.hpp>
 
 #include <Animation/Bvh.hpp>
 
@@ -51,13 +52,15 @@ namespace SFT::Engine {
 
     } // namespace
 
-    std::vector<std::string_view> supported_model_extensions() { return {".gltf", ".glb", ".fbx", ".obj"}; }
+    std::vector<std::string_view> supported_model_extensions() { return {".gltf", ".glb", ".fbx", ".obj", ".ply", ".stl"}; }
     std::vector<std::string_view> supported_animation_extensions() { return {".bvh", ".gltf", ".glb", ".fbx"}; }
 
     AssetExpected<ImportedScene> import_model(AssetManager &assets, const std::filesystem::path &source, Asset shader) {
         const std::string ext = extension_of(source);
         if (ext == ".gltf" || ext == ".glb") return import_gltf(assets, source, shader);
         if (ext == ".fbx" || ext == ".obj") return import_fbx(assets, source, shader);
+        if (ext == ".ply") return import_ply(assets, source, shader);
+        if (ext == ".stl") return import_stl(assets, source, shader);
         if (ext == ".bvh") {
             return std::unexpected(import_error(AssetErrorCode::Unsupported,
                                                 "BVH files hold motion only; load them with import_animations.", source));

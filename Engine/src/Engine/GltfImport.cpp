@@ -876,6 +876,35 @@ namespace SFT::Engine {
                         mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
                         mr_gltf_texture->image == occlusion_gltf_texture->image;
 
+                    if (!material->has_pbr_metallic_roughness && material->has_pbr_specular_glossiness) {
+                        // KHR_materials_pbrSpecularGlossiness (deprecated, but still exported): approximated as a dielectric,
+                        // diffuse colour as base colour and glossiness as smoothness. The specular colour and the
+                        // glossiness texture are not carried over.
+                        const cgltf_pbr_specular_glossiness &sg = material->pbr_specular_glossiness;
+                        material_values.base_color_factor = glm::vec4{sg.diffuse_factor[0], sg.diffuse_factor[1],
+                                                                      sg.diffuse_factor[2], sg.diffuse_factor[3]};
+                        material_values.metallic_factor = 0.0f;
+                        material_values.roughness_factor = 1.0f - sg.glossiness_factor;
+                        if (const cgltf_texture *texture = sg.diffuse_texture.texture;
+                            texture != nullptr && texture->image != nullptr) {
+                            const auto image_index = static_cast<usize>(texture->image - data.images);
+                            AssetExpected<Asset> diffuse = load_image(
+                                assets, *texture->image, image_index, TextureColorSpace::Srgb,
+                                material->alpha_mode == cgltf_alpha_mode_opaque ? TextureKind::ColorOpaque
+                                                                                : TextureKind::ColorAlpha,
+                                base_dir, image_cache);
+                            if (!diffuse) {
+                                primitive_failed = true;
+                                primitive_error = diffuse.error();
+                                break;
+                            }
+                            primitive_desc.textures.push_back(ModelTextureBinding{
+                                .slot = UString{"base_color_texture"_ustr},
+                                .texture = *diffuse,
+                            });
+                        }
+                    }
+
                     if (material->has_pbr_metallic_roughness) {
                         const cgltf_pbr_metallic_roughness &pbr = material->pbr_metallic_roughness;
                         material_values.base_color_factor = glm::vec4{
@@ -967,6 +996,27 @@ namespace SFT::Engine {
                     }
                     if (material->has_ior) {
                         material_values.ior = material->ior.ior;
+                    }
+                    // The spectral path tracer's glass model: how much light passes through, how much each colour bends
+                    // differently, and how fast it is absorbed along the way.
+                    if (material->has_transmission) {
+                        material_values.transmission_factor = material->transmission.transmission_factor;
+                    }
+                    if (material->has_dispersion) {
+                        // glTF stores dispersion as 20 / Abbe number; for a Cauchy medium n = A + B / lambda^2 (lambda in
+                        // micrometres) the Abbe number is (n - 1) / (1.91 * B), which gives B from the two.
+                        material_values.dispersion_cauchy_b =
+                            (material_values.ior - 1.0f) * material->dispersion.dispersion / (20.0f * 1.91f);
+                    }
+                    if (material->has_volume && material->volume.attenuation_distance > 0.0f &&
+                        material->volume.attenuation_distance < 1.0e30f) {
+                        // Beer-Lambert: transmitted colour c after distance d means absorption -ln(c) / d per channel. The
+                        // material has a single coefficient, so the channels are averaged.
+                        f32 sum = 0.0f;
+                        for (const f32 channel : material->volume.attenuation_color) {
+                            sum += -std::log(std::max(channel, 1.0e-4f));
+                        }
+                        material_values.absorption_coefficient = sum / 3.0f / material->volume.attenuation_distance;
                     }
                     if (material->alpha_mode == cgltf_alpha_mode_mask) {
                         material_values.alpha_cutoff = material->alpha_cutoff;
