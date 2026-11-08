@@ -321,6 +321,7 @@ namespace SFT::Renderer {
 
 
         destroy_all_offscreen_render_targets();
+        destroy_retired_texture_gpu_now();
         for (TextureResource &resource : textures_) {
             if (resource.owns_gpu_resources) {
                 if (RHI::RhiDevice *device = rhi_device()) {

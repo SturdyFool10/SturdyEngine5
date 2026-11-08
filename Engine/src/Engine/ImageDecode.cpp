@@ -1627,6 +1627,147 @@ namespace SFT::Engine::Detail {
             }
             return image;
         }
+
+        /// Decodes a JPEG XL image for display while it is still decoding: see `decode_image_progressive`.
+        ///
+        /// The encoded file is complete in memory, but handed to libjxl in pieces of roughly 1/24 of its size so that the
+        /// decoder runs out of input, and `JxlDecoderFlushImage` can then write out everything decoded so far. libjxl
+        /// renders what it has as the best approximation it can (the DC image upscaled where the full-detail groups have
+        /// not arrived yet), so each flush is a complete image that is a little better than the one before. Flushes also
+        /// happen at libjxl's own `JXL_DEC_FRAME_PROGRESSION` events.
+        [[nodiscard]] AssetExpected<DecodedImage> decode_jxl_progressive(std::span<const std::byte> encoded,
+                                                                         const ProgressiveSink &sink,
+                                                                         const std::filesystem::path &source) {
+            const auto fail = [&source](const char *reason) {
+                return std::unexpected(AssetError{
+                    .code = AssetErrorCode::DecodeFailure,
+                    .message = UString{std::string{"Could not decode JPEG XL: "} + reason},
+                    .source = source,
+                });
+            };
+            const std::unique_ptr<JxlDecoder, decltype(&JxlDecoderDestroy)> decoder{
+                JxlDecoderCreate(nullptr), &JxlDecoderDestroy};
+            if (decoder == nullptr) {
+                return fail("failed to create the JPEG XL decoder.");
+            }
+            if (JxlDecoderSubscribeEvents(decoder.get(), JXL_DEC_BASIC_INFO | JXL_DEC_FULL_IMAGE | JXL_DEC_FRAME_PROGRESSION) !=
+                    JXL_DEC_SUCCESS ||
+                JxlDecoderSetProgressiveDetail(decoder.get(), kPasses) != JXL_DEC_SUCCESS) {
+                return fail("failed to enable progressive decoding.");
+            }
+
+            const auto* const bytes = reinterpret_cast<const uint8_t *>(encoded.data());
+            const usize total = encoded.size();
+            const usize chunk = std::max<usize>(32u * 1024u, total / 24u);
+            usize fed_begin = 0;
+            usize fed_end = std::min(total, chunk);
+            bool closed = fed_end == total;
+            if (JxlDecoderSetInput(decoder.get(), bytes, fed_end) != JXL_DEC_SUCCESS) {
+                return fail("failed to set decode input.");
+            }
+            if (closed) {
+                JxlDecoderCloseInput(decoder.get());
+            }
+
+            JxlBasicInfo info{};
+            const JxlPixelFormat format{.num_channels = 4, .data_type = JXL_TYPE_UINT8,
+                                        .endianness = JXL_NATIVE_ENDIAN, .align = 0};
+            DecodedImage image;
+            std::vector<std::byte> pixels;
+            bool have_buffer = false;
+            bool cancelled = false;
+
+            const auto flush = [&](bool is_final) {
+                if (!have_buffer) {
+                    return true;
+                }
+                if (!is_final && JxlDecoderFlushImage(decoder.get()) != JXL_DEC_SUCCESS) {
+                    return true; // nothing renderable yet
+                }
+                if (!sink(image.width, image.height, std::span<const std::byte>{pixels}, is_final)) {
+                    cancelled = true;
+                    return false;
+                }
+                return true;
+            };
+
+            for (;;) {
+                const JxlDecoderStatus status = JxlDecoderProcessInput(decoder.get());
+                if (status == JXL_DEC_ERROR) {
+                    return fail("the bitstream is corrupt or uses an unsupported feature.");
+                }
+                if (status == JXL_DEC_NEED_MORE_INPUT) {
+                    if (closed) {
+                        return fail("the file is truncated.");
+                    }
+                    // Whatever libjxl could not use yet is offered again with the next piece.
+                    const usize unused = JxlDecoderReleaseInput(decoder.get());
+                    fed_begin = fed_end - unused;
+                    if (!flush(false)) {
+                        break;
+                    }
+                    fed_end = std::min(total, fed_begin + chunk);
+                    closed = fed_end == total;
+                    if (JxlDecoderSetInput(decoder.get(), bytes + fed_begin, fed_end - fed_begin) != JXL_DEC_SUCCESS) {
+                        return fail("failed to set decode input.");
+                    }
+                    if (closed) {
+                        JxlDecoderCloseInput(decoder.get());
+                    }
+                    continue;
+                }
+                if (status == JXL_DEC_BASIC_INFO) {
+                    if (JxlDecoderGetBasicInfo(decoder.get(), &info) != JXL_DEC_SUCCESS || info.xsize == 0 ||
+                        info.ysize == 0) {
+                        return fail("failed to read image dimensions.");
+                    }
+                    image.width = info.xsize;
+                    image.height = info.ysize;
+                    continue;
+                }
+                if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER) {
+                    size_t buffer_size = 0;
+                    if (JxlDecoderImageOutBufferSize(decoder.get(), &format, &buffer_size) != JXL_DEC_SUCCESS) {
+                        return fail("failed to determine the output buffer size.");
+                    }
+                    pixels.assign(buffer_size, std::byte{0});
+                    if (JxlDecoderSetImageOutBuffer(decoder.get(), &format, pixels.data(), pixels.size()) !=
+                        JXL_DEC_SUCCESS) {
+                        return fail("failed to set the output buffer.");
+                    }
+                    have_buffer = true;
+                    continue;
+                }
+                if (status == JXL_DEC_FRAME_PROGRESSION) {
+                    if (!flush(false)) {
+                        break;
+                    }
+                    continue;
+                }
+                if (status == JXL_DEC_FULL_IMAGE) {
+                    if (!flush(true)) {
+                        break;
+                    }
+                    image.frames.push_back(ImageFrame{.pixels = std::move(pixels)});
+                    break;
+                }
+                if (status == JXL_DEC_SUCCESS) {
+                    break;
+                }
+            }
+            if (cancelled) {
+                return fail("the decode was cancelled.");
+            }
+            if (image.frames.empty()) {
+                return fail("no full image was decoded.");
+            }
+            if (image.frames.front().pixels.size() != static_cast<usize>(image.width) * image.height * 4u) {
+                return fail("a decoded frame's size does not match the reported dimensions.");
+            }
+            image.full_width = image.width;
+            image.full_height = image.height;
+            return image;
+        }
 #endif // STURDY_IMAGE_JXL
 
 #if STURDY_IMAGE_JP2
@@ -2785,6 +2926,48 @@ namespace SFT::Engine::Detail {
         std::span<const std::byte> encoded,
         const std::filesystem::path &source) {
         return decode_image(encoded, DecodeOptions{}, source);
+    }
+
+    AssetExpected<DecodedImage> decode_image_progressive(
+        std::span<const std::byte> encoded,
+        const DecodeOptions &options,
+        const ProgressiveSink &sink,
+        const std::filesystem::path &source) {
+#if STURDY_IMAGE_JXL
+        if (looks_like_jxl(encoded)) {
+            bool declined = false;
+            const ProgressiveSink watching = [&](u32 width, u32 height, std::span<const std::byte> rgba8, bool is_final) {
+                const bool keep_going = !sink || sink(width, height, rgba8, is_final);
+                declined = declined || !keep_going;
+                return keep_going;
+            };
+            auto progressive = decode_jxl_progressive(encoded, watching, source);
+            if (progressive || declined) {
+                return progressive;
+            }
+            // Some streams (truncated or unusual ones) make libjxl refuse the chunked, flushing way of decoding that the
+            // one-shot decode accepts. The image still loads, just without the intermediate reports.
+            Foundation::log_warn("ImageDecode: progressive JPEG XL decode of '{}' failed ({}); decoding in one go.",
+                                 source.string(), progressive.error().message.c_str());
+        }
+#endif
+        // No cheaper intermediate for these formats: decode once and report the finished image.
+        DecodeOptions single = options;
+        single.decode_all_frames = false;
+        single.preview_min_dimension = 0;
+        single.precision = DecodePrecision::Rgba8Srgb;
+        auto image = decode_image(encoded, single, source);
+        if (!image) {
+            return image;
+        }
+        if (sink && !sink(image->width, image->height, std::span<const std::byte>{image->pixels()}, true)) {
+            return std::unexpected(AssetError{
+                .code = AssetErrorCode::DecodeFailure,
+                .message = UString{"The decode was cancelled."},
+                .source = source,
+            });
+        }
+        return image;
     }
 
 } // namespace SFT::Engine::Detail

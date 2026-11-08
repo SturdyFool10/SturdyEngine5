@@ -10,6 +10,7 @@
 #include <glm/geometric.hpp>
 #include <limits>
 #include <span>
+#include <unordered_map>
 #pragma endregion
 
 #include <Renderer/UI/UiRenderer.hpp>
@@ -369,6 +370,9 @@ namespace SFT::UI {
 
         vector<UiQuadInstance> quad_instances;
         vector<RHI::TextureViewHandle> quad_texture_views;
+        vector<u64> quad_texture_revisions;
+        // Largest drawn size per image texture this frame, reported once after the loop.
+        std::unordered_map<u64, f32> drawn_image_sizes;
         vector<RHI::Rect2D> quad_scissors;
         vector<u32> quad_groups;
         vector<UiStrokeInstance> stroke_instances;
@@ -401,13 +405,18 @@ namespace SFT::UI {
                         break;
                     }
                     RHI::TextureViewHandle view = white_view;
+                    u64 revision = 0;
                     if (quad.image_ref != nullptr) {
                         if (Renderer::TextureResource *resource = texture_resolver->texture(quad.image_ref->texture)) {
                             view = resource->view;
+                            revision = resource->revision;
+                            f32 &drawn = drawn_image_sizes[quad.image_ref->texture.value];
+                            drawn = std::max(drawn, std::max(quad.instance.size.x, quad.instance.size.y));
                         }
                     }
                     quad_instances.push_back(quad.instance);
                     quad_texture_views.push_back(view);
+                    quad_texture_revisions.push_back(revision);
                     quad_scissors.push_back(quad.scissor);
                     quad_groups.push_back(group_id);
                     break;
@@ -423,6 +432,7 @@ namespace SFT::UI {
                         }
                         quad_instances.push_back(fill_quad_to_instance(quad));
                         quad_texture_views.push_back(white_view);
+                        quad_texture_revisions.push_back(0);
                         quad_scissors.push_back(fill.scissor);
                         quad_groups.push_back(group_id);
                     }
@@ -523,8 +533,16 @@ namespace SFT::UI {
             }
         }
 
+        if (!drawn_image_sizes.empty()) {
+            vector<std::pair<Renderer::TextureHandle, f32>> drawn;
+            drawn.reserve(drawn_image_sizes.size());
+            for (const auto &[value, pixels] : drawn_image_sizes) {
+                drawn.emplace_back(Renderer::TextureHandle{value}, pixels);
+            }
+            texture_resolver->note_texture_demand(drawn);
+        }
         if (Core::RendererResult quad_prepared = quad_pipeline_.prepare(
-                device, quad_instances, quad_texture_views, quad_scissors, quad_groups,
+                device, quad_instances, quad_texture_views, quad_texture_revisions, quad_scissors, quad_groups,
                 frame_resources.quads, frame_resources.quad_batches);
             !quad_prepared) {
             return quad_prepared;
@@ -712,10 +730,11 @@ namespace SFT::UI {
             };
             const vector<UiQuadInstance> composite_instances{composite_instance};
             const vector<RHI::TextureViewHandle> composite_views{frame_resources.glow_bloom_view};
+            const vector<u64> composite_revisions{0u};
             const vector<RHI::Rect2D> composite_scissors{full_viewport_scissor};
             const vector<u32> composite_groups{0u};
             if (Core::RendererResult composite_prepared = quad_pipeline_.prepare(
-                    device, composite_instances, composite_views, composite_scissors, composite_groups,
+                    device, composite_instances, composite_views, composite_revisions, composite_scissors, composite_groups,
                     frame_resources.glow_composite_quad, frame_resources.glow_composite_quad_batches);
                 !composite_prepared) {
                 return composite_prepared;

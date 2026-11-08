@@ -431,6 +431,35 @@ namespace SFT::Renderer {
         /// and mip chain). Synchronous: the copy is submitted and waited for. The texture handle and every UI image
         /// using it stay valid, and the new pixels are what a device switch replays.
         [[nodiscard]] Core::RendererResult update_texture(TextureHandle handle, span<const std::byte> data);
+        /// Gives an engine-owned texture new contents of any size, format and mip count while its handle stays the same:
+        /// everything that shows it (UI images, materials, the asset behind it) simply draws the new pixels from the next
+        /// frame on. The old GPU objects are retired, not destroyed outright, so frames still in flight keep drawing them
+        /// until they finish. `data` is a complete mip chain in `format`, laid out as `create_texture` takes it. The new
+        /// pixels are what a device switch replays. Fails, leaving the texture as it was, for an adopted texture.
+        [[nodiscard]] Core::RendererResult replace_texture(TextureHandle handle, u32 width, u32 height, RHI::Format format,
+                                                           span<const std::byte> data, u32 mip_levels = 1);
+
+        /// Reports how large (largest dimension, in pixels) the UI drew each of these textures this frame. The asset manager
+        /// reads it (`take_texture_demand`) to give vector-sourced textures a raster that is sharp at the size they are
+        /// really shown at, without the application asking.
+        void note_texture_demand(span<const std::pair<TextureHandle, f32>> drawn);
+        /// The largest size each texture was drawn at since the last call; empties the record.
+        [[nodiscard]] vector<std::pair<TextureHandle, f32>> take_texture_demand();
+
+        /// One rectangle of the base level of an uncompressed 8-bit texture.
+        struct TextureRegion {
+            u32 x = 0;
+            u32 y = 0;
+            u32 width = 0;
+            u32 height = 0;
+        };
+        /// Overwrites rectangles of the base level of an engine-owned, uncompressed, single-mip texture in place, so a
+        /// large image that is still being decoded can show the finished parts while the rest is a lower-detail
+        /// stand-in. `pixels` holds each region's rows tightly packed (4 bytes a pixel), region after region, in the
+        /// order of `regions`. One submit for all of them. The texture's replay copy is updated too.
+        [[nodiscard]] Core::RendererResult update_texture_regions(TextureHandle handle, span<const TextureRegion> regions,
+                                                                  span<const std::byte> pixels);
+
         /// Performs the texture operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -1248,6 +1277,7 @@ namespace SFT::Renderer {
             vector<RHI::CommandBufferHandle> command_buffers;
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
+            vector<RHI::SamplerHandle> transient_samplers;
             vector<RHI::BindGroupHandle> transient_bind_groups;
 
 
@@ -2602,6 +2632,15 @@ namespace SFT::Renderer {
                                                                      span<const RHI::QueueClass> concurrent_queue_classes = {});
 
 
+        /// Queues a texture's GPU objects for destruction once the frames that may still sample them have finished.
+        void retire_texture_gpu(RHI::TextureHandle texture, RHI::TextureViewHandle view, RHI::SamplerHandle sampler) noexcept;
+        /// Hands everything queued by `retire_texture_gpu` to a frame slot that is about to be submitted.
+        void move_retired_texture_gpu_to_slot(FrameInFlight &slot);
+        /// Destroys everything queued by `retire_texture_gpu` immediately. Only for when the GPU is known idle (waiting
+        /// idle, device teardown).
+        void destroy_retired_texture_gpu_now() noexcept;
+
+
         /// Uploads texture rgba using the supplied arguments and current state.
         ///
         /// @param resource `resource` value used by the operation.
@@ -3512,6 +3551,15 @@ namespace SFT::Renderer {
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;
+        /// GPU objects of textures that were replaced or destroyed while frames that may still sample them could be in
+        /// flight. The next submitted frame slot takes them and frees them when its fence signals.
+        struct RetiredTextureGpu {
+            vector<RHI::TextureHandle> textures;
+            vector<RHI::TextureViewHandle> views;
+            vector<RHI::SamplerHandle> samplers;
+        };
+        Async::Mutex<RetiredTextureGpu> retired_texture_gpu_;
+        Async::Mutex<std::unordered_map<u64, f32>> texture_demand_;
         vector<MaterialTemplateResource> material_templates_;
         vector<MaterialInstanceResource> material_instances_;
         // Displaced materials (RendererDisplacement.cpp): plan + owned textures + per-frame uniform cache.

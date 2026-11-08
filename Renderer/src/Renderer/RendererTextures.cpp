@@ -4,6 +4,7 @@
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -282,6 +283,7 @@ namespace SFT::Renderer {
                                                 "Owned texture is missing a valid CPU replay description.");
         }
 
+        ++resource.revision;
         if (!concurrent_queue_classes.empty()) {
             resource.concurrent_queue_classes.assign(
                 concurrent_queue_classes.begin(), concurrent_queue_classes.end());
@@ -773,19 +775,334 @@ namespace SFT::Renderer {
             return;
         }
         if (resource->owns_gpu_resources) {
-            if (RHI::RhiDevice *device = rhi_device()) {
-                if (resource->sampler) {
-                    device->destroy_sampler(resource->sampler);
-                }
-                if (resource->view) {
-                    device->destroy_texture_view(resource->view);
-                }
-                if (resource->texture) {
-                    device->destroy_texture(resource->texture);
+            // Not destroyed on the spot: a frame that is still in flight may be sampling it (and a UI bind group built
+            // over its view may still be queued). The frame slot that is submitted next frees it once its fence signals.
+            retire_texture_gpu(resource->texture, resource->view, resource->sampler);
+        }
+        // The slot stays (handles are indices and are never reused), but a later `revision` can never match this one.
+        const u64 revision = resource->revision + 1;
+        *resource = {};
+        resource->revision = revision;
+    }
+
+    void Renderer::note_texture_demand(span<const std::pair<TextureHandle, f32>> drawn) {
+        if (drawn.empty()) {
+            return;
+        }
+        auto demand = texture_demand_.lock();
+        for (const auto &[handle, pixels] : drawn) {
+            f32 &largest = (*demand)[handle.value];
+            largest = std::max(largest, pixels);
+        }
+    }
+
+    vector<std::pair<TextureHandle, f32>> Renderer::take_texture_demand() {
+        vector<std::pair<TextureHandle, f32>> out;
+        auto demand = texture_demand_.lock();
+        out.reserve(demand->size());
+        for (const auto &[value, pixels] : *demand) {
+            out.emplace_back(TextureHandle{value}, pixels);
+        }
+        demand->clear();
+        return out;
+    }
+
+    void Renderer::retire_texture_gpu(RHI::TextureHandle texture, RHI::TextureViewHandle view,
+                                      RHI::SamplerHandle sampler) noexcept {
+        if (!texture && !view && !sampler) {
+            return;
+        }
+        auto retired = retired_texture_gpu_.lock();
+        if (texture) {
+            retired->textures.push_back(texture);
+        }
+        if (view) {
+            retired->views.push_back(view);
+        }
+        if (sampler) {
+            retired->samplers.push_back(sampler);
+        }
+    }
+
+    void Renderer::move_retired_texture_gpu_to_slot(FrameInFlight &slot) {
+        auto retired = retired_texture_gpu_.lock();
+        slot.transient_textures.insert(slot.transient_textures.end(), retired->textures.begin(), retired->textures.end());
+        slot.transient_texture_views.insert(slot.transient_texture_views.end(), retired->views.begin(),
+                                            retired->views.end());
+        slot.transient_samplers.insert(slot.transient_samplers.end(), retired->samplers.begin(), retired->samplers.end());
+        retired->textures.clear();
+        retired->views.clear();
+        retired->samplers.clear();
+    }
+
+    void Renderer::destroy_retired_texture_gpu_now() noexcept {
+        RetiredTextureGpu retired;
+        {
+            auto guard = retired_texture_gpu_.lock();
+            retired = std::move(*guard);
+            *guard = {};
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return;
+        }
+        for (RHI::SamplerHandle sampler : retired.samplers) {
+            device->destroy_sampler(sampler);
+        }
+        for (RHI::TextureViewHandle view : retired.views) {
+            device->destroy_texture_view(view);
+        }
+        for (RHI::TextureHandle texture : retired.textures) {
+            device->destroy_texture(texture);
+        }
+    }
+
+    Core::RendererResult Renderer::replace_texture(TextureHandle handle, u32 width, u32 height, RHI::Format format,
+                                                   span<const std::byte> data, u32 mip_levels) {
+        ZoneScopedN("Renderer::replace_texture");
+        TextureResource *resource = texture(handle);
+        if (resource == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot replace an unknown texture.");
+        }
+        if (!resource->owns_gpu_resources) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot replace an adopted texture; its owner writes it.");
+        }
+        if (width == 0 || height == 0) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot replace a texture with a zero dimension.");
+        }
+        const u64 expected_bytes = texture_mip_chain_byte_size(format, width, height, mip_levels);
+        if (expected_bytes == 0 || static_cast<u64>(data.size()) != expected_bytes) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "Texture replacement data does not match the format, size and mip count it was given.");
+        }
+
+        if (!resource->texture) {
+            // Mid device switch: there is no GPU copy to swap. The replay creates it from the new description.
+            resource->width = width;
+            resource->height = height;
+            resource->mip_levels = mip_levels;
+            resource->format = format;
+            resource->pixel_data.assign(data.begin(), data.end());
+            ++resource->revision;
+            return {};
+        }
+
+        TextureResource fresh{};
+        fresh.handle = handle;
+        fresh.label = resource->label;
+        fresh.width = width;
+        fresh.height = height;
+        fresh.mip_levels = mip_levels;
+        fresh.format = format;
+        fresh.revision = resource->revision;
+        fresh.pixel_data.assign(data.begin(), data.end());
+        fresh.concurrent_queue_classes = resource->concurrent_queue_classes;
+        fresh.nearest_sampling = resource->nearest_sampling;
+        fresh.alive = true;
+        if (Core::RendererResult created = create_owned_texture_gpu(fresh); !created.has_value()) {
+            return created;
+        }
+
+        // `texture()` pointers stay valid: creating GPU objects does not touch `textures_`.
+        retire_texture_gpu(resource->texture, resource->view, resource->sampler);
+        resource->texture = fresh.texture;
+        resource->view = fresh.view;
+        resource->sampler = fresh.sampler;
+        resource->width = width;
+        resource->height = height;
+        resource->mip_levels = mip_levels;
+        resource->format = format;
+        resource->revision = fresh.revision;
+        resource->pixel_data = std::move(fresh.pixel_data);
+
+        // Material bind groups bake in the view they were built with; the old one is on its way out.
+        for (MaterialInstanceResource &instance : material_instances_) {
+            if (!instance.alive) {
+                continue;
+            }
+            const bool uses_texture = std::ranges::any_of(
+                instance.textures, [handle](const MaterialTextureBinding &binding) { return binding.texture == handle; });
+            if (!uses_texture) {
+                continue;
+            }
+            ++instance.content_revision;
+            for (MaterialInstanceFrame &frame : instance.frames) {
+                frame.bind_groups_dirty = true;
+            }
+        }
+        return {};
+    }
+
+    Core::RendererResult Renderer::update_texture_regions(TextureHandle handle, span<const TextureRegion> regions,
+                                                          span<const std::byte> pixels) {
+        ZoneScopedN("Renderer::update_texture_regions");
+        TextureResource *resource = texture(handle);
+        if (resource == nullptr || !resource->owns_gpu_resources) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot update regions of an unknown or adopted texture.");
+        }
+        const bool eight_bit = resource->format == RHI::Format::RGBA8Unorm || resource->format == RHI::Format::RGBA8UnormSrgb;
+        if (!eight_bit || resource->mip_levels != 1 ||
+            resource->pixel_data.size() != static_cast<usize>(resource->width) * resource->height * 4u) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "Region updates need an uncompressed 8-bit RGBA texture with a single mip level.");
+        }
+        u64 total_region_bytes = 0;
+        for (const TextureRegion &region : regions) {
+            if (region.width == 0 || region.height == 0 || region.x > resource->width ||
+                region.width > resource->width - region.x || region.y > resource->height ||
+                region.height > resource->height - region.y) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "A texture region lies outside the texture.");
+            }
+            total_region_bytes += static_cast<u64>(region.width) * region.height * 4u;
+        }
+        if (total_region_bytes != static_cast<u64>(pixels.size())) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Region pixel data does not match the regions' total size.");
+        }
+        if (regions.empty()) {
+            return {};
+        }
+
+        // The replay copy first, so a device switch restores what is on screen.
+        {
+            usize source_offset = 0;
+            for (const TextureRegion &region : regions) {
+                const usize row_bytes = static_cast<usize>(region.width) * 4u;
+                for (u32 row = 0; row < region.height; ++row) {
+                    const usize destination =
+                        (static_cast<usize>(region.y + row) * resource->width + region.x) * 4u;
+                    std::memcpy(resource->pixel_data.data() + destination, pixels.data() + source_offset, row_bytes);
+                    source_offset += row_bytes;
                 }
             }
         }
-        *resource = {};
+        if (!resource->texture) {
+            return {};
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot update a texture without an RHI device.");
+        }
+        const bool padded_rows = backend_requires_padded_texture_rows(device->backend_type());
+        // Every region starts on a 512-byte boundary in the staging buffer: that satisfies the strictest backend.
+        constexpr u64 kRegionAlignment = 512;
+        vector<std::byte> staging_bytes;
+        vector<RHI::BufferTextureCopy> copies;
+        copies.reserve(regions.size());
+        usize source_offset = 0;
+        for (const TextureRegion &region : regions) {
+            const u64 tight_row = static_cast<u64>(region.width) * 4u;
+            const u64 pitch = padded_rows ? align_up(tight_row, 256) : tight_row;
+            const u64 offset = align_up(static_cast<u64>(staging_bytes.size()), kRegionAlignment);
+            staging_bytes.resize(static_cast<usize>(offset + pitch * region.height), std::byte{0});
+            for (u32 row = 0; row < region.height; ++row) {
+                std::memcpy(staging_bytes.data() + offset + pitch * row, pixels.data() + source_offset,
+                            static_cast<usize>(tight_row));
+                source_offset += static_cast<usize>(tight_row);
+            }
+            copies.push_back(RHI::BufferTextureCopy{
+                .buffer_offset = offset,
+                .buffer_row_length = padded_rows ? static_cast<u32>(pitch / 4u) : 0u,
+                .buffer_image_height = 0,
+                .mip_level = 0,
+                .base_array_layer = 0,
+                .array_layer_count = 1,
+                .texture_offset = RHI::Offset3D{static_cast<i32>(region.x), static_cast<i32>(region.y), 0},
+                .texture_extent = RHI::Extent3D{.width = region.width, .height = region.height, .depth_or_layers = 1},
+            });
+        }
+
+        auto staging = device->create_buffer(RHI::BufferDesc{
+            .size = static_cast<u64>(staging_bytes.size()),
+            .usage = RHI::BufferUsage::TransferSrc,
+            .memory = RHI::MemoryLocation::HostUpload,
+            .label = "renderer texture region staging",
+        });
+        if (!staging) {
+            return unexpected(graphics_error_from_rhi(staging.error(), "create texture region staging buffer"));
+        }
+        const auto release_staging = [&] { device->destroy_buffer(*staging); };
+        if (auto written = device->write_buffer(*staging, 0, span<const std::byte>{staging_bytes});
+            !written) {
+            release_staging();
+            return unexpected(graphics_error_from_rhi(written.error(), "write texture region staging buffer"));
+        }
+
+        auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer texture region update"});
+        if (!encoder) {
+            release_staging();
+            return unexpected(graphics_error_from_rhi(encoder.error(), "create texture region encoder"));
+        }
+        // The texture keeps its contents (it is only partly overwritten) and is read by the UI, so it goes
+        // shader-read -> transfer-destination -> shader-read rather than starting from `Undefined`.
+        const RHI::TextureBarrier to_transfer{
+            .texture = resource->texture,
+            .src_stage = RHI::PipelineStage::FragmentShader,
+            .src_access = RHI::AccessFlags::ShaderRead,
+            .dst_stage = RHI::PipelineStage::Transfer,
+            .dst_access = RHI::AccessFlags::TransferWrite,
+            .old_layout = RHI::TextureLayout::ShaderReadOnly,
+            .new_layout = RHI::TextureLayout::TransferDst,
+        };
+        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
+        for (const RHI::BufferTextureCopy &copy : copies) {
+            (*encoder)->copy_buffer_to_texture(*staging, resource->texture, copy);
+        }
+        const RHI::TextureBarrier to_sampled{
+            .texture = resource->texture,
+            .src_stage = RHI::PipelineStage::Transfer,
+            .src_access = RHI::AccessFlags::TransferWrite,
+            .dst_stage = RHI::PipelineStage::FragmentShader,
+            .dst_access = RHI::AccessFlags::ShaderRead,
+            .old_layout = RHI::TextureLayout::TransferDst,
+            .new_layout = RHI::TextureLayout::ShaderReadOnly,
+        };
+        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
+        auto command_buffer = (*encoder)->finish();
+        if (!command_buffer) {
+            release_staging();
+            return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish texture region encoder"));
+        }
+        auto fence = device->create_fence(RHI::FenceDesc{.label = "renderer texture region fence"});
+        if (!fence) {
+            device->destroy_command_buffer(*command_buffer);
+            release_staging();
+            return unexpected(graphics_error_from_rhi(fence.error(), "create texture region fence"));
+        }
+        const array command_buffers{*command_buffer};
+        RHI::SubmitDesc submit_desc{
+            .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
+            .fence = *fence,
+            .flags = RHI::SubmitFlags::OneShot,
+            .label = "renderer texture region submit",
+        };
+        if (auto submitted = device->submit(submit_desc); !submitted) {
+            device->destroy_fence(*fence);
+            device->destroy_command_buffer(*command_buffer);
+            release_staging();
+            return unexpected(graphics_error_from_rhi(submitted.error(), "submit texture region update"));
+        }
+        auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
+        device->destroy_fence(*fence);
+        device->destroy_command_buffer(*command_buffer);
+        release_staging();
+        if (!waited) {
+            return unexpected(graphics_error_from_rhi(waited.error(), "wait texture region fence"));
+        }
+        if (!*waited) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "wait texture region fence: timed out.");
+        }
+        return {};
     }
 
     /// Performs the texture operation for `Renderer` using the supplied arguments.

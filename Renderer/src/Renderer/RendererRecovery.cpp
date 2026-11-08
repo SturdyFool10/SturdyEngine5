@@ -227,6 +227,8 @@ namespace SFT::Renderer {
             mesh.gpu_resident = false;
         }
 
+        // Retired GPU objects belong to the device that is gone; there is nothing left to destroy.
+        *retired_texture_gpu_.lock() = {};
         for (TextureResource &texture : textures_) {
             texture.texture = {};
             texture.view = {};

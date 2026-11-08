@@ -636,6 +636,107 @@ namespace sturdy_rs::assets {
         }
     }
 
+    rust::String assets_replace_texture(EngineView &engine,
+                                        AssetHandle asset,
+                                        rust::Slice<const std::uint8_t> pixels,
+                                        std::uint32_t width,
+                                        std::uint32_t height,
+                                        TexturePixelFormat format,
+                                        TextureColorSpace color_space,
+                                        TextureKind kind,
+                                        bool allow_compression,
+                                        bool generate_mipmaps) {
+        try {
+            E::TextureAssetDesc desc{};
+            desc.width = width;
+            desc.height = height;
+            desc.color_space = map(color_space);
+            desc.format = map(format);
+            desc.pixels = to_byte_vector(pixels);
+            desc.kind = map(kind);
+            desc.allow_compression = allow_compression;
+            desc.generate_mipmaps = generate_mipmaps;
+            if (const auto replaced = engine.assets().replace_texture(to_engine_asset(asset), std::move(desc)); !replaced) {
+                return to_rust_string(replaced.error().message);
+            }
+            return rust::String();
+        } catch (const std::exception &e) {
+            return rust::String(e.what());
+        }
+    }
+
+    AssetOutcome assets_load_texture_progressive(EngineView &engine,
+                                                 rust::Str source,
+                                                 TextureColorSpace color_space,
+                                                 TextureKind kind,
+                                                 rust::Str label,
+                                                 bool nearest_sampling) {
+        try {
+            return asset_outcome(engine.assets().load_texture_progressive(
+                std::filesystem::path{to_std_string(source)}, map(color_space), to_ustring(label), nearest_sampling,
+                map(kind)));
+        } catch (const std::exception &) {
+            return make_exception_failure<AssetOutcome>();
+        }
+    }
+
+    AssetOutcome assets_create_texture_progressive_from_bytes(EngineView &engine,
+                                                              rust::Slice<const std::uint8_t> encoded,
+                                                              TextureColorSpace color_space,
+                                                              TextureKind kind,
+                                                              rust::Str label,
+                                                              bool nearest_sampling) {
+        try {
+            return asset_outcome(engine.assets().create_texture_progressive_from_bytes(
+                to_byte_vector(encoded), map(color_space), to_ustring(label), nearest_sampling, map(kind)));
+        } catch (const std::exception &) {
+            return make_exception_failure<AssetOutcome>();
+        }
+    }
+
+    TextureProgressOutcome assets_texture_progress(const EngineView &engine, AssetHandle asset) {
+        try {
+            const auto result = engine.assets().texture_progress(to_engine_asset(asset));
+            TextureProgressOutcome outcome{};
+            if (!result) {
+                outcome.ok = false;
+                outcome.error = map(result.error().code);
+                outcome.message = to_rust_string(result.error().message);
+                return outcome;
+            }
+            outcome.ok = true;
+            outcome.error = AssetErrorCode::None;
+            outcome.detail = static_cast<std::uint8_t>(result->detail);
+            outcome.refined_fraction = result->refined_fraction;
+            outcome.width = result->width;
+            outcome.height = result->height;
+            outcome.version = result->version;
+            return outcome;
+        } catch (const std::exception &) {
+            return make_exception_failure<TextureProgressOutcome>();
+        }
+    }
+
+    AssetOutcome assets_load_svg(EngineView &engine, rust::Str source, float target_px, rust::Str label) {
+        try {
+            return asset_outcome(engine.assets().load_svg(std::filesystem::path{to_std_string(source)}, target_px,
+                                                          to_ustring(label)));
+        } catch (const std::exception &) {
+            return make_exception_failure<AssetOutcome>();
+        }
+    }
+
+    rust::String assets_set_svg_size(EngineView &engine, AssetHandle asset, float target_px) {
+        try {
+            if (const auto sized = engine.assets().set_svg_size(to_engine_asset(asset), target_px); !sized) {
+                return to_rust_string(sized.error().message);
+            }
+            return rust::String();
+        } catch (const std::exception &e) {
+            return rust::String(e.what());
+        }
+    }
+
     RendererTextureHandleOutcome assets_texture_handle(const EngineView &engine, AssetHandle asset) {
         try {
             const auto result = engine.assets().texture_handle(to_engine_asset(asset));

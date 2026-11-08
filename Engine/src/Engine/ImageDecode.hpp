@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -146,6 +147,31 @@ namespace SFT::Engine::Detail {
         const DecodeOptions &options,
         const std::filesystem::path &source);
 
+    /// Receives a progressive decode as it improves: the image's full size, its pixels so far (8-bit sRGB RGBA, `width *
+    /// height * 4` bytes, valid only for the duration of the call), and whether this is the finished image. Return `false`
+    /// to stop the decode.
+    using ProgressiveSink =
+        std::function<bool(u32 width, u32 height, std::span<const std::byte> rgba8, bool is_final)>;
+
+    /// Decodes the first frame of an image to 8-bit sRGB RGBA, handing `sink` every improvement on the way.
+    ///
+    /// JPEG XL is decoded the way a viewer on a slow connection would: the file is fed to libjxl in pieces and the image
+    /// so far is flushed after each, so the sink first sees the low-resolution DC approximation (upscaled to full size)
+    /// and then increasingly more of the image at full detail as the groups of the codestream finish; a
+    /// progressively-encoded file refines everywhere at once, any other file fills in group by group. Every other format
+    /// has no cheaper intermediate and calls the sink exactly once, with the finished image. The sink is always called
+    /// with `is_final` last, before this returns the finished image.
+    ///
+    /// @param encoded The complete encoded file.
+    /// @param options Only the single-frame, 8-bit sRGB behaviour is supported here; other settings are ignored.
+    /// @param sink Called for each improvement; see `ProgressiveSink`.
+    /// @param source Source value or resource, used only for error messages.
+    [[nodiscard]] AssetExpected<DecodedImage> decode_image_progressive(
+        std::span<const std::byte> encoded,
+        const DecodeOptions &options,
+        const ProgressiveSink &sink,
+        const std::filesystem::path &source);
+
     /// Decodes the first frame of any supported image format to 8-bit sRGB RGBA — `decode_image`
     /// with default `DecodeOptions`, kept as its own name because it is what almost every caller
     /// in this engine wants.
@@ -173,6 +199,8 @@ namespace SFT::Engine {
     using Detail::DecodedImage;
     using Detail::decode_image;
     using Detail::decode_image_rgba8;
+    using Detail::ProgressiveSink;
+    using Detail::decode_image_progressive;
 
 } // namespace SFT::Engine
 

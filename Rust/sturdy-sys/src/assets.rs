@@ -252,6 +252,20 @@ pub mod ffi {
         value: u64,
     }
 
+    /// How far a texture asset's image has got. `detail` is `Engine::TextureDetail` as a number: 0 placeholder,
+    /// 1 partial, 2 complete, 3 failed.
+    #[derive(Debug, Clone)]
+    struct TextureProgressOutcome {
+        ok: bool,
+        error: AssetErrorCode,
+        message: String,
+        detail: u8,
+        refined_fraction: f32,
+        width: u32,
+        height: u32,
+        version: u64,
+    }
+
     #[derive(Debug, Clone)]
     struct GltfInstance {
         name: String,
@@ -445,6 +459,51 @@ pub mod ffi {
         /// have exactly the layout the texture was created with (same size and format, created without compression
         /// or mipmaps for per-frame updates). Returns an empty string on success, else the reason.
         fn assets_update_texture(engine: Pin<&mut EngineView>, asset: AssetHandle, pixels: &[u8]) -> String;
+
+        /// Gives a texture asset new contents of any size and format; the asset and its renderer handle stay the same.
+        /// Returns an empty string on success, else the reason. Mirrors `AssetManager::replace_texture`.
+        #[allow(clippy::too_many_arguments)]
+        fn assets_replace_texture(
+            engine: Pin<&mut EngineView>,
+            asset: AssetHandle,
+            pixels: &[u8],
+            width: u32,
+            height: u32,
+            format: TexturePixelFormat,
+            color_space: TextureColorSpace,
+            kind: TextureKind,
+            allow_compression: bool,
+            generate_mipmaps: bool,
+        ) -> String;
+
+        /// Mirrors `AssetManager::load_texture_progressive`.
+        fn assets_load_texture_progressive(
+            engine: Pin<&mut EngineView>,
+            source: &str,
+            color_space: TextureColorSpace,
+            kind: TextureKind,
+            label: &str,
+            nearest_sampling: bool,
+        ) -> AssetOutcome;
+
+        /// Mirrors `AssetManager::create_texture_progressive_from_bytes`.
+        fn assets_create_texture_progressive_from_bytes(
+            engine: Pin<&mut EngineView>,
+            encoded: &[u8],
+            color_space: TextureColorSpace,
+            kind: TextureKind,
+            label: &str,
+            nearest_sampling: bool,
+        ) -> AssetOutcome;
+
+        /// Mirrors `AssetManager::texture_progress`.
+        fn assets_texture_progress(engine: &EngineView, asset: AssetHandle) -> TextureProgressOutcome;
+
+        /// Mirrors `AssetManager::load_svg`.
+        fn assets_load_svg(engine: Pin<&mut EngineView>, source: &str, target_px: f32, label: &str) -> AssetOutcome;
+
+        /// Mirrors `AssetManager::set_svg_size`; an empty string on success, else the reason.
+        fn assets_set_svg_size(engine: Pin<&mut EngineView>, asset: AssetHandle, target_px: f32) -> String;
 
         /// Raw bytes of a `File`-kind asset, read back into Rust. Mirrors
         /// `AssetManager::file_bytes`.

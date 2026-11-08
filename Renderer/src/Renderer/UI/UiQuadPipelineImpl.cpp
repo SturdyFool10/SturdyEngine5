@@ -332,11 +332,13 @@ namespace SFT::UI {
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiQuadPipeline::prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                  span<const RHI::TextureViewHandle> instance_texture_views,
+                                                 span<const u64> instance_texture_revisions,
                                                  span<const RHI::Rect2D> instance_scissors,
                                                  span<const u32> instance_paint_groups,
                                                  UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches) {
         out_batches.clear();
-        if (instances.size() != instance_texture_views.size() || instances.size() != instance_scissors.size() ||
+        if (instances.size() != instance_texture_views.size() || instances.size() != instance_texture_revisions.size() ||
+            instances.size() != instance_scissors.size() ||
             instances.size() != instance_paint_groups.size()) {
             return Core::graphics_backend_error(
                 Core::GraphicsBackendErrorCode::OperationFailed,
@@ -350,12 +352,14 @@ namespace SFT::UI {
         while (i < instances.size()) {
             usize j = i + 1;
             while (j < instances.size() && instance_texture_views[j] == instance_texture_views[i] &&
+                   instance_texture_revisions[j] == instance_texture_revisions[i] &&
                    same_rect(instance_scissors[j], instance_scissors[i]) &&
                    instance_paint_groups[j] == instance_paint_groups[i]) {
                 ++j;
             }
             out_batches.push_back(UiQuadDrawBatch{
                 .texture_view = instance_texture_views[i],
+                .texture_revision = instance_texture_revisions[i],
                 .scissor = instance_scissors[i],
                 .first_instance = static_cast<u32>(i),
                 .instance_count = static_cast<u32>(j - i),
@@ -407,12 +411,36 @@ namespace SFT::UI {
                 Foundation::log_warn("UI: skipped {} quad batch(es) referencing an invalid texture view (once per run).", dropped);
             }
         }
+        // The cache is keyed by view handle, and a handle value can come back for a different texture once the old one
+        // is destroyed (an app reloading an icon or avatar, a rebuilt SVG cache). A stale entry would then bind the
+        // dead view and draw as a solid block or garbage, depending on the driver. Dropping every entry the frame does
+        // not use means a texture that goes away for even one frame cannot leave its bind group behind; it also keeps
+        // the cache from growing with every texture the UI has ever shown.
+        for (auto it = resources.binding_cache.begin(); it != resources.binding_cache.end();) {
+            const bool used = std::ranges::any_of(
+                out_batches, [&](const UiQuadDrawBatch &batch) { return batch.texture_view == it->texture_view && batch.texture_revision == it->texture_revision;
+                });
+            if (used) {
+                ++it;
+                continue;
+            }
+            for (const UiQuadDrawBatch::BoundGroup &group : it->bind_groups) {
+                if (group.handle) {
+                    device.destroy_bind_group(group.handle);
+                }
+            }
+            it = resources.binding_cache.erase(it);
+        }
         for (UiQuadDrawBatch &batch : out_batches) {
             batch.instance_buffer = resources.instance_buffer;
             auto cached = std::ranges::find_if(resources.binding_cache,
-                                               [&](const auto &entry) { return entry.texture_view == batch.texture_view; });
+                                               [&](const auto &entry) {
+                                                   return entry.texture_view == batch.texture_view &&
+                                                          entry.texture_revision == batch.texture_revision;
+                                               });
             if (cached == resources.binding_cache.end()) {
-                UiQuadFrameResources::BindingCacheEntry entry{.texture_view = batch.texture_view};
+                UiQuadFrameResources::BindingCacheEntry entry{.texture_view = batch.texture_view,
+                                                              .texture_revision = batch.texture_revision};
                 struct Group {
                     usize layout_index = 0;
                     vector<RHI::BindGroupEntry> entries;

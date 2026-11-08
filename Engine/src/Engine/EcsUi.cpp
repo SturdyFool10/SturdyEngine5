@@ -1,5 +1,8 @@
 #include <Engine/EcsUi.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 
 namespace SFT::Engine {
 
@@ -12,13 +15,14 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Renderer::TextureHandle> UiImageCache::resolve(
-        AssetManager &assets, const std::filesystem::path &path,
-        TextureColorSpace color_space) {
+        AssetManager &assets, const std::filesystem::path &path, TextureColorSpace color_space) {
         const std::string key = path.string() + (color_space == TextureColorSpace::Linear ? "|L" : "|S");
         if (auto cached = by_key_.find(key); cached != by_key_.end()) {
             return cached->second.handle;
         }
-        auto asset = assets.load_texture(path, color_space);
+        // Never blocks: the handle is valid at once, shows nothing until the first pass of the image is decoded and then
+        // sharpens by itself (`AssetManager::load_texture_progressive`).
+        auto asset = assets.load_texture_progressive(path, color_space);
         if (!asset) {
             return std::unexpected(asset.error());
         }
@@ -30,67 +34,45 @@ namespace SFT::Engine {
         return *handle;
     }
 
-    /// Clears the stored state or contents.
-    ///
-    /// @return Returns the current clear value.
-    /// @note This function does not throw exceptions.
     void UiImageCache::clear() noexcept { by_key_.clear(); }
 
-    /// Resolves the requested value into the concrete value used by the engine.
-    ///
-    /// @param assets `assets` value used by the operation.
-    /// @param path Filesystem path identifying the target resource.
-    /// @param target_px `target_px` value used by the operation.
-    ///
-    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
     AssetExpected<Renderer::TextureHandle> UiSvgCache::resolve(
         AssetManager &assets, const std::filesystem::path &path, f32 target_px) {
-        const std::string key = path.string() + "|" + std::to_string(target_px);
+        // The same key the asset manager rounds to, so two requests it would treat alike cost one lookup here.
+        const u32 rounded = static_cast<u32>(std::ceil(std::clamp(target_px, 4.0f, 4096.0f) / 4.0f)) * 4u;
+        const std::string key = path.string() + "|" + std::to_string(rounded);
         if (auto cached = by_key_.find(key); cached != by_key_.end()) {
-            return cached->second.handle;
+            return cached->second;
         }
-
-        std::optional<UI::Svg::RasterizedSvg> rasterized = UI::Svg::rasterize_svg_file(path, target_px);
-        if (!rasterized) {
-            return std::unexpected(AssetError{
-                .code = AssetErrorCode::DecodeFailure,
-                .message = UString{"Failed to load/rasterize SVG."_ustr},
-                .source = path,
-            });
-        }
-
-        auto asset = assets.create_texture(TextureAssetDesc{
-            .width = rasterized->width,
-            .height = rasterized->height,
-
-
-            .color_space = TextureColorSpace::Srgb,
-            .pixels = std::move(rasterized->rgba),
-            .label = UString{"ui svg icon"_ustr},
-        });
+        // Creates the asset, or grows its raster when this is the biggest size asked for so far.
+        auto asset = assets.load_svg(path, target_px);
         if (!asset) {
             return std::unexpected(asset.error());
         }
+        Entry &entry = by_path_[path.string()];
+        if (entry.epoch != epoch_) {
+            // First request since sizes were reset: take exactly this size, shrinking the raster if it is bigger.
+            entry.epoch = epoch_;
+            if (auto sized = assets.set_svg_size(*asset, target_px); !sized) {
+                return std::unexpected(sized.error());
+            }
+        }
+        entry.asset = *asset;
         auto handle = assets.texture_handle(*asset);
         if (!handle) {
             return std::unexpected(handle.error());
         }
-        by_key_.emplace(key, Entry{.asset = *asset, .handle = *handle});
+        by_key_.emplace(key, *handle);
         return *handle;
     }
 
-    /// Clears the stored state or contents.
-    ///
-    /// @return Returns the current clear value.
-    /// @note This function does not throw exceptions.
-    void UiSvgCache::clear() noexcept { by_key_.clear(); }
+    void UiSvgCache::clear() noexcept {
+        by_key_.clear();
+        by_path_.clear();
+    }
 
-    void UiSvgCache::clear_and_unload(AssetManager &assets) noexcept {
-        for (auto &[key, entry] : by_key_) {
-            (void)assets.unload(entry.asset);
-        }
+    void UiSvgCache::clear_and_unload(AssetManager &) noexcept {
+        ++epoch_;
         by_key_.clear();
     }
 

@@ -219,6 +219,33 @@ pub struct TextureInfo {
     pub color_space: TextureColorSpace,
 }
 
+/// How much of a texture asset's final image its GPU texture currently shows. The asset and its renderer handle stay the
+/// same through every step; only the pixels get better.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureDetail {
+    /// Nothing decoded yet: the texture is a transparent 1x1 stand-in.
+    Placeholder,
+    /// A first low-detail image is showing (a JPEG XL's DC approximation, upscaled to full size), possibly with parts
+    /// already replaced by full detail.
+    Partial,
+    /// The finished image, with its mip chain and compression.
+    Complete,
+    /// Decoding failed; the texture stays whatever it last was.
+    Failed,
+}
+
+/// Progress of a texture asset; see [`Assets::texture_progress`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextureProgress {
+    pub detail: TextureDetail,
+    /// Share (0..1) of the image replaced by full detail since the first low-detail image appeared.
+    pub refined_fraction: f32,
+    /// Size of the GPU texture right now (the full size once the first low-detail image is showing).
+    pub size: glam::UVec2,
+    /// Changes whenever the texture's pixels, size or format changed; poll it to know when to redraw cached results.
+    pub version: u64,
+}
+
 /// `SFT::Renderer::TextureHandle` (a Renderer-registry index) for a texture asset that has already
 /// been loaded through [`Assets`]. *Not* the RHI-level [`crate::rhi::TextureHandle`] that a
 /// `RhiDevice` operates on: the Renderer keeps its own texture registry, distinct from the RHI's
@@ -755,15 +782,10 @@ impl<'a> Assets<'a> {
         }
     }
 
-    /// Starts a block-compressed, progressively-resident texture load. The returned asset is
-    /// immediately valid to bind and query, but its mip residency only advances as
-    /// [`Assets::pump_texture_streaming`] is called — call that once per tick while any streamed
-    /// texture is alive. There is no separate "streaming finished" signal: residency tracks the
-    /// VRAM budget for as long as the asset exists, so use [`Assets::texture_info`] if you need to
-    /// inspect its current state.
-    ///
-    /// Always decodes 8-bit sRGB (no HDR option) — use [`Assets::load_texture`] with
-    /// [`TextureDynamicRange::Hdr`] for HDR sources instead.
+    /// Kept for existing callers: exactly [`Assets::load_texture_progressive`] with a chosen [`TextureKind`] (the asset is
+    /// valid at once and the engine finishes it, block-compressed with its mips, on its own). Always 8-bit LDR; use
+    /// [`Assets::load_texture`] with [`TextureDynamicRange::Hdr`] for HDR sources. Check [`Assets::texture_progress`]
+    /// for how far it has got.
     pub fn load_texture_streamed(
         &mut self,
         source: impl AsRef<str>,
@@ -784,8 +806,133 @@ impl<'a> Assets<'a> {
         }
     }
 
-    /// Advances streamed-texture residency by whatever budget the engine allots this call. A
-    /// no-op if no streamed textures are loaded; cheap enough to call every tick unconditionally.
+    /// Loads an image file for display without blocking: returns at once with an asset whose texture is a transparent
+    /// 1x1 stand-in, and decodes on a worker thread. A JPEG XL shows its low-resolution approximation as soon as that is
+    /// decoded, then has finished parts replaced by full detail while the rest of the file decodes, then gets its mip
+    /// chain and block compression; every other format appears once, finished. The asset and its
+    /// [`RendererTextureHandle`] never change, so whatever draws it just starts showing better pixels. The engine applies
+    /// the progress itself every frame. Loading the same file again returns the same asset.
+    pub fn load_texture_progressive(
+        &mut self,
+        source: impl AsRef<str>,
+        color_space: TextureColorSpace,
+        kind: TextureKind,
+        label: impl AsRef<str>,
+        nearest_sampling: bool,
+    ) -> AssetResult<Asset> {
+        let out = sys::assets_load_texture_progressive(
+            self.view.as_mut(),
+            source.as_ref(),
+            color_space.into(),
+            kind.into(),
+            label.as_ref(),
+            nearest_sampling,
+        );
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(Asset::from_ffi(out.asset)),
+        }
+    }
+
+    /// [`load_texture_progressive`](Self::load_texture_progressive) for an image already in memory (a download, an embedded
+    /// picture): `encoded` is the complete file. Not shared between callers; every call is a new asset.
+    pub fn create_texture_progressive_from_bytes(
+        &mut self,
+        encoded: &[u8],
+        color_space: TextureColorSpace,
+        kind: TextureKind,
+        label: impl AsRef<str>,
+        nearest_sampling: bool,
+    ) -> AssetResult<Asset> {
+        let out = sys::assets_create_texture_progressive_from_bytes(
+            self.view.as_mut(),
+            encoded,
+            color_space.into(),
+            kind.into(),
+            label.as_ref(),
+            nearest_sampling,
+        );
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(Asset::from_ffi(out.asset)),
+        }
+    }
+
+    /// How far a texture asset's image has got. Valid for every texture asset; one made any other way is simply
+    /// [`TextureDetail::Complete`].
+    pub fn texture_progress(&self, asset: Asset) -> AssetResult<TextureProgress> {
+        let out = sys::assets_texture_progress(self.view(), asset.inner);
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(TextureProgress {
+                detail: match out.detail {
+                    0 => TextureDetail::Placeholder,
+                    1 => TextureDetail::Partial,
+                    3 => TextureDetail::Failed,
+                    _ => TextureDetail::Complete,
+                },
+                refined_fraction: out.refined_fraction,
+                size: glam::uvec2(out.width, out.height),
+                version: out.version,
+            }),
+        }
+    }
+
+    /// Gives a texture asset new contents of any size and format; the asset, its [`RendererTextureHandle`] and everything
+    /// that shows it stay the same. Cancels a progressive load still in flight for it. `pixels` is `width * height *
+    /// bytes-per-pixel` of `format`, tightly packed; `allow_compression`/`generate_mipmaps` are as for
+    /// [`create_texture`](Self::create_texture).
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_texture(
+        &mut self,
+        asset: Asset,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+        format: TexturePixelFormat,
+        color_space: TextureColorSpace,
+        kind: TextureKind,
+        allow_compression: bool,
+        generate_mipmaps: bool,
+    ) -> Result<(), String> {
+        let error = sys::assets_replace_texture(
+            self.view.as_mut(),
+            asset.inner,
+            pixels,
+            width,
+            height,
+            format.into(),
+            color_space.into(),
+            kind.into(),
+            allow_compression,
+            generate_mipmaps,
+        );
+        if error.is_empty() { Ok(()) } else { Err(error) }
+    }
+
+    /// Loads an SVG file as a texture asset: a vector source whose raster the asset manager looks after. It is rasterised
+    /// at `target_px` (the largest dimension, rounded up to a multiple of 4) with a mip chain, so drawing it smaller stays
+    /// clean. Asking again for the same file returns the same asset, and a larger `target_px` re-rasterises it in place
+    /// (the asset never shrinks by being asked for less; see [`set_svg_size`](Self::set_svg_size)). Draw it with
+    /// [`crate::ui::Ui::svg`] using [`texture_handle`](Self::texture_handle).
+    pub fn load_svg(&mut self, source: impl AsRef<str>, target_px: f32, label: impl AsRef<str>) -> AssetResult<Asset> {
+        let out = sys::assets_load_svg(self.view.as_mut(), source.as_ref(), target_px, label.as_ref());
+        match outcome_error(out.ok, out.error, out.message) {
+            Some(err) => Err(err),
+            None => Ok(Asset::from_ffi(out.asset)),
+        }
+    }
+
+    /// Sets an SVG asset's raster size exactly, growing or shrinking it in place. Use it when the sizes the UI draws it at
+    /// changed for good (a UI-scale or anti-aliasing setting).
+    pub fn set_svg_size(&mut self, asset: Asset, target_px: f32) -> Result<(), String> {
+        let error = sys::assets_set_svg_size(self.view.as_mut(), asset.inner, target_px);
+        if error.is_empty() { Ok(()) } else { Err(error) }
+    }
+
+    /// Advances streamed-texture residency and applies progressive loads and SVG re-rasterisations. The engine already
+    /// does this once per rendered frame, so calling it is only needed outside a frame loop. A no-op if there is nothing
+    /// to do; cheap enough to call every tick unconditionally.
     pub fn pump_texture_streaming(&mut self) {
         sys::assets_pump_texture_streaming(self.view.as_mut());
     }

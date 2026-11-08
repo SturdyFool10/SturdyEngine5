@@ -21,6 +21,8 @@ namespace SFT::UI {
 
     struct UiQuadDrawBatch {
         RHI::TextureViewHandle texture_view{};
+        /// `TextureResource::revision` of the texture the view belongs to (0 for a view that is not a renderer texture).
+        u64 texture_revision = 0;
         RHI::Rect2D scissor{};
         RHI::BufferHandle instance_buffer{};
         u32 first_instance = 0;
@@ -47,6 +49,7 @@ namespace SFT::UI {
 
 
             RHI::TextureViewHandle texture_view{};
+            u64 texture_revision = 0;
             vector<UiQuadDrawBatch::BoundGroup> bind_groups;
         };
 
@@ -89,6 +92,9 @@ namespace SFT::UI {
         /// @param device Device used or affected by the operation.
         /// @param instances Instance used or affected by the operation.
         /// @param instance_texture_views Texture used or affected by the operation.
+        /// @param instance_texture_revisions One per instance: the revision of the texture its view belongs to. A cached
+        ///        bind group is only reused when both the view and the revision match, since a destroyed view's handle
+        ///        value can be handed out again for a different texture.
         /// @param instance_scissors Instance used or affected by the operation.
         /// @param instance_paint_groups Instance used or affected by the operation.
         /// @param resources `resources` value used by the operation.
@@ -99,6 +105,7 @@ namespace SFT::UI {
         /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                     span<const RHI::TextureViewHandle> instance_texture_views,
+                                                    span<const u64> instance_texture_revisions,
                                                     span<const RHI::Rect2D> instance_scissors,
                                                     span<const u32> instance_paint_groups,
                                                     UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches);

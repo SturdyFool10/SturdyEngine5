@@ -894,6 +894,9 @@ namespace SFT::Engine {
     PreparedRenderFrame Engine::prepare_render_frame(Core::RenderSurfaceHandle surface,
                                                      const Core::FrameInput &frame,
                                                      const RenderFrameParameters &parameters) {
+        // Progressive texture loads and SVG re-rasterisations land here, so an application that loads an image just
+        // draws it and watches it get better; nothing has to be pumped.
+        assets_.pump_texture_streaming();
         render_frame_requests_.begin_frame();
         light_frame_requests_.begin_frame();
         // Transforms changed during the update (or since) are what this frame shows.

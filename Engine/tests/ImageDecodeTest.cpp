@@ -2672,6 +2672,30 @@ int main() {
         assert(quick->frames.size() == 1);
         assert(quick->pixels().size() == static_cast<usize>(quick->width) * quick->height * 4);
         assert(quick->full_width == 512 && quick->full_height == 512);
+
+        // The progressive entry point reports the image at full size every time, finishes with exactly one final call,
+        // and returns the same pixels a plain decode does.
+        u32 calls = 0;
+        u32 final_calls = 0;
+        auto progressive = Engine::Detail::decode_image_progressive(
+            encoded, Engine::Detail::DecodeOptions{},
+            [&](u32 width, u32 height, std::span<const std::byte> rgba8, bool is_final) {
+                assert(width == 512 && height == 512);
+                assert(rgba8.size() == static_cast<usize>(width) * height * 4);
+                ++calls;
+                final_calls += is_final ? 1u : 0u;
+                return true;
+            },
+            std::filesystem::path{"prev.jxl"});
+        assert(progressive.has_value());
+        assert(calls >= 1 && final_calls == 1);
+        assert(progressive->pixels() == full->pixels());
+
+        // A sink that declines stops the decode.
+        auto cancelled = Engine::Detail::decode_image_progressive(
+            encoded, Engine::Detail::DecodeOptions{},
+            [](u32, u32, std::span<const std::byte>, bool) { return false; }, std::filesystem::path{"prev.jxl"});
+        assert(!cancelled.has_value());
     }
 
     {

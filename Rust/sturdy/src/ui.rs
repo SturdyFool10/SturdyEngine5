@@ -29,7 +29,7 @@ use core::pin::Pin;
 
 use sturdy_sys::ui::{ffi, EngineView, UiDrawHandle};
 
-use crate::assets::RendererTextureHandle;
+use crate::assets::{Asset, RendererTextureHandle};
 use cxx::UniquePtr;
 
 macro_rules! setters {
@@ -649,10 +649,10 @@ impl<'a> Ui<'a> {
         ffi::ui_image_sampled(&desc.to_ffi(), ffi::UiTexture { value: texture.0 }, sampling == ImageSampling::Nearest);
     }
 
-    /// Loads (or returns the cached rasterization of) an SVG file, rendered at `target_px` (its
-    /// largest dimension, in logical UI pixels). Unlike texture assets this does not go through
-    /// [`crate::assets::Assets`] at all -- see `sturdy-sys::ui::ffi::ui_load_svg`'s doc comment for
-    /// why. Pass the result to [`Ui::svg`] to draw it.
+    /// Loads an SVG file for drawing, rendered at `target_px` (its largest dimension, in logical UI pixels). The handle
+    /// belongs to an SVG texture asset ([`crate::assets::Assets::load_svg`]) that is the same for a file whatever size is
+    /// asked for and never becomes invalid: asking for a larger `target_px` re-rasterises it in place, so handles already
+    /// in use start showing the sharper raster. Pass the result to [`Ui::svg`] to draw it.
     pub fn load_svg(&mut self, path: &str, target_px: f32) -> Result<RendererTextureHandle, String> {
         let out = ffi::ui_load_svg(self.view.as_mut(), path, target_px);
         if out.ok {
@@ -662,10 +662,11 @@ impl<'a> Ui<'a> {
         }
     }
 
-    /// Drops every cached SVG rasterisation and unloads its texture. Use it when the sizes you ask for change for good
-    /// (a UI-scale or SVG anti-aliasing setting): anti-aliasing is just rasterising at a multiple of the drawn size, so
-    /// pass `target_px * supersample` to [`Ui::load_svg`] and draw it at `target_px`. Texture handles from earlier
-    /// [`Ui::load_svg`] calls become invalid; call it again when the next frame draws an icon.
+    /// Starts a new sizing epoch for SVGs: the next [`Ui::load_svg`] of each file sets its raster to exactly the size
+    /// then asked for, shrinking it if need be, instead of only ever growing. Use it when the sizes you draw icons at
+    /// changed for good (a UI-scale or anti-aliasing setting): anti-aliasing is just rasterising at a multiple of the
+    /// drawn size, so pass `target_px * supersample` to [`Ui::load_svg`] and draw it at `target_px`. Nothing is
+    /// unloaded and no handle becomes invalid; icons are never missing for a frame.
     pub fn clear_svg_cache(&mut self) {
         ffi::ui_clear_svg_cache(self.view.as_mut());
     }
@@ -674,6 +675,33 @@ impl<'a> Ui<'a> {
     /// shape as [`Ui::image`].
     pub fn svg(&mut self, desc: &ElementDesc, texture: RendererTextureHandle) {
         ffi::ui_svg(&desc.to_ffi(), ffi::UiTexture { value: texture.0 });
+    }
+
+    /// [`Ui::image`] for a texture *asset*: the asset is resolved to its renderer texture as the element is added, so
+    /// whatever the asset manager does behind it (a progressive load sharpening, an SVG re-rasterised, the pixels
+    /// replaced) shows up without the caller doing anything. A stale or non-texture asset leaves an empty element of the
+    /// same size, so the layout does not move.
+    pub fn image_asset(&mut self, desc: &ElementDesc, asset: Asset) {
+        match self.engine().assets().texture_handle(asset) {
+            Ok(texture) => self.image(desc, texture),
+            Err(_) => drop(self.element(desc)),
+        }
+    }
+
+    /// [`Ui::image_asset`] with an explicit filter; see [`Ui::image_sampled`].
+    pub fn image_asset_sampled(&mut self, desc: &ElementDesc, asset: Asset, sampling: ImageSampling) {
+        match self.engine().assets().texture_handle(asset) {
+            Ok(texture) => self.image_sampled(desc, texture, sampling),
+            Err(_) => drop(self.element(desc)),
+        }
+    }
+
+    /// [`Ui::svg`] for an SVG texture asset from [`crate::assets::Assets::load_svg`]; see [`Ui::image_asset`].
+    pub fn svg_asset(&mut self, desc: &ElementDesc, asset: Asset) {
+        match self.engine().assets().texture_handle(asset) {
+            Ok(texture) => self.svg(desc, texture),
+            Err(_) => drop(self.element(desc)),
+        }
     }
 
     /// Natural single-line size (width, height) of `content` drawn with `style`, in layout pixels, before any

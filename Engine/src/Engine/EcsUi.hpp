@@ -100,7 +100,9 @@ namespace SFT::Engine {
 
     class UiImageCache {
       public:
-        /// Resolves the requested value into the concrete value used by the engine.
+        /// Resolves an image file to the texture handle it is drawn through. Never blocks: the handle belongs to a
+        /// progressive texture asset (`AssetManager::load_texture_progressive`), so it is valid at once, shows nothing
+        /// until the first pass of the image is decoded, and then sharpens by itself.
         ///
         /// @param assets `assets` value used by the operation.
         /// @param path Filesystem path identifying the target resource.
@@ -111,7 +113,6 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<Renderer::TextureHandle> resolve(
             AssetManager &assets, const std::filesystem::path &path,
             TextureColorSpace color_space = TextureColorSpace::Srgb);
-
 
         /// Clears the stored state or contents.
         ///
@@ -129,35 +130,39 @@ namespace SFT::Engine {
 
     class UiSvgCache {
       public:
-        /// Resolves the requested value into the concrete value used by the engine.
+        /// Resolves an SVG file to the texture handle it is drawn through. The handle belongs to a texture asset
+        /// (`AssetManager::load_svg`) and never changes for a file: asking for a larger `target_px` re-rasterises the
+        /// asset in place, so handles already handed out keep working and now show the sharper raster.
         ///
-        /// @param assets `assets` value used by the operation.
-        /// @param path Filesystem path identifying the target resource.
-        /// @param target_px `target_px` value used by the operation.
+        /// @param assets Asset manager that owns the texture.
+        /// @param path SVG file.
+        /// @param target_px Largest dimension the SVG is drawn at, in pixels (the caller multiplies in any supersampling).
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
         [[nodiscard]] AssetExpected<Renderer::TextureHandle> resolve(
             AssetManager &assets, const std::filesystem::path &path, f32 target_px);
 
 
-        /// Clears the stored state or contents.
+        /// Forgets what was asked for, without touching any texture.
         ///
         /// @note This function does not throw exceptions.
         void clear() noexcept;
 
-        /// Forgets every cached rasterisation and unloads its texture. Callers re-resolve on their next draw (the
-        /// cache makes that cheap), so a live scale or anti-aliasing change does not accumulate stale textures.
-        /// Handles returned earlier become invalid.
+        /// Starts a new sizing epoch: the next `resolve` of each file sets its raster to exactly the size then asked for
+        /// (shrinking it if need be) instead of only ever growing. Call it when the sizes the UI draws icons at changed
+        /// for good (a UI-scale or anti-aliasing setting). Nothing is unloaded and no handle becomes invalid.
         void clear_and_unload(AssetManager &assets) noexcept;
 
       private:
         struct Entry {
             Asset asset{};
-            Renderer::TextureHandle handle{};
+            u64 epoch = 0;
         };
-        std::unordered_map<std::string, Entry> by_key_;
+        std::unordered_map<std::string, Entry> by_path_;
+        /// (path, requested size) -> handle, so a repeat request costs one lookup.
+        std::unordered_map<std::string, Renderer::TextureHandle> by_key_;
+        u64 epoch_ = 1;
     };
 
 } // namespace SFT::Engine

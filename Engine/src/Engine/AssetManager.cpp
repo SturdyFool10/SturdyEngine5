@@ -3,7 +3,6 @@
 #include <Engine/ImageDecode.hpp>
 #include <Engine/TextureCompression.hpp>
 #include <Engine/TextureMipChain.hpp>
-#include <Engine/TextureStreamer.hpp>
 
 #include <Core/Core.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
@@ -11,10 +10,16 @@
 #include <RHI/RHI.hpp>
 
 #include <Audio/Decoder.hpp>
+#include <Async/Affinity.hpp>
+#include <Renderer/UI/Svg/SvgIcon.hpp>
 
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <deque>
 #include <Foundation/FileIo.hpp>
 #include <fstream>
 #include <limits>
@@ -73,6 +78,7 @@ namespace SFT::Engine {
                                                                 TextureColorSpace requested) noexcept {
             return dynamic_range == TextureDynamicRange::Hdr ? TextureColorSpace::Linear : requested;
         }
+
 
 
         std::atomic<u64> next_asset_manager_id{1};
@@ -178,6 +184,313 @@ namespace SFT::Engine {
             return std::move(*bytes);
         }
 
+        /// A texture ready to hand to the renderer: the format it ends up in (block-compressed when that applies), its mip
+        /// count, and the complete mip chain's bytes.
+        struct PreparedTexture {
+            u32 width = 0;
+            u32 height = 0;
+            RHI::Format format = RHI::Format::Undefined;
+            u32 mip_levels = 1;
+            std::vector<std::byte> bytes;
+        };
+
+        /// Everything `create_texture` does to pixels before the GPU sees them: validation, mip chain, block compression.
+        /// CPU only (no renderer calls), so it can run on a worker thread; `allow_bc` is whether the device takes
+        /// block-compressed textures, asked of the renderer by the caller on the render thread.
+        [[nodiscard]] AssetExpected<PreparedTexture> prepare_texture(TextureAssetDesc &desc, bool allow_bc) {
+            if (desc.width == 0 || desc.height == 0) {
+                return std::unexpected(error(AssetErrorCode::InvalidDescription,
+                                             "A texture asset requires non-zero dimensions."));
+            }
+            const bool half_float = desc.format == TexturePixelFormat::Rgba16Float;
+            const u64 bytes_per_pixel = half_float ? 8u : 4u;
+            const u64 required_bytes = static_cast<u64>(desc.width) * desc.height * bytes_per_pixel;
+            if (required_bytes > std::numeric_limits<usize>::max() || desc.pixels.size() != required_bytes) {
+                return std::unexpected(error(
+                    AssetErrorCode::InvalidDescription,
+                    "Texture byte count does not match width * height * bytes-per-pixel for its format."));
+            }
+            if (half_float && desc.color_space == TextureColorSpace::Srgb) {
+                // There is no half-float sRGB texture format, and there should not be: the whole point
+                // of decoding to half-float is to hold scene-linear light. Rejected rather than
+                // silently re-tagged, because a caller asking for both has a mistaken model of one of
+                // them.
+                return std::unexpected(error(
+                    AssetErrorCode::InvalidDescription,
+                    "An Rgba16Float texture is scene-linear and cannot use TextureColorSpace::Srgb."));
+            }
+            const bool srgb = desc.color_space == TextureColorSpace::Srgb;
+            RHI::Format format = half_float ? RHI::Format::RGBA16Float
+                                 : srgb     ? RHI::Format::RGBA8UnormSrgb
+                                            : RHI::Format::RGBA8Unorm;
+
+            Detail::TextureMipChain mip_chain{};
+            if (desc.generate_mipmaps) {
+                auto generated = half_float
+                                     ? Detail::generate_rgba16f_mip_chain(desc.pixels, desc.width, desc.height)
+                                     : Detail::generate_rgba8_mip_chain(desc.pixels, desc.width, desc.height, srgb);
+                if (!generated) {
+                    return std::unexpected(error(AssetErrorCode::InvalidDescription,
+                                                 "Could not generate the texture mip chain."));
+                }
+                mip_chain = std::move(*generated);
+            } else {
+                mip_chain.data = std::move(desc.pixels);
+                mip_chain.mip_levels = 1;
+            }
+            std::vector<std::byte>{}.swap(desc.pixels);
+
+            PreparedTexture prepared{.width = desc.width, .height = desc.height, .format = format,
+                                     .mip_levels = mip_chain.mip_levels};
+            const std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
+            std::optional<std::vector<std::byte>> compressed;
+            // Every BC codec bundled here (BC1/3/4/5/7) takes 8-bit input and produces an 8-bit-range
+            // result, so a half-float texture is uploaded uncompressed. Compressing it would need
+            // BC6H, which is the one BC format bc7enc does not implement.
+            // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
+            if (!half_float && desc.allow_compression && desc.width >= 4 && desc.height >= 4 &&
+                desc.width % 4 == 0 && desc.height % 4 == 0 && allow_bc) {
+                switch (desc.kind) {
+                    case TextureKind::ColorOpaque:
+                        compressed = Detail::compress_bc1_mip_chain(
+                            upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
+                        break;
+                    case TextureKind::Mask:
+                        compressed = Detail::compress_bc4_mip_chain(
+                            upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
+                        break;
+                    case TextureKind::NormalMap:
+                    case TextureKind::MetallicRoughness:
+                        compressed = Detail::compress_bc5_mip_chain(
+                            upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
+                        break;
+                    case TextureKind::ColorAlpha:
+                    default:
+                        compressed = Detail::compress_bc7_mip_chain(
+                            upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
+                        break;
+                }
+            }
+            if (compressed) {
+                prepared.format = Detail::choose_bc_format(desc.kind, srgb);
+                prepared.bytes = std::move(*compressed);
+            } else {
+                prepared.bytes = std::move(mip_chain.data);
+            }
+            return prepared;
+        }
+
+        /// Whether the device takes block-compressed textures. Read on the render thread.
+        [[nodiscard]] bool device_allows_bc(SFT::Renderer::Renderer &renderer) {
+            RHI::RhiDevice *device = renderer.rhi_device();
+            return device != nullptr && device->limits().supports_bc_texture_compression;
+        }
+
+
+        /// What a progressive load's worker hands the render thread, in order.
+        struct ProgressiveUpdate {
+            enum class Kind : u8 {
+                /// The first image: full size, low detail. Replaces the 1x1 stand-in.
+                First,
+                /// Rectangles that reached full detail, rows packed back to back.
+                Regions,
+                /// The finished texture: mip chain, block compression.
+                Final,
+                /// The decode failed.
+                Failed,
+            };
+            Kind kind = Kind::Failed;
+            u32 width = 0;
+            u32 height = 0;
+            RHI::Format format = RHI::Format::Undefined;
+            u32 mip_levels = 1;
+            std::vector<std::byte> pixels;
+            std::vector<SFT::Renderer::Renderer::TextureRegion> regions;
+            f32 refined_fraction = 0.0f;
+            std::string message;
+        };
+
+        /// State shared between a progressive load's worker thread and the asset manager.
+        struct ProgressiveLoad {
+            std::mutex mutex;
+            std::deque<ProgressiveUpdate> updates;
+            std::atomic<bool> cancel{false};
+        };
+
+        struct SvgSource {
+            std::filesystem::path path;
+            u32 raster_px = 0;
+        };
+
+        /// Edge of the squares a progressive load compares and re-uploads.
+        constexpr u32 kProgressiveTile = 64;
+
+        /// Rounds an SVG raster size up to a multiple of 4 (so block compression applies) within sane bounds.
+        [[nodiscard]] u32 svg_raster_px(f32 target_px) noexcept {
+            const f32 clamped = std::clamp(std::isfinite(target_px) ? target_px : 16.0f, 4.0f, 4096.0f);
+            return static_cast<u32>(std::ceil(clamped / 4.0f)) * 4u;
+        }
+
+        /// The body of a progressive load, run on the asset manager's decode thread.
+        void run_progressive_load(const std::shared_ptr<ProgressiveLoad> &load, const std::filesystem::path &source,
+                                  std::vector<std::byte> encoded_bytes, TextureColorSpace color_space, TextureKind kind,
+                                  bool allow_bc) {
+            const auto push = [&](ProgressiveUpdate update) {
+                std::lock_guard lock{load->mutex};
+                load->updates.push_back(std::move(update));
+            };
+            const auto fail = [&](std::string message) {
+                ProgressiveUpdate update;
+                update.kind = ProgressiveUpdate::Kind::Failed;
+                update.message = std::move(message);
+                push(std::move(update));
+            };
+            if (load->cancel.load(std::memory_order_acquire)) {
+                return;
+            }
+            // A path is read here, on the worker; bytes the caller already holds (a download, an embedded picture) are used as is.
+            AssetExpected<std::vector<std::byte>> encoded =
+                encoded_bytes.empty() ? read_binary_file(source) : AssetExpected<std::vector<std::byte>>{std::move(encoded_bytes)};
+            if (!encoded) {
+                fail(std::string{encoded.error().message.c_str()});
+                return;
+            }
+
+            const bool srgb = color_space == TextureColorSpace::Srgb;
+            std::vector<std::byte> shown;
+            std::vector<u8> refined;
+            u32 tiles_x = 0;
+            u32 tiles_y = 0;
+            u32 refined_count = 0;
+            bool sent_first = false;
+
+            const Detail::ProgressiveSink sink = [&](u32 width, u32 height, std::span<const std::byte> rgba8,
+                                                     bool is_final) {
+                if (load->cancel.load(std::memory_order_acquire)) {
+                    return false;
+                }
+                if (is_final) {
+                    return true; // the finished image replaces everything below
+                }
+                if (!sent_first) {
+                    sent_first = true;
+                    shown.assign(rgba8.begin(), rgba8.end());
+                    tiles_x = (width + kProgressiveTile - 1) / kProgressiveTile;
+                    tiles_y = (height + kProgressiveTile - 1) / kProgressiveTile;
+                    refined.assign(static_cast<usize>(tiles_x) * tiles_y, 0);
+                    ProgressiveUpdate update;
+                    update.kind = ProgressiveUpdate::Kind::First;
+                    update.width = width;
+                    update.height = height;
+                    update.format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
+                    update.pixels.assign(rgba8.begin(), rgba8.end());
+                    push(std::move(update));
+                    return true;
+                }
+
+                // Which tiles differ from what the render thread was last given?
+                const auto tile_rect = [&](u32 tx, u32 ty) {
+                    SFT::Renderer::Renderer::TextureRegion region;
+                    region.x = tx * kProgressiveTile;
+                    region.y = ty * kProgressiveTile;
+                    region.width = std::min(kProgressiveTile, width - region.x);
+                    region.height = std::min(kProgressiveTile, height - region.y);
+                    return region;
+                };
+                std::vector<SFT::Renderer::Renderer::TextureRegion> regions;
+                for (u32 ty = 0; ty < tiles_y; ++ty) {
+                    u32 run_start = 0;
+                    bool in_run = false;
+                    const auto close_run = [&](u32 run_end_exclusive) {
+                        SFT::Renderer::Renderer::TextureRegion first = tile_rect(run_start, ty);
+                        const SFT::Renderer::Renderer::TextureRegion last = tile_rect(run_end_exclusive - 1, ty);
+                        first.width = last.x + last.width - first.x;
+                        // Same columns as the region just above it: one taller region instead of two.
+                        if (!regions.empty() && regions.back().x == first.x && regions.back().width == first.width &&
+                            regions.back().y + regions.back().height == first.y) {
+                            regions.back().height += first.height;
+                        } else {
+                            regions.push_back(first);
+                        }
+                    };
+                    for (u32 tx = 0; tx < tiles_x; ++tx) {
+                        const SFT::Renderer::Renderer::TextureRegion tile = tile_rect(tx, ty);
+                        bool dirty = false;
+                        for (u32 row = 0; row < tile.height && !dirty; ++row) {
+                            const usize offset = (static_cast<usize>(tile.y + row) * width + tile.x) * 4u;
+                            dirty = std::memcmp(shown.data() + offset, rgba8.data() + offset,
+                                                static_cast<usize>(tile.width) * 4u) != 0;
+                        }
+                        if (dirty) {
+                            u8 &flag = refined[static_cast<usize>(ty) * tiles_x + tx];
+                            if (flag == 0) {
+                                flag = 1;
+                                ++refined_count;
+                            }
+                            if (!in_run) {
+                                in_run = true;
+                                run_start = tx;
+                            }
+                        } else if (in_run) {
+                            in_run = false;
+                            close_run(tx);
+                        }
+                    }
+                    if (in_run) {
+                        close_run(tiles_x);
+                    }
+                }
+                if (regions.empty()) {
+                    return true;
+                }
+                ProgressiveUpdate update;
+                update.kind = ProgressiveUpdate::Kind::Regions;
+                update.refined_fraction =
+                    static_cast<f32>(refined_count) / static_cast<f32>(std::max<usize>(refined.size(), 1));
+                for (const SFT::Renderer::Renderer::TextureRegion &region : regions) {
+                    for (u32 row = 0; row < region.height; ++row) {
+                        const usize offset = (static_cast<usize>(region.y + row) * width + region.x) * 4u;
+                        const usize bytes = static_cast<usize>(region.width) * 4u;
+                        update.pixels.insert(update.pixels.end(), rgba8.begin() + offset, rgba8.begin() + offset + bytes);
+                        std::memcpy(shown.data() + offset, rgba8.data() + offset, bytes);
+                    }
+                }
+                update.regions = std::move(regions);
+                push(std::move(update));
+                return true;
+            };
+
+            auto image = Detail::decode_image_progressive(*encoded, Detail::DecodeOptions{}, sink, source);
+            if (!image) {
+                if (!load->cancel.load(std::memory_order_acquire)) {
+                    fail(std::string{image.error().message.c_str()});
+                }
+                return;
+            }
+            std::vector<std::byte>{}.swap(*encoded);
+            TextureAssetDesc desc{
+                .width = image->width,
+                .height = image->height,
+                .color_space = color_space,
+                .pixels = std::move(image->pixels()),
+                .kind = kind,
+            };
+            auto prepared = prepare_texture(desc, allow_bc);
+            if (!prepared) {
+                fail(std::string{prepared.error().message.c_str()});
+                return;
+            }
+            ProgressiveUpdate update;
+            update.kind = ProgressiveUpdate::Kind::Final;
+            update.width = prepared->width;
+            update.height = prepared->height;
+            update.format = prepared->format;
+            update.mip_levels = prepared->mip_levels;
+            update.pixels = std::move(prepared->bytes);
+            push(std::move(update));
+        }
+
+
         /// Performs the combine stable ID operation for `Engine` using the supplied arguments.
         ///
         /// @param object `object` value used by the operation.
@@ -202,6 +515,15 @@ namespace SFT::Engine {
         struct TextureData {
             SFT::Renderer::TextureHandle texture{};
             TextureAssetInfo info{};
+            bool nearest_sampling = false;
+            TextureKind kind = TextureKind::ColorAlpha;
+            /// Set for textures made by `load_svg`: the vector source the raster comes from.
+            std::optional<SvgSource> svg;
+            /// Set while a progressive load is still delivering.
+            std::shared_ptr<ProgressiveLoad> progressive;
+            TextureDetail detail = TextureDetail::Complete;
+            f32 refined_fraction = 1.0f;
+            u64 version = 1;
         };
 
         struct SoundData {
@@ -255,8 +577,7 @@ namespace SFT::Engine {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit Impl(SFT::Renderer::Renderer &renderer_ref)
-            : renderer(renderer_ref), owner(next_asset_manager_id.fetch_add(1, std::memory_order_relaxed)),
-              texture_streamer(renderer_ref) {
+            : renderer(renderer_ref), owner(next_asset_manager_id.fetch_add(1, std::memory_order_relaxed)) {
             if (owner == 0) {
                 owner = next_asset_manager_id.fetch_add(1, std::memory_order_relaxed);
             }
@@ -340,6 +661,12 @@ namespace SFT::Engine {
                     }
                 }
             } else if (auto *texture = std::get_if<TextureData>(&record.data)) {
+                if (texture->progressive) {
+                    texture->progressive->cancel.store(true, std::memory_order_release);
+                }
+                if (texture->svg) {
+                    svg_records.erase(texture->texture.value);
+                }
                 if (texture->texture) {
                     renderer.destroy_texture(texture->texture);
                 }
@@ -355,6 +682,9 @@ namespace SFT::Engine {
                 path_cache.erase(source_string);
                 path_cache.erase(source_string + "|srgb");
                 path_cache.erase(source_string + "|linear");
+                path_cache.erase("svg|" + source_string);
+                path_cache.erase("progressive|" + source_string + "|srgb");
+                path_cache.erase("progressive|" + source_string + "|linear");
             }
 
             record.data = std::monostate{};
@@ -368,14 +698,26 @@ namespace SFT::Engine {
             }
         }
 
+        /// Applies what the progressive loads' workers have produced; see `pump_texture_streaming`.
+        void pump_progressive();
+        /// Grows SVG rasters to the size the UI actually drew them at.
+        void apply_texture_demand();
+        AssetResult replace_locked(Record &record, TextureData &data, TextureAssetDesc desc);
+        AssetResult rasterize_svg_locked(Record &record, TextureData &data, u32 px);
+
         SFT::Renderer::Renderer &renderer;
         u64 owner = 0;
         mutable std::shared_mutex mutex;
         std::vector<Record> records;
-        TextureStreamer texture_streamer;
 
 
         std::unordered_map<std::string, Asset> path_cache;
+        /// Records with a progressive load in flight, so the per-frame pump does not scan every asset.
+        std::vector<usize> active_progressive;
+        /// Renderer texture handle -> record index, for the SVG textures (so the UI's drawn sizes can find them).
+        std::unordered_map<u64, usize> svg_records;
+        /// Declared last: destroyed first, so its worker has stopped before anything the worker's jobs touch goes away.
+        Async::DedicatedThread decode_thread{"AssetDecode"};
     };
 
     /// Performs the asset manager operation for `Engine` using the supplied arguments.
@@ -501,101 +843,29 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`.
     AssetExpected<Asset> AssetManager::create_texture(TextureAssetDesc desc) {
-        if (desc.width == 0 || desc.height == 0) {
-            return std::unexpected(error(AssetErrorCode::InvalidDescription,
-                                         "A texture asset requires non-zero dimensions."));
-        }
-        const bool half_float = desc.format == TexturePixelFormat::Rgba16Float;
-        const u64 bytes_per_pixel = half_float ? 8u : 4u;
-        const u64 required_bytes = static_cast<u64>(desc.width) * desc.height * bytes_per_pixel;
-        if (required_bytes > std::numeric_limits<usize>::max() || desc.pixels.size() != required_bytes) {
-            return std::unexpected(error(
-                AssetErrorCode::InvalidDescription,
-                "Texture byte count does not match width * height * bytes-per-pixel for its format."));
-        }
-        if (half_float && desc.color_space == TextureColorSpace::Srgb) {
-            // There is no half-float sRGB texture format, and there should not be: the whole point
-            // of decoding to half-float is to hold scene-linear light. Rejected rather than
-            // silently re-tagged, because a caller asking for both has a mistaken model of one of
-            // them.
-            return std::unexpected(error(
-                AssetErrorCode::InvalidDescription,
-                "An Rgba16Float texture is scene-linear and cannot use TextureColorSpace::Srgb."));
-        }
         if (desc.label.empty()) {
             desc.label = UString{"texture"_ustr};
         }
-
-        const bool srgb = desc.color_space == TextureColorSpace::Srgb;
-        RHI::Format format = half_float  ? RHI::Format::RGBA16Float
-                             : srgb ? RHI::Format::RGBA8UnormSrgb
-                                    : RHI::Format::RGBA8Unorm;
-
-        Detail::TextureMipChain mip_chain{};
-        if (desc.generate_mipmaps) {
-            auto generated = half_float
-                                 ? Detail::generate_rgba16f_mip_chain(desc.pixels, desc.width, desc.height)
-                                 : Detail::generate_rgba8_mip_chain(desc.pixels, desc.width, desc.height, srgb);
-            if (!generated) {
-                return std::unexpected(error(AssetErrorCode::InvalidDescription,
-                                             "Could not generate the texture mip chain."));
-            }
-            mip_chain = std::move(*generated);
-        } else {
-            mip_chain.data = std::move(desc.pixels);
-            mip_chain.mip_levels = 1;
-        }
-        std::vector<std::byte>{}.swap(desc.pixels);
-        std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
-
-
-        std::optional<std::vector<std::byte>> compressed;
-        RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        // Every BC codec bundled here (BC1/3/4/5/7) takes 8-bit input and produces an 8-bit-range
-        // result, so a half-float texture is uploaded uncompressed. Compressing it would need
-        // BC6H, which is the one BC format bc7enc does not implement.
-        // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
-        if (!half_float && desc.allow_compression && desc.width >= 4 && desc.height >= 4 &&
-            desc.width % 4 == 0 && desc.height % 4 == 0 &&
-            device != nullptr && device->limits().supports_bc_texture_compression) {
-            switch (desc.kind) {
-                case TextureKind::ColorOpaque:
-                    compressed = Detail::compress_bc1_mip_chain(
-                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
-                    break;
-                case TextureKind::Mask:
-                    compressed = Detail::compress_bc4_mip_chain(
-                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
-                    break;
-                case TextureKind::NormalMap:
-                case TextureKind::MetallicRoughness:
-
-
-                    compressed = Detail::compress_bc5_mip_chain(
-                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
-                    break;
-                case TextureKind::ColorAlpha:
-                default:
-                    compressed = Detail::compress_bc7_mip_chain(
-                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
-                    break;
-            }
-            if (compressed) {
-                format = Detail::choose_bc_format(desc.kind, srgb);
-                upload_bytes = std::span<const std::byte>{compressed->data(), compressed->size()};
-                std::vector<std::byte>{}.swap(mip_chain.data);
-            }
+        const u32 width = desc.width;
+        const u32 height = desc.height;
+        const TextureColorSpace color_space = desc.color_space;
+        const bool nearest_sampling = desc.nearest_sampling;
+        const TextureKind kind = desc.kind;
+        UString label = desc.label;
+        auto prepared = prepare_texture(desc, device_allows_bc(impl_->renderer));
+        if (!prepared) {
+            return std::unexpected(prepared.error());
         }
 
         auto texture = impl_->renderer.create_texture(
-            desc.width,
-            desc.height,
-            format,
-            upload_bytes,
-            desc.label.c_str(),
+            prepared->width,
+            prepared->height,
+            prepared->format,
+            std::span<const std::byte>{prepared->bytes},
+            label.c_str(),
             {},
-            mip_chain.mip_levels,
-            desc.nearest_sampling);
+            prepared->mip_levels,
+            nearest_sampling);
         if (!texture) {
             return std::unexpected(backend_error(texture.error()));
         }
@@ -603,15 +873,17 @@ namespace SFT::Engine {
         std::unique_lock lock{impl_->mutex};
         return impl_->insert(Impl::Record{
             .type = AssetType::Texture,
-            .label = std::move(desc.label),
-            .memory_bytes = upload_bytes.size(),
+            .label = std::move(label),
+            .memory_bytes = prepared->bytes.size(),
             .data = Impl::TextureData{
                 .texture = *texture,
                 .info = TextureAssetInfo{
-                    .width = desc.width,
-                    .height = desc.height,
-                    .color_space = desc.color_space,
+                    .width = width,
+                    .height = height,
+                    .color_space = color_space,
                 },
+                .nearest_sampling = nearest_sampling,
+                .kind = kind,
             },
         });
     }
@@ -735,27 +1007,9 @@ namespace SFT::Engine {
                                                               TextureColorSpace color_space, TextureKind kind,
                                                               UString label) {
         SFT_TRACE_SCOPE("AssetManager::load_texture_streamed");
-        if (label.empty()) {
-            label = path_label(source, "texture");
-        }
-        const StreamedTextureHandle streamed =
-            impl_->texture_streamer.request_texture_load(source, color_space, kind, {}, label);
-        if (!streamed) {
-            return std::unexpected(error(AssetErrorCode::IoFailure,
-                                         "Failed to start streamed texture load for '" + source.string() + "'.", source));
-        }
-        const auto [width, height] = impl_->texture_streamer.dimensions(streamed);
-
-        std::unique_lock lock{impl_->mutex};
-        return impl_->insert(Impl::Record{
-            .type = AssetType::Texture,
-            .label = std::move(label),
-            .source = source,
-            .data = Impl::TextureData{
-                .texture = impl_->texture_streamer.texture_handle(streamed),
-                .info = TextureAssetInfo{.width = width, .height = height, .color_space = color_space},
-            },
-        });
+        // One path for everything shown on screen: the progressive pipeline gives the same contract (a usable asset at
+        // once, block-compressed with its mips when the worker is done) and also shows the image sooner.
+        return load_texture_progressive(source, color_space, std::move(label), false, kind);
     }
 
     /// Pumps texture streaming using the supplied arguments and current state.
@@ -763,7 +1017,381 @@ namespace SFT::Engine {
     /// @return Returns the current pump texture streaming value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void AssetManager::pump_texture_streaming() {
-        impl_->texture_streamer.pump();
+        impl_->apply_texture_demand();
+        impl_->pump_progressive();
+    }
+
+    void AssetManager::Impl::apply_texture_demand() {
+        const auto demand = renderer.take_texture_demand();
+        if (demand.empty()) {
+            return;
+        }
+        std::unique_lock lock{mutex};
+        if (svg_records.empty()) {
+            return;
+        }
+        // A few re-rasterisations a frame at most: a screen of icons that all need growing spreads over a few frames.
+        u32 budget = 4;
+        for (const auto &[handle, pixels] : demand) {
+            const auto found = svg_records.find(handle.value);
+            if (found == svg_records.end() || budget == 0) {
+                continue;
+            }
+            Record &record = records[found->second];
+            auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || !data->svg) {
+                continue;
+            }
+            // Only ever bigger, and only when the raster is actually too small for what was drawn.
+            const u32 wanted = svg_raster_px(pixels);
+            if (wanted <= data->svg->raster_px) {
+                continue;
+            }
+            --budget;
+            if (auto grown = rasterize_svg_locked(record, *data, wanted); !grown) {
+                Foundation::log_warn("AssetManager: could not re-rasterise '{}': {}", data->svg->path.string(),
+                                     grown.error().message);
+            }
+        }
+    }
+
+    /// Applies what progressive loads have decoded since the last call, spending a few milliseconds at most per call
+    /// (but always finishing the update it started): a big image's refinement spreads over frames instead of stalling one.
+    void AssetManager::Impl::pump_progressive() {
+        if (active_progressive.empty()) {
+            return;
+        }
+        constexpr auto kBudget = std::chrono::milliseconds(4);
+        const auto started = std::chrono::steady_clock::now();
+        std::unique_lock lock{mutex};
+        for (usize slot = 0; slot < active_progressive.size();) {
+            Record &record = records[active_progressive[slot]];
+            auto *data = record.loaded ? std::get_if<TextureData>(&record.data) : nullptr;
+            if (data == nullptr || data->progressive == nullptr) {
+                active_progressive.erase(active_progressive.begin() + static_cast<std::ptrdiff_t>(slot));
+                continue;
+            }
+            bool finished = false;
+            while (!finished && std::chrono::steady_clock::now() - started < kBudget) {
+                ProgressiveUpdate update;
+                {
+                    std::lock_guard queue_lock{data->progressive->mutex};
+                    if (data->progressive->updates.empty()) {
+                        break;
+                    }
+                    update = std::move(data->progressive->updates.front());
+                    data->progressive->updates.pop_front();
+                }
+                switch (update.kind) {
+                    case ProgressiveUpdate::Kind::First: {
+                        if (auto replaced = renderer.replace_texture(data->texture, update.width, update.height,
+                                                                     update.format, update.pixels, 1);
+                            !replaced) {
+                            Foundation::log_warn("AssetManager: could not show the first pass of '{}': {}",
+                                                 record.source.string(), replaced.error().message);
+                            break;
+                        }
+                        data->info.width = update.width;
+                        data->info.height = update.height;
+                        data->detail = TextureDetail::Partial;
+                        data->refined_fraction = 0.0f;
+                        ++data->version;
+                        record.memory_bytes = update.pixels.size();
+                        break;
+                    }
+                    case ProgressiveUpdate::Kind::Regions: {
+                        if (data->detail != TextureDetail::Partial) {
+                            break;
+                        }
+                        if (auto updated = renderer.update_texture_regions(data->texture, update.regions, update.pixels);
+                            !updated) {
+                            Foundation::log_warn("AssetManager: could not refine '{}': {}", record.source.string(),
+                                                 updated.error().message);
+                            break;
+                        }
+                        data->refined_fraction = update.refined_fraction;
+                        ++data->version;
+                        break;
+                    }
+                    case ProgressiveUpdate::Kind::Final: {
+                        if (auto replaced = renderer.replace_texture(data->texture, update.width, update.height,
+                                                                     update.format, update.pixels, update.mip_levels);
+                            !replaced) {
+                            Foundation::log_warn("AssetManager: could not finish '{}': {}", record.source.string(),
+                                                 replaced.error().message);
+                            data->detail = TextureDetail::Failed;
+                        } else {
+                            data->info.width = update.width;
+                            data->info.height = update.height;
+                            data->detail = TextureDetail::Complete;
+                            data->refined_fraction = 1.0f;
+                            record.memory_bytes = update.pixels.size();
+                            ++data->version;
+                        }
+                        data->progressive.reset();
+                        finished = true;
+                        break;
+                    }
+                    case ProgressiveUpdate::Kind::Failed: {
+                        Foundation::log_warn("AssetManager: could not load texture '{}': {}", record.source.string(),
+                                             update.message);
+                        data->detail = TextureDetail::Failed;
+                        ++data->version;
+                        data->progressive.reset();
+                        finished = true;
+                        break;
+                    }
+                }
+            }
+            if (finished) {
+                active_progressive.erase(active_progressive.begin() + static_cast<std::ptrdiff_t>(slot));
+            } else {
+                ++slot;
+            }
+            if (std::chrono::steady_clock::now() - started >= kBudget) {
+                break;
+            }
+        }
+    }
+
+    AssetExpected<Asset> AssetManager::load_texture_progressive(const std::filesystem::path &source,
+                                                                TextureColorSpace color_space, UString label,
+                                                                bool nearest_sampling, TextureKind kind) {
+        SFT_TRACE_SCOPE("AssetManager::load_texture_progressive");
+        const std::string key =
+            "progressive|" + source.string() + (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear") +
+            (nearest_sampling ? "|nearest" : "") + "|kind" + std::to_string(static_cast<int>(kind));
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+        if (label.empty()) {
+            label = path_label(source, "texture");
+        }
+        // A transparent 1x1 until the first pass is decoded: whatever shows the asset draws nothing in the meantime.
+        auto placeholder = create_texture(TextureAssetDesc{
+            .width = 1,
+            .height = 1,
+            .color_space = color_space,
+            .pixels = std::vector<std::byte>(4, std::byte{0}),
+            .label = label,
+            .allow_compression = false,
+            .generate_mipmaps = false,
+            .nearest_sampling = nearest_sampling,
+        });
+        if (!placeholder) {
+            return placeholder;
+        }
+
+        auto load = std::make_shared<ProgressiveLoad>();
+        const bool allow_bc = device_allows_bc(impl_->renderer);
+        {
+            std::unique_lock lock{impl_->mutex};
+            if (Impl::Record *record = impl_->find(*placeholder)) {
+                record->source = source;
+                if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                    data->progressive = load;
+                    data->detail = TextureDetail::Placeholder;
+                    data->refined_fraction = 0.0f;
+                }
+                impl_->active_progressive.push_back(static_cast<usize>(placeholder->id_ - 1));
+            }
+            impl_->path_cache.emplace(key, *placeholder);
+        }
+        (void)impl_->decode_thread.run([load, source, color_space, kind, allow_bc] {
+            run_progressive_load(load, source, {}, color_space, kind, allow_bc);
+        });
+        return placeholder;
+    }
+
+    AssetExpected<Asset> AssetManager::create_texture_progressive_from_bytes(std::vector<std::byte> encoded,
+                                                                             TextureColorSpace color_space,
+                                                                             UString label, bool nearest_sampling,
+                                                                             TextureKind kind) {
+        if (encoded.empty()) {
+            return std::unexpected(error(AssetErrorCode::InvalidDescription, "No image data was given."));
+        }
+        if (label.empty()) {
+            label = UString{"texture"_ustr};
+        }
+        auto placeholder = create_texture(TextureAssetDesc{
+            .width = 1,
+            .height = 1,
+            .color_space = color_space,
+            .pixels = std::vector<std::byte>(4, std::byte{0}),
+            .label = label,
+            .allow_compression = false,
+            .generate_mipmaps = false,
+            .nearest_sampling = nearest_sampling,
+        });
+        if (!placeholder) {
+            return placeholder;
+        }
+        auto load = std::make_shared<ProgressiveLoad>();
+        const bool allow_bc = device_allows_bc(impl_->renderer);
+        {
+            std::unique_lock lock{impl_->mutex};
+            if (Impl::Record *record = impl_->find(*placeholder)) {
+                if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                    data->progressive = load;
+                    data->detail = TextureDetail::Placeholder;
+                    data->refined_fraction = 0.0f;
+                }
+                impl_->active_progressive.push_back(static_cast<usize>(placeholder->id_ - 1));
+            }
+        }
+        (void)impl_->decode_thread.run([load, bytes = std::move(encoded), color_space, kind, allow_bc]() mutable {
+            run_progressive_load(load, {}, std::move(bytes), color_space, kind, allow_bc);
+        });
+        return placeholder;
+    }
+
+    AssetExpected<TextureProgress> AssetManager::texture_progress(Asset asset) const {
+        std::shared_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(asset);
+        const auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "texture_progress requires a live texture asset."));
+        }
+        return TextureProgress{.detail = data->detail,
+                               .refined_fraction = data->refined_fraction,
+                               .width = data->info.width,
+                               .height = data->info.height,
+                               .version = data->version};
+    }
+
+    /// Swaps a texture record's pixels for `desc`'s through the renderer. The caller holds the manager's lock.
+    AssetResult AssetManager::Impl::replace_locked(Record &record, TextureData &data, TextureAssetDesc desc) {
+        const u32 width = desc.width;
+        const u32 height = desc.height;
+        auto prepared = prepare_texture(desc, device_allows_bc(renderer));
+        if (!prepared) {
+            return std::unexpected(prepared.error());
+        }
+        if (auto replaced = renderer.replace_texture(data.texture, prepared->width, prepared->height, prepared->format,
+                                                     std::span<const std::byte>{prepared->bytes}, prepared->mip_levels);
+            !replaced) {
+            return std::unexpected(backend_error(replaced.error()));
+        }
+        data.info.width = width;
+        data.info.height = height;
+        record.memory_bytes = prepared->bytes.size();
+        ++data.version;
+        return {};
+    }
+
+    AssetResult AssetManager::replace_texture(Asset asset, TextureAssetDesc desc) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "replace_texture requires a live texture asset."));
+        }
+        data->info.color_space = desc.color_space;
+        if (auto result = impl_->replace_locked(*record, *data, std::move(desc)); !result) {
+            return result;
+        }
+        if (data->progressive) {
+            data->progressive->cancel.store(true, std::memory_order_release);
+            data->progressive.reset();
+        }
+        data->svg.reset();
+        data->detail = TextureDetail::Complete;
+        data->refined_fraction = 1.0f;
+        return {};
+    }
+
+    /// Rasterises the SVG `data` was made from at `px` and swaps it in. The caller holds the manager's lock.
+    AssetResult AssetManager::Impl::rasterize_svg_locked(Record &record, TextureData &data, u32 px) {
+        if (!data.svg) {
+            return std::unexpected(error(AssetErrorCode::WrongType, "The texture asset was not made from an SVG."));
+        }
+        if (data.svg->raster_px == px) {
+            return {};
+        }
+        std::optional<UI::Svg::RasterizedSvg> rasterized =
+            UI::Svg::rasterize_svg_file(data.svg->path, static_cast<f32>(px));
+        if (!rasterized) {
+            return std::unexpected(error(AssetErrorCode::DecodeFailure, "Failed to load/rasterize SVG.",
+                                         data.svg->path));
+        }
+        if (auto result = replace_locked(record, data,
+                                         TextureAssetDesc{.width = rasterized->width,
+                                                          .height = rasterized->height,
+                                                          .color_space = data.info.color_space,
+                                                          .pixels = std::move(rasterized->rgba),
+                                                          .label = record.label});
+            !result) {
+            return result;
+        }
+        data.svg->raster_px = px;
+        return {};
+    }
+
+    AssetExpected<Asset> AssetManager::load_svg(const std::filesystem::path &source, f32 target_px, UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_svg");
+        const u32 px = svg_raster_px(target_px);
+        const std::string key = "svg|" + source.string();
+        {
+            std::unique_lock lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(key); it != impl_->path_cache.end()) {
+                Impl::Record *record = impl_->find(it->second);
+                auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+                if (data != nullptr && data->svg) {
+                    // Only ever bigger: the same icon drawn at two sizes shares one raster, which the mip chain
+                    // keeps clean at the smaller one.
+                    if (data->svg->raster_px < px) {
+                        if (auto grown = impl_->rasterize_svg_locked(*record, *data, px); !grown) {
+                            return std::unexpected(grown.error());
+                        }
+                    }
+                    return it->second;
+                }
+            }
+        }
+
+        std::optional<UI::Svg::RasterizedSvg> rasterized = UI::Svg::rasterize_svg_file(source, static_cast<f32>(px));
+        if (!rasterized) {
+            return std::unexpected(error(AssetErrorCode::DecodeFailure, "Failed to load/rasterize SVG.", source));
+        }
+        if (label.empty()) {
+            label = path_label(source, "svg");
+        }
+        auto asset = create_texture(TextureAssetDesc{
+            .width = rasterized->width,
+            .height = rasterized->height,
+            .color_space = TextureColorSpace::Srgb,
+            .pixels = std::move(rasterized->rgba),
+            .label = std::move(label),
+        });
+        if (!asset) {
+            return asset;
+        }
+        std::unique_lock lock{impl_->mutex};
+        if (Impl::Record *record = impl_->find(*asset)) {
+            record->source = source;
+            if (auto *data = std::get_if<Impl::TextureData>(&record->data)) {
+                data->svg = SvgSource{.path = source, .raster_px = px};
+                impl_->svg_records[data->texture.value] = static_cast<usize>(asset->id_ - 1);
+            }
+        }
+        impl_->path_cache[key] = *asset;
+        return asset;
+    }
+
+    AssetResult AssetManager::set_svg_size(Asset asset, f32 target_px) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(asset);
+        auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "set_svg_size requires a live texture asset."));
+        }
+        return impl_->rasterize_svg_locked(*record, *data, svg_raster_px(target_px));
     }
 
     /// Computes the create texture from encoded bytes required by the supplied values.

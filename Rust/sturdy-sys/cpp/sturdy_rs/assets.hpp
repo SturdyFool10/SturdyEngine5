@@ -37,6 +37,7 @@ namespace sturdy_rs::assets {
     struct BytesOutcome;
     struct SamplesOutcome;
     struct RendererTextureHandleOutcome;
+    struct TextureProgressOutcome;
     struct GltfImportOutcome;
 
     AssetOutcome assets_load_texture(EngineView &engine,
@@ -113,6 +114,31 @@ namespace sturdy_rs::assets {
 
     RendererTextureHandleOutcome assets_texture_handle(const EngineView &engine, AssetHandle asset);
     rust::String assets_update_texture(EngineView &engine, AssetHandle asset, rust::Slice<const std::uint8_t> pixels);
+    rust::String assets_replace_texture(EngineView &engine,
+                                        AssetHandle asset,
+                                        rust::Slice<const std::uint8_t> pixels,
+                                        std::uint32_t width,
+                                        std::uint32_t height,
+                                        TexturePixelFormat format,
+                                        TextureColorSpace color_space,
+                                        TextureKind kind,
+                                        bool allow_compression,
+                                        bool generate_mipmaps);
+    AssetOutcome assets_load_texture_progressive(EngineView &engine,
+                                                 rust::Str source,
+                                                 TextureColorSpace color_space,
+                                                 TextureKind kind,
+                                                 rust::Str label,
+                                                 bool nearest_sampling);
+    AssetOutcome assets_create_texture_progressive_from_bytes(EngineView &engine,
+                                                              rust::Slice<const std::uint8_t> encoded,
+                                                              TextureColorSpace color_space,
+                                                              TextureKind kind,
+                                                              rust::Str label,
+                                                              bool nearest_sampling);
+    TextureProgressOutcome assets_texture_progress(const EngineView &engine, AssetHandle asset);
+    AssetOutcome assets_load_svg(EngineView &engine, rust::Str source, float target_px, rust::Str label);
+    rust::String assets_set_svg_size(EngineView &engine, AssetHandle asset, float target_px);
     BytesOutcome assets_file_bytes(const EngineView &engine, AssetHandle asset);
     SamplesOutcome assets_sound_samples(const EngineView &engine, AssetHandle asset);
 

@@ -61,7 +61,12 @@ sturdy_add_package(Engine
 # assert-based test in this repo has the same hole.)
 sturdy_add_tests(Engine
     KEEP_ASSERTS TextureStreamingCompressionTest ColorSpaceTest ImageDecodeTest
-    EXCLUDE HotReloadTest)
+    EXCLUDE HotReloadTest JxlProgressiveDecodeTest)
+
+if(STURDY_IMAGE_JXL)
+    # Encodes real multi-group JPEG XL files with libjxl itself, so it links the codec directly.
+    sturdy_add_test(Engine tests/JxlProgressiveDecodeTest.cpp KEEP_ASSERTS LINK Sturdy::libjxl)
+endif()
 
 if(STURDY_TESTS_ENABLED)
     # Two real, separately built shared libraries standing in for "the game logic got rebuilt" —

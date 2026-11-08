@@ -73,6 +73,10 @@ namespace SFT::Renderer {
         u32 height = 0;
         u32 mip_levels = 1;
         RHI::Format format = RHI::Format::Undefined;
+        /// Bumped every time the GPU objects behind this handle are (re)created: first creation, `replace_texture`, a
+        /// device switch. Anything that caches something derived from `view` (a bind group) keys on it as well, because
+        /// a destroyed view's handle value can come back for an unrelated texture.
+        u64 revision = 0;
         vector<byte> pixel_data;
                                                                                                     
                                                                               

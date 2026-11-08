@@ -129,6 +129,32 @@ namespace SFT::Engine {
         TextureColorSpace color_space = TextureColorSpace::Srgb;
     };
 
+    /// How much of a texture asset's final image its GPU texture currently shows. The asset handle (and the renderer
+    /// texture behind it) stays the same through every step; only the pixels get better.
+    enum class TextureDetail : u8 {
+        /// Nothing decoded yet; the texture is a transparent 1x1 stand-in.
+        Placeholder,
+        /// A first low-detail image is showing (a JPEG XL's DC approximation, upscaled to full size), possibly with
+        /// parts already replaced by full detail.
+        Partial,
+        /// The finished image, with its mip chain and compression.
+        Complete,
+        /// Decoding failed; the texture stays whatever it last was.
+        Failed,
+    };
+
+    struct TextureProgress {
+        TextureDetail detail = TextureDetail::Complete;
+        /// Share (0..1) of the image that has been replaced by full detail since the first low-detail image appeared. 0
+        /// for `Placeholder`, 1 for `Complete`.
+        f32 refined_fraction = 1.0f;
+        /// Size of the GPU texture right now (the full size once the first low-detail image is showing).
+        u32 width = 0;
+        u32 height = 0;
+        /// Bumped whenever the texture's pixels, size or format changed: poll it to know when to redraw cached results.
+        u64 version = 0;
+    };
+
     struct SoundAssetInfo {
         u32 channels = 0;
         u32 sample_rate = 0;
@@ -226,7 +252,9 @@ namespace SFT::Engine {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`.
         [[nodiscard]] AssetExpected<Asset> create_texture(TextureAssetDesc desc);
-        /// Loads texture.
+        /// Loads texture, decoding it on the calling thread before returning. For images that are shown on screen prefer
+        /// `load_texture_progressive` (no blocking, low-detail first) and `load_svg` (vector sources); this is for data a
+        /// caller needs the moment it returns (HDR sources, textures a model binds right away).
         ///
         /// @param source Source value or resource.
         /// @param color_space `color_space` value used by the operation.
@@ -259,22 +287,58 @@ namespace SFT::Engine {
             u32 width, u32 height, UString label = {});
 
 
-        /// Loads texture streamed.
+        /// Loads an image for display without ever blocking on it: returns at once with an asset whose texture is a
+        /// transparent 1x1 stand-in, and decodes on a worker thread. A JPEG XL shows its low-resolution DC approximation
+        /// as soon as that is decoded, then has the finished parts replaced by full detail while the rest of the file
+        /// decodes, then gets its mip chain and block compression; every other format appears once, finished. The asset
+        /// and the renderer texture handle never change, so UI images and materials that use it just start showing the
+        /// better pixels. Progress is applied by `pump_texture_streaming` (the engine calls it every frame). Loading the
+        /// same file again returns the same asset.
+        ///
+        /// @param source Image file.
+        /// @param color_space How the texture's samples are interpreted.
+        /// @param label Debug name; the file name when empty.
+        /// @param nearest_sampling Point-sample the texture (pixel art) instead of trilinear.
+        /// @param kind What the texture holds, which picks the block-compression format of the finished texture.
+        [[nodiscard]] AssetExpected<Asset> load_texture_progressive(const std::filesystem::path &source,
+                                                                    TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                                    UString label = {}, bool nearest_sampling = false,
+                                                                    TextureKind kind = TextureKind::ColorAlpha);
+
+        /// `load_texture_progressive` for an image the caller already holds in memory (a download, an embedded picture):
+        /// `encoded` is the complete file (PNG, JPEG, JPEG XL, ...). Not shared between callers; each call is a new asset.
+        [[nodiscard]] AssetExpected<Asset> create_texture_progressive_from_bytes(
+            std::vector<std::byte> encoded, TextureColorSpace color_space = TextureColorSpace::Srgb, UString label = {},
+            bool nearest_sampling = false, TextureKind kind = TextureKind::ColorAlpha);
+
+        /// How far a texture asset's image has got; see `TextureProgress`. Valid for every texture asset (a texture made
+        /// any other way is simply `Complete`).
+        [[nodiscard]] AssetExpected<TextureProgress> texture_progress(Asset asset) const;
+
+        /// Gives a texture asset new contents of any size and format; its handle, and everything that shows it, stay the
+        /// same. Cancels a progressive load still in flight for it. A texture created as an SVG becomes a plain texture.
+        [[nodiscard]] AssetResult replace_texture(Asset asset, TextureAssetDesc desc);
+
+        /// Loads an SVG file as a texture asset: vector source, raster managed by the asset manager. The raster is made at
+        /// `target_px` (the largest dimension, rounded up to a multiple of 4 so block compression applies) with a mip
+        /// chain, so drawing it smaller stays clean. Asking again for the same file returns the same asset, and a larger
+        /// `target_px` re-rasterises it in place (the asset never gets smaller by being asked for less; see
+        /// `set_svg_size`).
+        [[nodiscard]] AssetExpected<Asset> load_svg(const std::filesystem::path &source, f32 target_px,
+                                                    UString label = {});
+
+        /// Sets an SVG texture asset's raster size exactly, growing or shrinking it in place. Use it when the sizes the
+        /// UI draws it at changed for good (a UI-scale or anti-aliasing setting). A no-op when the size is unchanged.
+        [[nodiscard]] AssetResult set_svg_size(Asset asset, f32 target_px);
+
+        /// Kept for existing callers: now exactly `load_texture_progressive` (same asset contract, always 8-bit sRGB or
+        /// linear LDR; use `load_texture` with `TextureDynamicRange::Hdr` for HDR sources). The asset is usable at once and
+        /// the engine finishes it on its own; the placeholder is transparent, not magenta.
         ///
         /// @param source Source value or resource.
         /// @param color_space `color_space` value used by the operation.
         /// @param kind `kind` value used by the operation.
         /// @param label `label` value used by the operation.
-        ///
-        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-        /// @note Always decodes 8-bit sRGB; there is no `TextureDynamicRange` here on purpose.
-        ///       Streaming exists to fit more texture into a VRAM budget, and it does that by
-        ///       block-compressing every level — which no HDR format this engine can encode
-        ///       supports. An HDR texture would stream as uncompressed half-float, i.e. at 8x the
-        ///       residency cost of the BC1 it replaces, defeating the point. Use `load_texture`
-        ///       with `TextureDynamicRange::Hdr` for those.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`.
         [[nodiscard]] AssetExpected<Asset> load_texture_streamed(const std::filesystem::path &source,
                                                                   TextureColorSpace color_space = TextureColorSpace::Srgb,
                                                                   TextureKind kind = TextureKind::ColorAlpha,

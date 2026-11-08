@@ -2743,6 +2743,9 @@ namespace SFT::Renderer {
         slot.transient_textures = std::move(submission.retired_text_atlas_resources.textures);
         slot.transient_texture_views = std::move(submission.retired_text_atlas_resources.texture_views);
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
+        // Textures replaced or destroyed since the last submit may still be sampled by frames already in flight; this
+        // slot's fence signals after all of them, so it frees them.
+        move_retired_texture_gpu_to_slot(slot);
         slot.transient_bind_groups.insert(slot.transient_bind_groups.end(),
                                           submission.transient_bind_groups.begin(),
                                           submission.transient_bind_groups.end());
@@ -3184,6 +3187,11 @@ namespace SFT::Renderer {
                 }
             }
 
+            for (RHI::SamplerHandle sampler : slot.transient_samplers) {
+                if (sampler) {
+                    device->destroy_sampler(sampler);
+                }
+            }
             for (RHI::TextureViewHandle view : slot.transient_texture_views) {
                 if (view) {
                     device->destroy_texture_view(view);
@@ -3223,6 +3231,7 @@ namespace SFT::Renderer {
         slot.transient_acceleration_structures.clear();
         slot.transient_buffers.clear();
         slot.transient_render_bundles.clear();
+        slot.transient_samplers.clear();
         slot.transient_texture_views.clear();
         slot.transient_textures.clear();
         if (destroy_retired_presentation) {
@@ -3511,6 +3520,7 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::wait_idle");
         if (graphics_backend_) {
             graphics_backend_->wait_idle();
+            destroy_retired_texture_gpu_now();
         }
     }
 
