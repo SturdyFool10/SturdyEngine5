@@ -175,6 +175,16 @@ int main() {
           std::format("with the atmosphere on, the sky replaces the background colour (got {})", describe(on)));
     check(on && std::abs((*on)[3] - 1.0f) < 0.01f, std::format("the sky is opaque (got {})", describe(on)));
 
+    // ---- a resized off-screen target is a new image: its texture's revision moves, so caches keyed on the view notice ----
+    {
+        const Renderer::TextureHandle texture = engine->offscreen_render_target_texture(*target);
+        const u64 before = engine->renderer()->texture(texture)->revision;
+        check(engine->resize_offscreen_render_target(*target, kSize * 2, kSize * 2).has_value(), "the target must resize");
+        const Renderer::TextureResource *resized = engine->renderer()->texture(texture);
+        check(resized != nullptr && resized->revision > before && resized->width == kSize * 2,
+              "a resize must move the texture's revision");
+    }
+
     if (failures != 0) {
         Foundation::log_error("{} check(s) failed", failures);
         return 1;

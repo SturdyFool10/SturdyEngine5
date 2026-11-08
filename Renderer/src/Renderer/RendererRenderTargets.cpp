@@ -115,6 +115,10 @@ namespace SFT::Renderer {
     }
 
     void Renderer::publish_offscreen_render_target(OffscreenRenderTargetRecord &target, TextureResource &sampled) noexcept {
+        // A new image behind the same texture handle (a resize, a format change, a device switch). Bind groups cached by
+        // view handle (the UI's) tell it apart from the old one by this revision: a destroyed view's handle value is
+        // usually the very next one handed out, so without it a cached bind group would keep pointing at the old image.
+        ++sampled.revision;
         sampled.texture = target.texture;
         sampled.view = target.view;
         sampled.sampler = target.sampler;
@@ -393,7 +397,11 @@ namespace SFT::Renderer {
         if (target.sampled_texture && target.sampled_texture.value <= textures_.size()) {
             TextureResource &sampled = textures_[static_cast<usize>(target.sampled_texture.value - 1)];
             if (sampled.handle == target.sampled_texture) {
-                sampled = {};
+                {
+                    const u64 revision = sampled.revision + 1;
+                    sampled = {};
+                    sampled.revision = revision;
+                }
             }
         }
         destroy_offscreen_render_target_gpu_objects(target);
@@ -733,7 +741,11 @@ namespace SFT::Renderer {
             if (target.sampled_texture && target.sampled_texture.value <= textures_.size()) {
                 TextureResource &sampled = textures_[static_cast<usize>(target.sampled_texture.value - 1)];
                 if (sampled.handle == target.sampled_texture) {
+                    {
+                    const u64 revision = sampled.revision + 1;
                     sampled = {};
+                    sampled.revision = revision;
+                }
                 }
             }
             destroy_offscreen_render_target_gpu_objects(target);
