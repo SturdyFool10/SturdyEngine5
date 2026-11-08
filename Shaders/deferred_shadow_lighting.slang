@@ -955,8 +955,13 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // pixels at the pipeline level) would recover the cost without reintroducing the same bug, but
     // that is a render-graph change, not a shader one, and is out of scope here.
     bool isSky = depth >= 0.999999;
+    // indirectSpecular.w: 1 when the atmosphere module is on. Off: no sky and no aerial perspective; background pixels take
+    // the scene's background colour and alpha, and the LUTs bound here are stand-ins.
+    uint lightingFlags = (uint)round(lightingData.indirectSpecular.w);
+    bool atmosphereOn = (lightingFlags & 1u) != 0u;
+    bool preserveAlpha = (lightingFlags & 2u) != 0u;
     float3 skyColor = float3(0.0);
-    if (isSky) {
+    if (isSky && atmosphereOn) {
         float3 rayDir = reconstructWorldRayDirection(input.uv);
         float tGroundUnused;
         bool rayIntersectsGround = distanceToGround(atmosphere, planetOrigin, rayDir, tGroundUnused);
@@ -1213,14 +1218,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // pixelDistance — the mathematical "ground" plane sits at very nearly the same height as a real
     // floor/table for any downward-looking ray, so leaving it enabled here double-added a flat grey
     // ground-albedo term on top of already-lit surfaces almost everywhere (visible as a fog/haze).
-    ScatteringResult aerial = integrateScatteredLuminance(
-        atmosphere, planetOrigin, aerialDir, sunDirToward, atmosphereData.sunIlluminance.rgb,
-        pixelDistance, 8u, transmittanceLut, atmosphereSampler, multiScatteringLut, atmosphereSampler,
-        /*useMultiScattering*/ true, /*includeGroundBounce*/ false);
-    hdr = hdr * aerial.transmittance + aerial.luminance;
+    if (atmosphereOn) {
+        ScatteringResult aerial = integrateScatteredLuminance(
+            atmosphere, planetOrigin, aerialDir, sunDirToward, atmosphereData.sunIlluminance.rgb,
+            pixelDistance, 8u, transmittanceLut, atmosphereSampler, multiScatteringLut, atmosphereSampler,
+            /*useMultiScattering*/ true, /*includeGroundBounce*/ false);
+        hdr = hdr * aerial.transmittance + aerial.luminance;
+    }
 
     // Sky pixels discard everything computed above (see the top-of-function comment) and take
     // skyColor/alpha=1 instead -- a plain select, not a branch, so it introduces no further
     // uniformity concerns of its own.
-    return isSky ? float4(skyColor, 1.0) : float4(max(hdr, 0.0), albedoSample.a);
+    float4 skyPixel = atmosphereOn ? float4(skyColor, 1.0) : lightingData.backgroundColor;
+    // The deferred pass is opaque: a surface's alpha is its coverage, 1, when the frame keeps alpha.
+    return isSky ? skyPixel : float4(max(hdr, 0.0), preserveAlpha ? 1.0 : albedoSample.a);
 }

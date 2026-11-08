@@ -452,6 +452,11 @@ pub mod ffi {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
+    struct AtmosphereSettings {
+        enabled: bool,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
     struct AmbientOcclusionSettings {
         enabled: bool,
         radius: f32,
@@ -574,6 +579,7 @@ pub mod ffi {
         has_background_color: bool,
         background_color: [f32; 4],
         background_intensity: f32,
+        preserve_alpha: bool,
     }
 
     /// Mirrors `SFT::Engine::DebugOverlayRenderSettings`.
@@ -590,6 +596,7 @@ pub mod ffi {
         scene: SceneRenderSettings,
         debug_overlay: DebugOverlayRenderSettings,
         shadows: ShadowSettings,
+        atmosphere: AtmosphereSettings,
         ambient_occlusion: AmbientOcclusionSettings,
         anti_aliasing: AntiAliasingSettings,
         bloom: BloomSettings,

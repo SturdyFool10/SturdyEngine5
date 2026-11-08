@@ -42,8 +42,9 @@ namespace SFT::Renderer {
             f32 depth_falloff = 128.0f;
             f32 spatial_falloff = 2.0f;
             f32 same_surface_threshold = 0.01f;
+            u32 preserve_alpha = 0;
         };
-        static_assert(sizeof(DeferredMsaaConstants) == 32);
+        static_assert(sizeof(DeferredMsaaConstants) == 36);
 
         /// Creates an error result describing the supplied deferred MSAA failure.
         ///
@@ -262,6 +263,7 @@ namespace SFT::Renderer {
     /// @param samples `samples` value used by the operation.
     /// @param near_plane `near_plane` value used by the operation.
     /// @param far_plane `far_plane` value used by the operation.
+    /// @param preserve_alpha Reconstruct the alpha (coverage) along with the colour instead of keeping the centre pixel's.
     /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
@@ -276,6 +278,7 @@ namespace SFT::Renderer {
         RHI::SampleCount samples,
         f32 near_plane,
         f32 far_plane,
+        bool preserve_alpha,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
         ZoneScopedN("Renderer::record_deferred_msaa_reconstruction");
         auto pipeline = deferred_msaa_pipeline_for(color_format);
@@ -328,6 +331,7 @@ namespace SFT::Renderer {
             .sample_count = static_cast<u32>(samples),
             .near_plane = safe_near,
             .far_plane = std::max(far_plane, safe_near + 1.0e-3f),
+            .preserve_alpha = preserve_alpha ? 1u : 0u,
         };
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(sampled_set, *bind_group);

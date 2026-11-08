@@ -27,6 +27,8 @@ struct ReconstructionConstants {
     float depthFalloff;
     float spatialFalloff;
     float sameSurfaceThreshold;
+    // 1 when the frame keeps its alpha: the alpha is reconstructed with the colour, so silhouettes get partial coverage.
+    uint preserveAlpha;
 };
 
 #ifdef SFT_EMULATE_PUSH_CONSTANTS
@@ -149,6 +151,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
 
     reconstructed /= float(sampleCount);
-    reconstructed.a = centerColor.a;
+    if (reconstruction.preserveAlpha == 0u) {
+        reconstructed.a = centerColor.a;
+    }
     return reconstructed;
 }

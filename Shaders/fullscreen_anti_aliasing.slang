@@ -23,6 +23,8 @@ struct AntiAliasingConstants {
     uint mode;
     float subpixel;
     float edgeThreshold;
+    // 1 when the frame keeps its alpha (SceneSettings::preserve_alpha).
+    uint preserveAlpha;
 };
 
 #ifdef SFT_EMULATE_PUSH_CONSTANTS
@@ -44,8 +46,13 @@ struct AntiAliasingConstants {
 [[push_constant]] ConstantBuffer<AntiAliasingConstants> antiAliasing;
 
 #endif
-float3 sampleScene(float2 uv) {
-    return max(sourceTexture.SampleLevel(sourceSampler, uv, 0.0).rgb, 0.0);
+// The scene is filtered as RGBA. With `preserveAlpha` (SceneSettings::preserve_alpha) the colour is premultiplied and the
+// alpha is a coverage that edges can be detected on too, so a silhouette against a transparent background is smoothed;
+// without it alpha is carried through the same filter and ignored by the edge test, exactly as the colour-only filter
+// behaved before.
+float4 sampleScene(float2 uv) {
+    float4 value = sourceTexture.SampleLevel(sourceSampler, uv, 0.0);
+    return float4(max(value.rgb, 0.0), value.a);
 }
 
 float antiAliasingLuma(float3 hdr) {
@@ -53,24 +60,33 @@ float antiAliasingLuma(float3 hdr) {
     return dot(proxy, float3(0.2126, 0.7152, 0.0722));
 }
 
-float3 applyFxaa(float2 uv, float2 texelSize) {
-    float3 center = sampleScene(uv);
-    float3 northWest = sampleScene(uv + texelSize * float2(-1.0, -1.0));
-    float3 northEast = sampleScene(uv + texelSize * float2( 1.0, -1.0));
-    float3 southWest = sampleScene(uv + texelSize * float2(-1.0,  1.0));
-    float3 southEast = sampleScene(uv + texelSize * float2( 1.0,  1.0));
+// What edges are detected on: the colour's luma plus half the coverage when alpha is kept.
+float edgeLuma(float4 value) {
+    return antiAliasingLuma(value.rgb) + (antiAliasing.preserveAlpha != 0u ? 0.5 * saturate(value.a) : 0.0);
+}
 
-    float lumaCenter = antiAliasingLuma(center);
-    float lumaNorthWest = antiAliasingLuma(northWest);
-    float lumaNorthEast = antiAliasingLuma(northEast);
-    float lumaSouthWest = antiAliasingLuma(southWest);
-    float lumaSouthEast = antiAliasingLuma(southEast);
+float4 applyFxaa(float2 uv, float2 texelSize) {
+    float4 center = sampleScene(uv);
+    float4 northWest = sampleScene(uv + texelSize * float2(-1.0, -1.0));
+    float4 northEast = sampleScene(uv + texelSize * float2( 1.0, -1.0));
+    float4 southWest = sampleScene(uv + texelSize * float2(-1.0,  1.0));
+    float4 southEast = sampleScene(uv + texelSize * float2( 1.0,  1.0));
+
+    float lumaCenter = edgeLuma(center);
+    float lumaNorthWest = edgeLuma(northWest);
+    float lumaNorthEast = edgeLuma(northEast);
+    float lumaSouthWest = edgeLuma(southWest);
+    float lumaSouthEast = edgeLuma(southEast);
     float lumaMinimum = min(lumaCenter, min(min(lumaNorthWest, lumaNorthEast),
                                             min(lumaSouthWest, lumaSouthEast)));
     float lumaMaximum = max(lumaCenter, max(max(lumaNorthWest, lumaNorthEast),
                                             max(lumaSouthWest, lumaSouthEast)));
     float lumaRange = lumaMaximum - lumaMinimum;
-    if (lumaRange < max(1.0 / 32.0, lumaMaximum * antiAliasing.edgeThreshold)) {
+    // The threshold scales with the colour's brightness only, so keeping alpha does not change how interior edges are
+    // judged.
+    float colorLumaMaximum = max(antiAliasingLuma(center.rgb), max(max(antiAliasingLuma(northWest.rgb), antiAliasingLuma(northEast.rgb)),
+                                                                   max(antiAliasingLuma(southWest.rgb), antiAliasingLuma(southEast.rgb))));
+    if (lumaRange < max(1.0 / 32.0, colorLumaMaximum * antiAliasing.edgeThreshold)) {
         return center;
     }
 
@@ -83,14 +99,14 @@ float3 applyFxaa(float2 uv, float2 texelSize) {
     float reciprocalMinimum = 1.0 / (min(abs(direction.x), abs(direction.y)) + directionReduce);
     direction = clamp(direction * reciprocalMinimum, float2(-8.0), float2(8.0)) * texelSize;
 
-    float3 inner = 0.5 * (
+    float4 inner = 0.5 * (
         sampleScene(uv + direction * (1.0 / 3.0 - 0.5)) +
         sampleScene(uv + direction * (2.0 / 3.0 - 0.5)));
-    float3 outer = inner * 0.5 + 0.25 * (
+    float4 outer = inner * 0.5 + 0.25 * (
         sampleScene(uv + direction * -0.5) +
         sampleScene(uv + direction *  0.5));
-    float outerLuma = antiAliasingLuma(outer);
-    float3 edgeResult = (outerLuma < lumaMinimum || outerLuma > lumaMaximum) ? inner : outer;
+    float outerLuma = edgeLuma(outer);
+    float4 edgeResult = (outerLuma < lumaMinimum || outerLuma > lumaMaximum) ? inner : outer;
 
     float lumaAverage = 0.25 *
         (lumaNorthWest + lumaNorthEast + lumaSouthWest + lumaSouthEast);
@@ -100,40 +116,41 @@ float3 applyFxaa(float2 uv, float2 texelSize) {
                 subpixel * antiAliasing.subpixel);
 }
 
-float3 applyConservativeMorphologicalAA(float2 uv, float2 texelSize) {
-    float3 center = sampleScene(uv);
-    float3 north = sampleScene(uv + float2(0.0, -texelSize.y));
-    float3 south = sampleScene(uv + float2(0.0,  texelSize.y));
-    float3 west = sampleScene(uv + float2(-texelSize.x, 0.0));
-    float3 east = sampleScene(uv + float2( texelSize.x, 0.0));
-    float lumaCenter = antiAliasingLuma(center);
-    float lumaNorth = antiAliasingLuma(north);
-    float lumaSouth = antiAliasingLuma(south);
-    float lumaWest = antiAliasingLuma(west);
-    float lumaEast = antiAliasingLuma(east);
+float4 applyConservativeMorphologicalAA(float2 uv, float2 texelSize) {
+    float4 center = sampleScene(uv);
+    float4 north = sampleScene(uv + float2(0.0, -texelSize.y));
+    float4 south = sampleScene(uv + float2(0.0,  texelSize.y));
+    float4 west = sampleScene(uv + float2(-texelSize.x, 0.0));
+    float4 east = sampleScene(uv + float2( texelSize.x, 0.0));
+    float lumaCenter = edgeLuma(center);
+    float lumaNorth = edgeLuma(north);
+    float lumaSouth = edgeLuma(south);
+    float lumaWest = edgeLuma(west);
+    float lumaEast = edgeLuma(east);
     float lumaMinimum = min(lumaCenter, min(min(lumaNorth, lumaSouth), min(lumaWest, lumaEast)));
     float lumaMaximum = max(lumaCenter, max(max(lumaNorth, lumaSouth), max(lumaWest, lumaEast)));
     float lumaRange = lumaMaximum - lumaMinimum;
-    if (lumaRange < max(1.0 / 32.0, lumaMaximum * antiAliasing.edgeThreshold)) {
+    float colorLumaMaximum = max(antiAliasingLuma(center.rgb), max(max(antiAliasingLuma(north.rgb), antiAliasingLuma(south.rgb)),
+                                                                   max(antiAliasingLuma(west.rgb), antiAliasingLuma(east.rgb))));
+    float edgeThreshold = max(1.0 / 32.0, colorLumaMaximum * antiAliasing.edgeThreshold);
+    if (lumaRange < edgeThreshold) {
         return center;
     }
 
     float horizontalGradient = abs(lumaWest - lumaEast);
     float verticalGradient = abs(lumaNorth - lumaSouth);
     bool crossHorizontal = horizontalGradient >= verticalGradient;
-    float3 negativeColor = crossHorizontal ? west : north;
-    float3 positiveColor = crossHorizontal ? east : south;
+    float4 negativeColor = crossHorizontal ? west : north;
+    float4 positiveColor = crossHorizontal ? east : south;
     float negativeLuma = crossHorizontal ? lumaWest : lumaNorth;
     float positiveLuma = crossHorizontal ? lumaEast : lumaSouth;
     float tangentGradient = crossHorizontal
         ? abs(lumaNorth - lumaSouth)
         : abs(lumaWest - lumaEast);
     float cornerGuard = saturate(1.0 - tangentGradient / max(lumaRange, SFT_EPSILON));
-    float3 closest = abs(negativeLuma - lumaCenter) < abs(positiveLuma - lumaCenter)
+    float4 closest = abs(negativeLuma - lumaCenter) < abs(positiveLuma - lumaCenter)
         ? negativeColor : positiveColor;
-    float edgeStrength = saturate(
-        (lumaRange - max(1.0 / 32.0, lumaMaximum * antiAliasing.edgeThreshold)) /
-        max(lumaRange, SFT_EPSILON));
+    float edgeStrength = saturate((lumaRange - edgeThreshold) / max(lumaRange, SFT_EPSILON));
     float blend = min(0.35, 0.35 * edgeStrength * cornerGuard);
     return lerp(center, closest, blend);
 }
@@ -145,11 +162,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     sourceTexture.GetDimensions(sourceWidth, sourceHeight);
     float2 texelSize = 1.0 / float2(max(sourceWidth, 1u), max(sourceHeight, 1u));
 
-    float3 color = sampleScene(input.uv);
+    float4 color = sampleScene(input.uv);
     if (antiAliasing.mode == 1u) {
         color = applyFxaa(input.uv, texelSize);
     } else if (antiAliasing.mode == 2u) {
         color = applyConservativeMorphologicalAA(input.uv, texelSize);
     }
-    return float4(color, 1.0);
+    // Alpha only matters when the frame keeps it; otherwise the scene is opaque.
+    return float4(color.rgb, antiAliasing.preserveAlpha != 0u ? color.a : 1.0);
 }

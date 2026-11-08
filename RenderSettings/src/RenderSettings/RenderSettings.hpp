@@ -45,6 +45,11 @@ namespace SFT::RenderSettings {
         bool use_background_color = false;
         float background_color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         float background_intensity = 1.0f;
+        /// The frame's alpha is the scene's coverage -- `background_color`'s alpha where nothing is drawn (with the
+        /// `AtmosphereSettings` module off; the sky is opaque), 1 where something is -- written *straight* (not
+        /// premultiplied), the way a UI image or an "over" blend wants it, instead of always 1. For previews and viewers
+        /// that sit on top of other content. Antialiasing and post effects treat colour and alpha together.
+        bool preserve_alpha = false;
     };
 
     // ---- shadows ----------------------------------------------------------------------------------------------------
@@ -552,9 +557,22 @@ namespace SFT::RenderSettings {
         WaitForCompletion = 1,
     };
 
+    // ---- atmosphere -------------------------------------------------------------------------------------------------
+
+    /// The physical atmosphere module: bakes the transmittance, multiple-scattering and sky-view LUTs, paints the sky
+    /// behind the scene, blends the in-scattered light of aerial perspective into distant surfaces and feeds the sky to
+    /// the environment reflections. Turn it off for a scene that must show exactly what its materials say (a UI viewer,
+    /// a model preview): pixels where nothing is drawn then take `SceneSettings::background_color` *with its alpha* (so a
+    /// preview can be transparent), nothing is hazed, no LUT is baked and the reflections have no sky to show. Lights
+    /// (sun, ambient) are unaffected. Ignored (the atmosphere stays on) for the spectral integrators, which sample it.
+    struct AtmosphereSettings {
+        bool enabled = true;
+    };
+
     /// Every setting a frame is rendered with.
     struct FrameSettings {
         SceneSettings scene{};
+        AtmosphereSettings atmosphere{};
         ShadowSettings shadows{};
         AmbientOcclusionSettings ambient_occlusion{};
         AntiAliasingSettings anti_aliasing{};

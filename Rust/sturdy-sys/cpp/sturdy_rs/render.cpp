@@ -459,6 +459,7 @@ namespace sturdy_rs::render {
                 }
             }
             out.background_intensity = s.background_intensity;
+            out.preserve_alpha = s.preserve_alpha;
             return out;
         }
 
@@ -469,6 +470,7 @@ namespace sturdy_rs::render {
             // draws its own overlay from `Renderer::last_frame_timings`). `draw_text` no longer applies.
             out.frame_timings = s.debug_overlay.enabled;
             out.shadows = to_engine(s.shadows);
+            out.atmosphere.enabled = s.atmosphere.enabled;
             out.ambient_occlusion = to_engine(s.ambient_occlusion);
             out.anti_aliasing = to_engine(s.anti_aliasing);
             out.bloom = to_engine(s.bloom);

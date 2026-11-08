@@ -559,7 +559,8 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle transmittance_lut_out{};
         RenderGraphTextureHandle multi_scattering_lut_out{};
         RenderGraphTextureHandle sky_view_lut_out{};
-        if (submission.render_graph.render_scene) {
+        // The atmosphere module: with it off nothing is baked or published, and the consumers use neutral stand-ins.
+        if (submission.render_graph.render_scene && atmosphere_active(submission.render_graph)) {
             if (Core::RendererResult atmosphere_luts = record_atmosphere_lut_bakes(
                     graph, slot.atmosphere_targets.constants_buffer, transmittance_lut_out, multi_scattering_lut_out,
                     sky_view_lut_out, submission.transient_bind_groups);
@@ -937,9 +938,9 @@ namespace SFT::Renderer {
         [[maybe_unused]] const RenderGraphTextureHandle gbuffer_motion = graph_resources.texture<RenderGraphSemantics::GBufferMotion>();
         [[maybe_unused]] const RenderGraphTextureHandle directional_shadow_atlas = graph_resources.texture<RenderGraphSemantics::DirectionalShadowAtlas>();
         [[maybe_unused]] const RenderGraphTextureHandle shadow_atlas = graph_resources.texture<RenderGraphSemantics::PunctualShadowAtlas>();
-        [[maybe_unused]] const RenderGraphTextureHandle transmittance_lut = graph_resources.texture<RenderGraphSemantics::TransmittanceLut>();
-        [[maybe_unused]] const RenderGraphTextureHandle multi_scattering_lut = graph_resources.texture<RenderGraphSemantics::MultiScatteringLut>();
-        [[maybe_unused]] const RenderGraphTextureHandle sky_view_lut = graph_resources.texture<RenderGraphSemantics::SkyViewLut>();
+        [[maybe_unused]] RenderGraphTextureHandle transmittance_lut = graph_resources.texture<RenderGraphSemantics::TransmittanceLut>();
+        [[maybe_unused]] RenderGraphTextureHandle multi_scattering_lut = graph_resources.texture<RenderGraphSemantics::MultiScatteringLut>();
+        [[maybe_unused]] RenderGraphTextureHandle sky_view_lut = graph_resources.texture<RenderGraphSemantics::SkyViewLut>();
         [[maybe_unused]] const bool hybrid_spectral = scene.hybrid_spectral;
         [[maybe_unused]] const RenderGraphTextureHandle spectral_effect = scene.spectral_effect;
         [[maybe_unused]] const RenderGraphTextureHandle gtao_ambient_occlusion = graph_resources.texture<RenderGraphSemantics::AmbientOcclusion>();
@@ -947,6 +948,16 @@ namespace SFT::Renderer {
         if (submission.render_graph.render_scene && !full_path_tracing) {
             // Reflection inputs: the reflections feature publishes them when it runs; otherwise neutral 1x1 stand-ins keep
             // the pass's binding layout fixed (the lighting constants switch both terms off).
+            // Atmosphere module off: the LUTs were not baked; the pass still binds them, so bind black 1x1 stand-ins (the
+            // lighting constants tell the shader not to read them).
+            for (RenderGraphTextureHandle *lut : {&transmittance_lut, &multi_scattering_lut, &sky_view_lut}) {
+                if (*lut) continue;
+                auto black = ensure_default_transparent_black_texture();
+                if (!black) return unexpected(black.error());
+                auto imported = import_default_texture(graph, *black, "atmosphere disabled lut");
+                if (!imported) return unexpected(imported.error());
+                *lut = *imported;
+            }
             RenderGraphTextureHandle environment_atlas = graph_resources.texture<RenderGraphSemantics::ReflectionEnvironment>();
             RenderGraphTextureHandle ssr_radiance = graph_resources.texture<RenderGraphSemantics::ScreenSpaceReflections>();
             if (!environment_atlas || !ssr_radiance) {

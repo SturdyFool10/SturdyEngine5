@@ -111,6 +111,7 @@ namespace SFT::Renderer {
                     samples,
                     submission.camera.near_plane,
                     submission.camera.far_plane,
+                    submission.render_graph.frame.scene.preserve_alpha,
                     submission.transient_bind_groups);
             });
 

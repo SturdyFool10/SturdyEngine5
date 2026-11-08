@@ -923,6 +923,13 @@ namespace SFT::Renderer {
                                          submission.render_graph.frame.scene.background_intensity,
                                          submission.render_graph.frame.scene.background_intensity,
                                          1.0f};
+        if (submission.render_graph.frame.scene.preserve_alpha) {
+            // The scene colour is carried premultiplied while the frame renders, so antialiasing and post effects
+            // average coverage correctly; the tone-mapping pass un-premultiplies it for the output.
+            gpu.background_color.r *= gpu.background_color.a;
+            gpu.background_color.g *= gpu.background_color.a;
+            gpu.background_color.b *= gpu.background_color.a;
+        }
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         // .y/.z are repurposed here for ReSTIR GI enable/intensity rather than adding a new packed
         // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
@@ -938,7 +945,11 @@ namespace SFT::Renderer {
             const bool ssr = reflections_screen_space_active(submission.render_graph, submission.camera);
             gpu.indirect_specular = glm::vec4{ibl ? std::max(finite_or(reflections.environment_intensity, 1.0f), 0.0f) : 0.0f,
                                               ssr ? std::max(finite_or(reflections.screen_space_intensity, 1.0f), 0.0f) : 0.0f,
-                                              reflections.specular_occlusion ? 1.0f : 0.0f, 0.0f};
+                                              reflections.specular_occlusion ? 1.0f : 0.0f,
+                                              // Flags: +1 = the atmosphere module is on (sky, aerial perspective);
+                                              // +2 = the frame keeps its alpha (`SceneSettings::preserve_alpha`).
+                                              (atmosphere_active(submission.render_graph) ? 1.0f : 0.0f) +
+                                                  (submission.render_graph.frame.scene.preserve_alpha ? 2.0f : 0.0f)};
         }
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),

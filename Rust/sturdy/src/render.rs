@@ -1358,6 +1358,32 @@ impl ShadowSettings {
     }
 }
 
+/// The physical atmosphere module of the render graph. On (the default): the sky behind the scene, aerial perspective
+/// on distant surfaces, and the sky in the environment reflections. Off: none of that is baked or drawn, and pixels
+/// where nothing is drawn take [`SceneRenderSettings::background_color`] **with its alpha**, so a viewer or preview can be
+/// transparent and show exactly what its materials say. Lights are unaffected. Ignored (stays on) for the spectral
+/// integrators. Defaults match `SFT::RenderSettings::AtmosphereSettings`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AtmosphereSettings {
+    pub enabled: bool,
+}
+
+impl Default for AtmosphereSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl AtmosphereSettings {
+    setters! {
+        enabled: bool,
+    }
+
+    fn to_ffi(self) -> ffi::AtmosphereSettings {
+        ffi::AtmosphereSettings { enabled: self.enabled }
+    }
+}
+
 /// Screen-space ambient occlusion settings. Defaults match `SFT::Engine::AmbientOcclusionSettings`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AmbientOcclusionSettings {
@@ -1781,9 +1807,13 @@ pub struct SceneRenderSettings {
     pub caustic_gather_radius: f32,
     pub wavelength_min_nm: f32,
     pub wavelength_max_nm: f32,
-    /// Linear RGBA. `None` keeps the engine's own sky/environment background.
+    /// Linear RGBA. `None` keeps the engine's own sky/environment background. With the atmosphere module off this is what
+    /// pixels where nothing is drawn are, alpha included.
     pub background_color: Option<glam::Vec4>,
     pub background_intensity: f32,
+    /// The frame's alpha is the scene's coverage instead of always 1, written straight (not premultiplied): for previews
+    /// and viewers drawn over other content. Needs [`AtmosphereSettings::enabled`] off to have anything transparent.
+    pub preserve_alpha: bool,
 }
 
 impl Default for SceneRenderSettings {
@@ -1800,6 +1830,7 @@ impl Default for SceneRenderSettings {
             wavelength_max_nm: 780.0,
             background_color: None,
             background_intensity: 1.0,
+            preserve_alpha: false,
         }
     }
 }
@@ -1817,6 +1848,7 @@ impl SceneRenderSettings {
         wavelength_max_nm: f32,
         background_color: Option<glam::Vec4>,
         background_intensity: f32,
+        preserve_alpha: bool,
     }
 
     fn to_ffi(self) -> ffi::SceneRenderSettings {
@@ -1833,6 +1865,7 @@ impl SceneRenderSettings {
             has_background_color: self.background_color.is_some(),
             background_color: self.background_color.unwrap_or(glam::Vec4::ZERO).into(),
             background_intensity: self.background_intensity,
+            preserve_alpha: self.preserve_alpha,
         }
     }
 }
@@ -1879,6 +1912,7 @@ pub struct RenderGraphSettings {
     pub scene: SceneRenderSettings,
     pub debug_overlay: DebugOverlayRenderSettings,
     pub shadows: ShadowSettings,
+    pub atmosphere: AtmosphereSettings,
     pub ambient_occlusion: AmbientOcclusionSettings,
     pub anti_aliasing: AntiAliasingSettings,
     pub bloom: BloomSettings,
@@ -1895,6 +1929,7 @@ impl Default for RenderGraphSettings {
             scene: SceneRenderSettings::default(),
             debug_overlay: DebugOverlayRenderSettings::default(),
             shadows: ShadowSettings::default(),
+            atmosphere: AtmosphereSettings::default(),
             ambient_occlusion: AmbientOcclusionSettings::default(),
             anti_aliasing: AntiAliasingSettings::default(),
             bloom: BloomSettings::default(),
@@ -1912,6 +1947,7 @@ impl RenderGraphSettings {
         scene: SceneRenderSettings,
         debug_overlay: DebugOverlayRenderSettings,
         shadows: ShadowSettings,
+        atmosphere: AtmosphereSettings,
         ambient_occlusion: AmbientOcclusionSettings,
         anti_aliasing: AntiAliasingSettings,
         bloom: BloomSettings,
@@ -1929,6 +1965,7 @@ impl RenderGraphSettings {
             scene: self.scene.to_ffi(),
             debug_overlay: self.debug_overlay.to_ffi(),
             shadows: self.shadows.to_ffi(),
+            atmosphere: self.atmosphere.to_ffi(),
             ambient_occlusion: self.ambient_occlusion.to_ffi(),
             anti_aliasing: self.anti_aliasing.to_ffi(),
             bloom: self.bloom.to_ffi(),

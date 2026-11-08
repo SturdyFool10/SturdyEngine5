@@ -2910,6 +2910,7 @@ namespace SFT::Renderer {
             RHI::SampleCount samples,
             f32 near_plane,
             f32 far_plane,
+            bool preserve_alpha,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
         /// Destroys the deferred MSAA resources identified by the supplied parameters.
         ///

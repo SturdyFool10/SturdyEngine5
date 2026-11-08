@@ -257,6 +257,11 @@ namespace SFT::Renderer {
     };
 
 
+    /// Whether the frame uses the atmosphere module: the setting, forced on for the spectral integrators that sample it.
+    [[nodiscard]] inline bool atmosphere_active(const RenderGraphSettings &settings) noexcept {
+        return settings.frame.atmosphere.enabled || settings.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred;
+    }
+
     struct DeferredTargetFormats {
         RHI::Format albedo = RHI::Format::RGBA8Unorm;
 

@@ -14,8 +14,9 @@ namespace SFT::Renderer {
             u32 mode = 0;
             f32 subpixel = 0.75f;
             f32 edge_threshold = 0.125f;
+            u32 preserve_alpha = 0;
         };
-        static_assert(sizeof(PostProcessAaConstants) == 12);
+        static_assert(sizeof(PostProcessAaConstants) == 16);
     } // namespace
 
     CustomPostProcessEffect post_process_aa_effect(const RenderGraphSettings &settings) {
@@ -23,6 +24,7 @@ namespace SFT::Renderer {
             .mode = static_cast<u32>(settings.frame.anti_aliasing.post_process),
             .subpixel = settings.frame.anti_aliasing.subpixel_quality,
             .edge_threshold = settings.frame.anti_aliasing.edge_threshold,
+            .preserve_alpha = settings.frame.scene.preserve_alpha ? 1u : 0u,
         };
         CustomPostProcessEffect effect{
             .shader_path = "Shaders/fullscreen_anti_aliasing.slang",

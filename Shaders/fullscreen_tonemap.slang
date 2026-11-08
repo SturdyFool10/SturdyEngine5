@@ -45,8 +45,10 @@ struct TonemapConstants {
     uint hdrColorSpace;
     float hdrPaperWhiteNits;
     float hdrPeakNits;
-    // When set, source RGB is premultiplied linear light. Tonemap/encode the unassociated color,
-    // then premultiply the encoded result again for swapchain compositor alpha.
+    // 0: alpha is dropped (written as 1). 1: source RGB is premultiplied linear light; tonemap/encode the unassociated
+    // color, then premultiply the encoded result again for swapchain compositor alpha. 2: source RGB is premultiplied
+    // too, but the result is written *straight* (unassociated), for an image that is blended over something later
+    // (SceneSettings::preserve_alpha).
     uint preserveAlpha;
 
     uint agxLook;
@@ -118,6 +120,7 @@ float4 sampleScene(float2 uv) {
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float4 source = sampleScene(input.uv);
+    bool straightOutput = tonemap.preserveAlpha == 2u;
     float alpha = tonemap.preserveAlpha != 0u ? clamp01(source.a) : 1.0;
     float3 hdr = max(source.rgb, 0.0);
     if (tonemap.preserveAlpha != 0u) {
@@ -164,6 +167,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         // A float off-screen target that something samples back as linear light (an emissive in-world screen): 1.0 = paper
         // white, highlights above it kept, no display encoding.
         float3 linearValue = max(mapped, 0.0);
+        if (straightOutput) {
+            return float4(linearValue, alpha);
+        }
         return tonemap.preserveAlpha != 0u ? float4(linearValue * alpha, alpha) : float4(linearValue, 1.0);
     }
     if (tonemap.hdrOutput != 0u) {
@@ -182,7 +188,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                  // RHI::ColorSpace::DolbyVision's own doc comment).
             encoded = pqEncode(nits);
         }
-        return float4(encoded * alpha, alpha);
+        return float4(straightOutput ? encoded : encoded * alpha, alpha);
+    }
+    if (straightOutput) {
+        // The attachment is *Srgb: its fixed-function encode turns this linear value into the straight sRGB colour.
+        return float4(saturate(mapped), alpha);
     }
     if (tonemap.preserveAlpha != 0u) {
         // The attachment is *Srgb, so fixed-function encoding happens after this shader. Convert the

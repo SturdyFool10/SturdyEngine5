@@ -69,7 +69,7 @@ namespace SFT::Renderer {
             .hdr_color_space = static_cast<u32>(settings.hdr_color_space),
             .hdr_paper_white_nits = settings.frame.tone_mapping.hdr_paper_white_nits,
             .hdr_peak_nits = settings.frame.tone_mapping.hdr_peak_nits,
-            .preserve_alpha = preserve_alpha ? 1u : 0u,
+            .preserve_alpha = preserve_alpha ? 1u : (settings.frame.scene.preserve_alpha ? 2u : 0u),
             .agx_look = static_cast<u32>(settings.frame.tone_mapping.agx_look),
             .hermite_toe_strength = settings.frame.tone_mapping.hermite_spline.toe_strength,
             .hermite_toe_length = settings.frame.tone_mapping.hermite_spline.toe_length,
