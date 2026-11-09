@@ -33,6 +33,9 @@ function(sturdy_generate_shader_embeds)
     set(_sturdy_table_entries "")
 
     foreach(_sturdy_shader_file IN LISTS _sturdy_shader_files)
+        # The embedded text is generated at configure time (the hex fallback reads the file now; #embed reads it at compile time but the
+        # table is still generated here), so an edit to a shader must re-run configure or the embedded copy goes stale.
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sturdy_shader_file}")
         get_filename_component(_sturdy_shader_name "${_sturdy_shader_file}" NAME)
         get_filename_component(_sturdy_shader_stem "${_sturdy_shader_file}" NAME_WE)
         string(MAKE_C_IDENTIFIER "${_sturdy_shader_stem}" _sturdy_ident)
@@ -99,4 +102,108 @@ ${_sturdy_table_entries}        };
     set(STURDY_SHADERS_EMBED_CPP "${_sturdy_generated_file}" CACHE INTERNAL
         "Generated Core::Slang::embedded_shaders() implementation embedding every engine-shipped .slang file."
     )
+endfunction()
+
+
+# ---- Bundled DXC ----------------------------------------------------------------------------------------------------------------------
+# D3D12 consumes DXIL, which Slang can only produce through Microsoft's DXC (dxcompiler.dll) and sign through dxil.dll. Neither ships with
+# Windows, and an application must run from its executable alone, so on Windows the two DLLs of the pinned official DXC release are embedded
+# into the engine (#embed) and written out to a per-user cache the first time they are needed (Core/Slang/BundledDxc.cpp). Pinned by
+# SHA-256 like every prebuilt dependency; if the download, the hash or #embed is unavailable the generated table is empty and the engine
+# behaves as before (D3D12 is only offered when DXC happens to sit next to the program).
+set(_STURDY_DXC_TAG "v1.9.2609")
+set(_STURDY_DXC_URL "https://github.com/microsoft/DirectXShaderCompiler/releases/download/${_STURDY_DXC_TAG}/dxc_2026_09_29.zip")
+set(_STURDY_DXC_SHA256 "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1")
+
+option(STURDY_BUNDLE_DXC "Embed Microsoft's DXC (dxcompiler.dll + dxil.dll) into the engine on Windows so D3D12 works without installing anything." ON)
+
+# Decides whether this build bundles DXC and, only then, fetches it and registers its licenses (so a build that does not carry DXC - every
+# platform but Windows, or STURDY_BUNDLE_DXC=OFF - neither downloads it nor ships its attribution). Must run before sturdy_finalize_licenses();
+# sturdy_configure_dependencies() calls it. Always sets STURDY_DXC_UNAVAILABLE_REASON when nothing is bundled, so the reason reaches the
+# program (Core/Slang/BundledDxc.hpp) and its log instead of being a silent absence.
+function(sturdy_configure_bundled_dxc)
+    set(_reason "")
+    set(_bin "")
+    set(_version "")
+
+    if(NOT STURDY_OS STREQUAL "Windows")
+        set(_reason "DXC is only used on Windows (D3D12), so this build does not carry it")
+    elseif(NOT STURDY_BUNDLE_DXC)
+        set(_reason "this build was configured with STURDY_BUNDLE_DXC=OFF")
+    elseif(NOT (STURDY_ARCH STREQUAL "x86-64" OR STURDY_ARCH STREQUAL "Arm64"))
+        set(_reason "Microsoft publishes DXC only for x64 and arm64 Windows, not ${STURDY_ARCH}")
+    else()
+        sturdy_check_embed_support()
+        if(NOT STURDY_HAVE_CXX_EMBED)
+            set(_reason "the C++ compiler used for this build has no #embed, which is how the DXC DLLs are carried")
+        else()
+            sturdy_prebuilt_acquire(dxc "${_STURDY_DXC_URL}" "${_STURDY_DXC_SHA256}" _root)
+            if(NOT _root)
+                set(_reason "the DXC ${_STURDY_DXC_TAG} release could not be downloaded or did not match its pinned SHA-256 (offline build, or the file changed); see the configure log")
+            else()
+                if(STURDY_ARCH STREQUAL "Arm64")
+                    set(_bin "${_root}/bin/arm64")
+                else()
+                    set(_bin "${_root}/bin/x64")
+                endif()
+                if(NOT EXISTS "${_bin}/dxcompiler.dll" OR NOT EXISTS "${_bin}/dxil.dll")
+                    set(_reason "the DXC ${_STURDY_DXC_TAG} archive has no dxcompiler.dll/dxil.dll under ${_bin}")
+                    set(_bin "")
+                else()
+                    string(SUBSTRING "${_STURDY_DXC_SHA256}" 0 12 _short)
+                    set(_version "${_STURDY_DXC_TAG}-${_short}")
+                    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_bin}/dxcompiler.dll" "${_bin}/dxil.dll")
+                    # Carried in the program, so its licenses are too (MIT for the build, LLVM and Microsoft's for the compiler).
+                    sturdy_register_license_file(dxc "${_root}/LICENSE-MS.txt")
+                    sturdy_register_license_file(dxc_llvm "${_root}/LICENSE-LLVM.txt")
+                    sturdy_register_license_file(dxc_mit "${_root}/LICENCE-MIT.txt")
+                    message(STATUS "DXC ${_STURDY_DXC_TAG}: bundling dxcompiler.dll and dxil.dll (${_bin})")
+                endif()
+            endif()
+        endif()
+    endif()
+
+    if(_reason)
+        message(STATUS "DXC: not bundled - ${_reason}")
+    endif()
+    set(STURDY_DXC_BIN_DIR "${_bin}" CACHE INTERNAL "Directory holding the dxcompiler.dll and dxil.dll that are embedded, or empty.")
+    set(STURDY_DXC_VERSION "${_version}" CACHE INTERNAL "Version string of the embedded DXC.")
+    set(STURDY_DXC_UNAVAILABLE_REASON "${_reason}" CACHE INTERNAL "Why no DXC is embedded, or empty.")
+endfunction()
+
+function(sturdy_generate_dxc_embed)
+    set(_sturdy_generated_file "${CMAKE_BINARY_DIR}/generated/Core/BundledDxcEmbed.cpp")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated/Core")
+
+    if(STURDY_DXC_BIN_DIR)
+        set(_sturdy_dxc_bytes
+            "        inline const unsigned char dxcompiler_dll[] = {\n#embed \"${STURDY_DXC_BIN_DIR}/dxcompiler.dll\" if_empty(0)\n        };\n        inline const unsigned char dxil_dll[] = {\n#embed \"${STURDY_DXC_BIN_DIR}/dxil.dll\" if_empty(0)\n        };\n")
+        set(_sturdy_dxc_table
+            "    BundledDxc bundled_dxc() noexcept {\n        return BundledDxc{\"${STURDY_DXC_VERSION}\", std::as_bytes(std::span{dxcompiler_dll}), std::as_bytes(std::span{dxil_dll}), {}};\n    }\n")
+    else()
+        string(REPLACE "\\" "\\\\" _sturdy_reason_escaped "${STURDY_DXC_UNAVAILABLE_REASON}")
+        string(REPLACE "\"" "\\\"" _sturdy_reason_escaped "${_sturdy_reason_escaped}")
+        set(_sturdy_dxc_bytes "")
+        set(_sturdy_dxc_table
+            "    BundledDxc bundled_dxc() noexcept {\n        return BundledDxc{{}, {}, {}, \"${_sturdy_reason_escaped}\"};\n    }\n")
+    endif()
+
+    file(WRITE "${_sturdy_generated_file}" "\
+// GENERATED by cmake/SturdyShaders.cmake (sturdy_generate_dxc_embed) at configure time. Do not hand-edit.
+#if defined(__clang__)
+#pragma clang diagnostic ignored \"-Wc23-extensions\"
+#endif
+#include <cstddef>
+#include <span>
+
+#include <Core/Slang/BundledDxc.hpp>
+
+namespace SFT::Core::Slang {
+    namespace {
+${_sturdy_dxc_bytes}    } // namespace
+
+${_sturdy_dxc_table}} // namespace SFT::Core::Slang
+")
+
+    set(STURDY_DXC_EMBED_CPP "${_sturdy_generated_file}" CACHE INTERNAL "Generated Core::Slang::bundled_dxc() implementation.")
 endfunction()

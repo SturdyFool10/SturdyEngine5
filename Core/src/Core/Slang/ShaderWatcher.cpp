@@ -1,3 +1,4 @@
+#include <Core/Slang/ShaderPath.hpp>
 #include <Core/Slang/ShaderWatcher.hpp>
 
 namespace SFT::Core::Slang {
@@ -12,7 +13,7 @@ ShaderWatcher::ShaderWatcher(fs::path directory, bool prime) : directory_(std::m
             if (prime) {
                 error_code ec;
                 scan(directory_, [this](const fs::path &path, fs::file_time_type mtime) {
-                    mtimes_.emplace(path.string(), mtime);
+                    mtimes_.emplace(shader_path_to_utf8(path), mtime);
                 });
             }
         }
@@ -38,7 +39,7 @@ ShaderWatcher::ShaderWatcher(fs::path directory, bool prime) : directory_(std::m
             unordered_map<string, fs::file_time_type> next;
 
             scan(directory_, [&](const fs::path &path, fs::file_time_type mtime) {
-                const string key = path.string();
+                const string key = shader_path_to_utf8(path);
                 next.emplace(key, mtime);
                 const auto previous = mtimes_.find(key);
                 if (previous == mtimes_.end()) {

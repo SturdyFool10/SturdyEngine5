@@ -67,21 +67,30 @@ namespace SFT::Core::Slang {
         static void scan(const fs::path &root, Visit &&visit) {
             error_code ec;
             if (!fs::is_directory(root, ec) || ec) {
+                SFT_LOG_WARN_THROTTLED(30000, "Shader watcher: '{}' is {}; no shader changes will be noticed until it exists.",
+                                       root.string(), ec ? "unreadable (" + ec.message() + ")" : string{"not a directory"});
                 return;
             }
             fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
             const fs::recursive_directory_iterator end;
             for (; !ec && it != end; it.increment(ec)) {
                 const fs::directory_entry &entry = *it;
-                if (!entry.is_regular_file(ec) || ec || entry.path().extension() != shader_file_extension_) {
+                error_code entry_ec;
+                if (!entry.is_regular_file(entry_ec) || entry_ec || entry.path().extension() != shader_file_extension_) {
                     continue;
                 }
                 error_code time_ec;
                 const fs::file_time_type mtime = fs::last_write_time(entry.path(), time_ec);
                 if (time_ec) {
+                    SFT_LOG_WARN_THROTTLED(30000, "Shader watcher: cannot read the modification time of '{}' ({}); changes to it will not be noticed.",
+                                           entry.path().string(), time_ec.message());
                     continue;
                 }
                 visit(entry.path(), mtime);
+            }
+            if (ec) {
+                SFT_LOG_WARN_THROTTLED(30000, "Shader watcher: listing '{}' stopped early ({}); shaders after that point are not being watched.",
+                                       root.string(), ec.message());
             }
         }
 

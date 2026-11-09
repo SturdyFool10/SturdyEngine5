@@ -1,6 +1,7 @@
 #include <Foundation/Foundation.hpp>
 
 #include <Core/Slang/ShaderLibrary.hpp>
+#include <Core/Slang/ShaderPath.hpp>
 
 #include <filesystem>
 #include <map>
@@ -52,7 +53,7 @@ namespace SFT::Core::Slang {
     }
 
     std::optional<std::string> find_shader_module_override_for_path(std::string_view path) {
-        return find_shader_module_override(std::filesystem::path{std::string{path}}.stem().string());
+        return find_shader_module_override(shader_path_to_utf8(shader_path_from_utf8(path).stem()));
     }
 
     u64 shader_override_fingerprint() {

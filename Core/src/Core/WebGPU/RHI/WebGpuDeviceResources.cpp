@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <string>
 
 namespace SFT::Core::WebGpu {
 
@@ -490,6 +492,35 @@ namespace SFT::Core::WebGpu {
         WGPUShaderModule module = wgpuDeviceCreateShaderModule(device_, &module_desc);
         if (module == nullptr) {
             return std::unexpected(webgpu_error("create_shader_module"));
+        }
+
+        // Dawn answers a WGSL it cannot compile with a module that looks valid; the reason only exists in the compilation info, and
+        // without reading it the first sign of trouble is an unexplained validation error at pipeline creation. Spontaneous: it is
+        // reported from whichever thread Dawn finishes on, and only logged.
+        {
+            WGPUCompilationInfoCallbackInfo info{};
+            info.mode = WGPUCallbackMode_AllowSpontaneous;
+            info.userdata1 = new std::string(desc.label != nullptr && *desc.label != '\0' ? std::string{desc.label} : std::string{"<unnamed shader>"});
+            info.callback = [](WGPUCompilationInfoRequestStatus status, const WGPUCompilationInfo *compilation, void *label_data, void *) {
+                std::unique_ptr<std::string> label{static_cast<std::string *>(label_data)};
+                if (status != WGPUCompilationInfoRequestStatus_Success || compilation == nullptr) {
+                    // Not an error in the shader: Dawn could not say (device lost, callback cancelled at shutdown). Say so rather than leave a
+                    // WGSL problem looking like nothing was wrong.
+                    Foundation::log_warn("WGSL compilation info for shader '{}' is unavailable (request status {}); any WGSL errors in it will only show as validation errors later.",
+                                         *label, static_cast<int>(status));
+                    return;
+                }
+                for (size_t i = 0; i < compilation->messageCount; ++i) {
+                    const WGPUCompilationMessage &message = compilation->messages[i];
+                    const std::string text = to_string(message.message);
+                    if (message.type == WGPUCompilationMessageType_Error) {
+                        Foundation::log_error("WGSL error in shader '{}' ({}:{}): {}", *label, message.lineNum, message.linePos, text);
+                    } else if (message.type == WGPUCompilationMessageType_Warning) {
+                        Foundation::log_warn("WGSL warning in shader '{}' ({}:{}): {}", *label, message.lineNum, message.linePos, text);
+                    }
+                }
+            };
+            wgpuShaderModuleGetCompilationInfo(module, info);
         }
         return shader_modules_.insert(std::move(module));
     }

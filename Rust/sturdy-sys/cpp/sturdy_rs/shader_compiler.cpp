@@ -1,5 +1,6 @@
 #include "sturdy_rs/shader_compiler.hpp"
 
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -30,54 +31,75 @@ namespace sturdy_rs::shader_compiler {
         /// Combines a `ShaderError`'s message and (if present) its compiler diagnostics into one
         /// human-readable string for `ShaderCompileResult::error`.
         rust::String describe(const S::ShaderError &error) {
+            const std::string code{S::shader_error_code_name(error.code)};
             if (error.diagnostics.empty()) {
-                return to_rust_string(error.message);
+                return to_rust_string("[" + code + "] " + error.message);
             }
-            return to_rust_string(error.message + "\n" + error.diagnostics);
+            return to_rust_string("[" + code + "] " + error.message + "\n" + error.diagnostics);
+        }
+
+        /// An exception must not cross the FFI boundary (it would end the process); it becomes the error of the result instead, saying what was
+        /// being done and what was thrown.
+        template <typename Result, typename Body>
+        Result guarded(const char *operation, Body &&body) noexcept {
+            try {
+                return body();
+            } catch (const std::exception &exception) {
+                Result result{};
+                result.error = to_rust_string(std::string{"[shader.operation_failed] unexpected exception during "} + operation + ": " + exception.what());
+                return result;
+            } catch (...) {
+                Result result{};
+                result.error = to_rust_string(std::string{"[shader.operation_failed] unknown exception during "} + operation);
+                return result;
+            }
         }
 
     } // namespace
 
     ShaderCompileResult compile_slang_spirv(rust::Str source, rust::Str module_name,
                                             rust::Slice<const EntryPointRequest> entry_points) {
-        ShaderCompileResult result{};
+        return guarded<ShaderCompileResult>("compile_slang_spirv", [&] {
 
-        S::ShaderSource shader_source =
-            S::ShaderSource::from_source(std::string(module_name), std::string(source));
+            ShaderCompileResult result{};
 
-        S::ShaderCompileOptions options{};
-        options.entry_points.reserve(entry_points.size());
-        for (const EntryPointRequest &request : entry_points) {
-            options.entry_points.push_back(
-                S::ShaderEntryPointRequest{std::string(request.name), map(request.stage)});
-        }
+            S::ShaderSource shader_source =
+                S::ShaderSource::from_source(std::string(module_name), std::string(source));
 
-        S::ShaderCompiler compiler;
-        S::ShaderExpected<S::Shader> compiled = compiler.compile(shader_source, options);
-        if (!compiled) {
-            result.error = describe(compiled.error());
-            return result;
-        }
+            S::ShaderCompileOptions options{};
+            options.entry_points.reserve(entry_points.size());
+            for (const EntryPointRequest &request : entry_points) {
+                options.entry_points.push_back(
+                    S::ShaderEntryPointRequest{std::string(request.name), map(request.stage)});
+            }
 
-        result.entry_points.reserve(entry_points.size());
-        for (std::size_t i = 0; i < entry_points.size(); ++i) {
-            S::ShaderExpected<S::ShaderBytecode> code = compiled->entry_point_code(i);
-            if (!code) {
-                result.ok = false;
-                result.error = describe(code.error());
-                result.entry_points.clear();
+            S::ShaderCompiler compiler;
+            S::ShaderExpected<S::Shader> compiled = compiler.compile(shader_source, options);
+            if (!compiled) {
+                result.error = describe(compiled.error());
                 return result;
             }
-            CompiledEntryPoint out{};
-            out.bytes.reserve(code->bytes.size());
-            for (std::byte byte : code->bytes) {
-                out.bytes.push_back(static_cast<std::uint8_t>(byte));
-            }
-            result.entry_points.push_back(std::move(out));
-        }
 
-        result.ok = true;
-        return result;
+            result.entry_points.reserve(entry_points.size());
+            for (std::size_t i = 0; i < entry_points.size(); ++i) {
+                S::ShaderExpected<S::ShaderBytecode> code = compiled->entry_point_code(i);
+                if (!code) {
+                    result.ok = false;
+                    result.error = describe(code.error());
+                    result.entry_points.clear();
+                    return result;
+                }
+                CompiledEntryPoint out{};
+                out.bytes.reserve(code->bytes.size());
+                for (std::byte byte : code->bytes) {
+                    out.bytes.push_back(static_cast<std::uint8_t>(byte));
+                }
+                result.entry_points.push_back(std::move(out));
+            }
+
+            result.ok = true;
+            return result;
+        });
     }
 
     namespace {
@@ -258,27 +280,31 @@ namespace sturdy_rs::shader_compiler {
 
     FullCompileResult compile_shader(bool from_file, rust::Str module_name, rust::Str path, rust::Str source,
                                      const CompileOptionsDesc &options) {
-        const S::ShaderCompileOptions compile_options = make_options(options);
-        S::ShaderCompiler compiler;
-        S::ShaderExpected<S::Shader> compiled =
-            compiler.compile(make_source(from_file, module_name, path, source), compile_options);
-        return finish(compiled, compile_options.targets.size());
+        return guarded<FullCompileResult>("compile_shader", [&] {
+            const S::ShaderCompileOptions compile_options = make_options(options);
+            S::ShaderCompiler compiler;
+            S::ShaderExpected<S::Shader> compiled =
+                compiler.compile(make_source(from_file, module_name, path, source), compile_options);
+            return finish(compiled, compile_options.targets.size());
+        });
     }
 
     FullCompileResult reflect_shader(bool from_file, rust::Str module_name, rust::Str path, rust::Str source,
                                      const CompileOptionsDesc &options) {
-        FullCompileResult out{};
-        S::ShaderCompiler compiler;
-        S::ShaderExpected<S::ShaderReflection> reflection =
-            compiler.reflect(make_source(from_file, module_name, path, source), make_options(options));
-        if (!reflection) {
-            out.error = describe(reflection.error());
+        return guarded<FullCompileResult>("reflect_shader", [&] {
+            FullCompileResult out{};
+            S::ShaderCompiler compiler;
+            S::ShaderExpected<S::ShaderReflection> reflection =
+                compiler.reflect(make_source(from_file, module_name, path, source), make_options(options));
+            if (!reflection) {
+                out.error = describe(reflection.error());
+                return out;
+            }
+            out.ok = true;
+            out.module_name = rust::String::lossy(std::string(module_name));
+            out.reflection = to_desc(*reflection);
             return out;
-        }
-        out.ok = true;
-        out.module_name = rust::String::lossy(std::string(module_name));
-        out.reflection = to_desc(*reflection);
-        return out;
+        });
     }
 
     std::unique_ptr<VariantCacheBox> variant_cache_new(bool from_file, rust::Str module_name, rust::Str path,
@@ -289,8 +315,10 @@ namespace sturdy_rs::shader_compiler {
     }
 
     FullCompileResult variant_cache_get(VariantCacheBox &cache, const rust::Vec<MacroDesc> &defines) {
-        S::ShaderExpected<S::Shader> compiled = cache.get_or_compile(make_key(defines));
-        return finish(compiled, cache.base_options().targets.size());
+        return guarded<FullCompileResult>("variant_cache_get", [&] {
+            S::ShaderExpected<S::Shader> compiled = cache.get_or_compile(make_key(defines));
+            return finish(compiled, cache.base_options().targets.size());
+        });
     }
 
     std::uint64_t variant_cache_size(const VariantCacheBox &cache) { return cache.size(); }

@@ -1,10 +1,13 @@
+#include <Core/Slang/ShaderPath.hpp>
 #include <Core/Slang/ShaderVariant.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <format>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <Async/Mutex.hpp>
 
@@ -36,10 +39,61 @@ namespace {
         return fingerprint;
     }
 
+    /// The names, sizes and times of every `.slang` file beside `file`, hashed. A shader on disk can `import` its siblings, and the per-shader
+    /// key only sees the shader's own text, so without this an edit to a shared module served the old bytecode of everything that imports
+    /// it. Memoised for a second: it is asked once per variant, and a directory scan per variant would cost more than it saves.
+    [[nodiscard]] string sibling_modules_fingerprint(const std::filesystem::path &file) {
+        struct Memo {
+            std::filesystem::path directory;
+            std::chrono::steady_clock::time_point at;
+            string value;
+        };
+        static auto *memo = new Async::Mutex<Memo>();
+        const std::filesystem::path directory = file.parent_path().empty() ? std::filesystem::path{"."} : file.parent_path();
+        auto guard = memo->lock();
+        const auto now = std::chrono::steady_clock::now();
+        if (guard->directory == directory && now - guard->at < std::chrono::seconds{1}) {
+            return guard->value;
+        }
+        u64 value = 0xcbf29ce484222325ull;
+        const auto mix = [&value](string_view text) {
+            for (const char c : text) {
+                value = (value ^ static_cast<u8>(c)) * 0x100000001b3ull;
+            }
+            value = (value ^ 0xffu) * 0x100000001b3ull;
+        };
+        std::error_code error;
+        for (std::filesystem::directory_iterator it{directory, std::filesystem::directory_options::skip_permission_denied, error}, end;
+             !error && it != end; it.increment(error)) {
+            std::error_code entry_error;
+            if (!it->is_regular_file(entry_error) || it->path().extension() != ".slang") {
+                continue;
+            }
+            mix(shader_path_to_utf8(it->path().filename()));
+            mix(std::to_string(it->file_size(entry_error)));
+            mix(std::to_string(it->last_write_time(entry_error).time_since_epoch().count()));
+        }
+        if (error) {
+            // The fingerprint then misses edits to modules in this folder, so a stale cache entry could be served for them: say so, once.
+            static auto *reported = new Async::Mutex<std::vector<std::filesystem::path>>();
+            auto seen = reported->lock();
+            if (std::find(seen->begin(), seen->end(), directory) == seen->end()) {
+                seen->push_back(directory);
+                Foundation::log_warn("Shader cache: could not list '{}' ({}); edits to modules imported from it may not invalidate cached shaders.",
+                                     shader_path_to_utf8(directory), error.message());
+            }
+        }
+        guard->directory = directory;
+        guard->at = now;
+        guard->value = std::to_string(value);
+        return guard->value;
+    }
+
     [[nodiscard]] string resolve_source_text(const ShaderSource &source) {
         if (source.kind == ShaderSourceKind::File) {
-            if (auto loaded = Foundation::read_file_to_string(source.path)) {
-                return std::move(*loaded);
+            const std::filesystem::path file = shader_path_from_utf8(source.path);
+            if (auto loaded = Foundation::read_file_to_string(file)) {
+                return std::move(*loaded) + "\n//sturdy-siblings:" + sibling_modules_fingerprint(file);
             }
             // Not on disk: the compiler falls back to the embedded copy, so key the cache on that text (plus the whole
             // embedded library, for its imports). Keying on "" made every embedded shader's key ignore its content.
@@ -72,10 +126,10 @@ namespace {
         // text (see resolve_source_text), so an entry under that key is fresh by construction. Without this every embedded
         // shader recompiled on every launch (~100 ms each).
         std::error_code error;
-        if (!std::filesystem::exists(source.path, error) && find_embedded_shader(source.path) != nullptr) {
+        if (!std::filesystem::exists(shader_path_from_utf8(source.path), error) && find_embedded_shader(source.path) != nullptr) {
             return std::filesystem::exists(cache_directory, error);
         }
-        return shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
+        return shader_cache_entry_is_fresh(cache_directory, cache_key, shader_path_from_utf8(source.path));
     }
 
     /// A compile that failed, remembered process-wide. Renderer features build their pipelines from `ensure_*` calls that run
@@ -298,7 +352,11 @@ void ShaderVariantCache::invalidate() noexcept {
     // An explicit invalidate is a request to try again (a hot-reload after fixing an imported file, say), so remembered failures go too.
     try {
         remembered_shader_failures().lock()->clear();
+    } catch (const std::exception &exception) {
+        Foundation::log_warn("Shader cache: could not clear the remembered shader failures ({}); a fixed shader may keep reporting its old error for a few seconds.",
+                             exception.what());
     } catch (...) {
+        Foundation::log_warn("Shader cache: could not clear the remembered shader failures (unknown exception).");
     }
 }
 
@@ -354,7 +412,11 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                 return lhs.format == rhs.format && lhs.profile == rhs.profile;
             };
             if (enable_disk_cache_ && disk_cache_is_fresh_for_source(source_, disk_cache_directory_, disk_cache_key)) {
-                if (auto entry = load_shader_cache_entry(disk_cache_directory_, disk_cache_key)) {
+                auto loaded_entry = load_shader_cache_entry(disk_cache_directory_, disk_cache_key);
+                if (!loaded_entry) {
+                    report_shader_cache_issue(loaded_entry.error(), "loading the cache entry of", source_.module_name);
+                }
+                if (auto entry = std::move(loaded_entry)) {
                     vector<const ShaderCacheTargetArtifact *> requested_artifacts;
                     requested_artifacts.reserve(options.targets.size());
                     for (const ShaderTarget &target : options.targets) {
@@ -370,12 +432,19 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                         requested_artifacts.push_back(&*found);
                     }
 
+                    if (requested_artifacts.empty()) {
+                        Foundation::log_debug("Shader cache: the entry of '{}' has no artifact for every requested target; compiling.", source_.module_name);
+                    }
                     if (!requested_artifacts.empty()) {
                         const usize entry_point_count = requested_artifacts.front()->reflection.entry_points.size();
                         bool complete = entry_point_count != 0;
                         for (const ShaderCacheTargetArtifact *artifact : requested_artifacts) {
                             complete &= artifact->reflection.entry_points.size() == entry_point_count &&
                                         artifact->bytecode.size() == entry_point_count;
+                        }
+                        if (!complete) {
+                            Foundation::log_debug("Shader cache: the entry of '{}' is incomplete (entry points or bytecode missing for a target); compiling.",
+                                                  source_.module_name);
                         }
                         if (complete) {
                             vector<ShaderBytecode> bytecode;
@@ -480,11 +549,12 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                     remember_shader_failure(failure_key, source_, *codegen_error);
                     return unexpected(std::move(*codegen_error));
                 }
-                if (all_ok && !store_shader_cache_entry(disk_cache_directory_, disk_cache_key, entry)) {
-                    // Not fatal -- the shader works, it just recompiles next launch -- but a cache that never saves is otherwise silent.
-                    Foundation::log_warn("Shader '{}': could not write its disk-cache entry under '{}'; it will be recompiled on the next launch.",
-                                         source_.kind == ShaderSourceKind::File ? source_.path : source_.module_name,
-                                         disk_cache_directory_.string());
+                if (all_ok) {
+                    if (auto stored = store_shader_cache_entry(disk_cache_directory_, disk_cache_key, entry); !stored) {
+                        // Not fatal -- the shader works, it just recompiles next launch -- but a cache that never saves is otherwise silent.
+                        report_shader_cache_issue(stored.error(), "storing the cache entry of",
+                                                  source_.kind == ShaderSourceKind::File ? source_.path : source_.module_name);
+                    }
                 }
             }
 

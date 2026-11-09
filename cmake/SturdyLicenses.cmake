@@ -76,6 +76,17 @@ function(sturdy_register_license name source_dir)
     endif()
 
     list(GET _sturdy_license_candidates 0 _sturdy_license_file)
+    sturdy_register_license_file("${name}" "${_sturdy_license_file}")
+endfunction()
+
+# Registers one specific license file for `name` (what sturdy_register_license() does once it has found the file). For a dependency that
+# ships several licenses, or whose file is not found by name: call it once per file with a distinct `name`.
+function(sturdy_register_license_file name license_file)
+    if(NOT EXISTS "${license_file}")
+        message(WARNING "sturdy_register_license_file: '${license_file}' for '${name}' does not exist; its license will be missing from the collected licenses.")
+        return()
+    endif()
+    set(_sturdy_license_file "${license_file}")
     get_filename_component(_sturdy_license_filename "${_sturdy_license_file}" NAME)
     set(_sturdy_dest_file "${STURDY_LICENSES_DIR}/${name}/${_sturdy_license_filename}")
 

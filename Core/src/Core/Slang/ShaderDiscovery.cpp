@@ -1,3 +1,4 @@
+#include <Core/Slang/ShaderPath.hpp>
 #include <Core/Slang/ShaderDiscovery.hpp>
 
 #include <Core/Slang/EmbeddedShaders.hpp>
@@ -42,11 +43,13 @@ namespace {
             : 0;
 
         if (enable_disk_cache) {
-            if (optional<ShaderReflection> cached = load_shader_reflection_cache_entry(cache_directory, cache_key)) {
+            auto cached = load_shader_reflection_cache_entry(cache_directory, cache_key);
+            if (cached) {
                 ++cache_hits;
                 shaders.push_back(UnCompiledShader{std::move(source), std::move(*cached)});
                 return;
             }
+            report_shader_cache_issue(cached.error(), "loading the reflection cache entry of", context);
         }
 
         auto reflected = compiler.reflect(source, options);
@@ -66,9 +69,8 @@ namespace {
         }
 
         if (enable_disk_cache) {
-            if (!store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected)) {
-                SFT_LOG_WARN_THROTTLED(10000, "Shader discovery: could not write a reflection cache entry under '{}'; startup will re-reflect shaders each launch",
-                                       cache_directory.string());
+            if (auto stored = store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected); !stored) {
+                report_shader_cache_issue(stored.error(), "storing the reflection cache entry of", context);
             }
         }
         shaders.push_back(UnCompiledShader{std::move(source), std::move(*reflected)});
@@ -119,15 +121,16 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
             const fs::recursive_directory_iterator end;
             for (; !ec && it != end; it.increment(ec)) {
                 const fs::directory_entry &entry = *it;
-                if (!entry.is_regular_file(ec) || ec || entry.path().extension() != shader_file_extension) {
+                std::error_code entry_ec;
+                if (!entry.is_regular_file(entry_ec) || entry_ec || entry.path().extension() != shader_file_extension) {
                     continue;
                 }
 
                 ++considered;
-                const string path_string = entry.path().string();
+                const string path_string = shader_path_to_utf8(entry.path());
 
 
-                const string module_name = entry.path().stem().string();
+                const string module_name = shader_path_to_utf8(entry.path().stem());
 
                 auto text = Foundation::read_file_to_string(entry.path());
                 if (!text) {
@@ -151,6 +154,12 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
             }
         }
 
+
+        if (ec) {
+            // Not a missing directory (reported above) but one that stopped being listable part way: the shaders after that point were skipped,
+            // and without this line the summary below would read as if every shader had been seen.
+            Foundation::log_warn("Slang: listing '{}' stopped early ({}); shaders after that point were not discovered.", directory.string(), ec.message());
+        }
 
         for (const EmbeddedShaderSource &embedded : embedded_shaders()) {
             const string module_name{embedded.module_name};

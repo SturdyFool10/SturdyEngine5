@@ -242,6 +242,8 @@ sturdy_configure_dependencies()
 # Must run before the package subdirectories are added below, since Core/CMakeLists.txt's
 # sturdy_add_package() call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_shader_embeds()
+# The bundled DXC (Windows) is a Core source too; the table is empty everywhere else.
+sturdy_generate_dxc_embed()
 # Likewise for Renderer/CMakeLists.txt, which consumes STURDY_FONTS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_font_embeds()
 

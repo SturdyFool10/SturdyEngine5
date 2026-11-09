@@ -3,6 +3,7 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -59,61 +60,72 @@ namespace SFT::Core::Slang {
         const ShaderCompileOptions &options) noexcept;
 
 
-    /// Loads shader cache entry.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    ///
-    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-    /// @note Normal inability to produce a value is represented by an empty optional.
-    [[nodiscard]] optional<ShaderCacheEntry> load_shader_cache_entry(
+    /// Why a cache read or write did not work. A cache is an optimisation, so none of these fails a compile; they are reported so that "the
+    /// shaders recompile on every launch" has a stated cause instead of being a mystery.
+    enum class ShaderCacheCode {
+        /// No entry under that key. The normal first-time case.
+        Missing,
+        /// An entry made by another format version. Normal after an engine update.
+        VersionMismatch,
+        /// The file exists but cannot be read.
+        Unreadable,
+        /// The file is larger than any entry the engine writes.
+        TooLarge,
+        /// The file ends before its contents do.
+        Truncated,
+        /// The file is not a cache entry at all.
+        BadMagic,
+        /// The contents do not parse (damaged, or written by a different build).
+        Corrupt,
+        /// The cache folder cannot be created.
+        DirectoryFailed,
+        /// The entry could not be written.
+        WriteFailed,
+        /// The written entry could not be moved into place.
+        ReplaceFailed,
+        /// An exception was raised while reading or writing.
+        Exception,
+    };
+
+    struct ShaderCacheIssue {
+        ShaderCacheCode code = ShaderCacheCode::Exception;
+        /// What happened, with the file and the operating system's reason.
+        string message;
+
+        /// True for the outcomes that are routine (no entry yet, an older format): not worth a warning.
+        [[nodiscard]] bool routine() const noexcept {
+            return code == ShaderCacheCode::Missing || code == ShaderCacheCode::VersionMismatch;
+        }
+    };
+
+    template <typename Value>
+    using ShaderCacheResult = std::expected<Value, ShaderCacheIssue>;
+
+    /// Reports a cache problem: a debug line for routine ones, a (throttled) warning for the rest. `operation` says what was being attempted
+    /// ("loading", "storing"), `what` names the entry.
+    void report_shader_cache_issue(const ShaderCacheIssue &issue, string_view operation, string_view what);
+
+    /// Loads the cache entry for `key`. The error says why there is none; `Missing` and `VersionMismatch` are routine.
+    [[nodiscard]] ShaderCacheResult<ShaderCacheEntry> load_shader_cache_entry(
         const std::filesystem::path &directory, u64 key);
 
-
-    /// Performs the store shader cache entry operation using the supplied arguments.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param entry `entry` value used by the operation.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    bool store_shader_cache_entry(
+    /// Stores `entry` under `key`; written beside and renamed into place, so a reader never sees half an entry. The error says what failed.
+    [[nodiscard]] ShaderCacheResult<void> store_shader_cache_entry(
         const std::filesystem::path &directory, u64 key, const ShaderCacheEntry &entry);
 
-
-    /// Reports whether shader cache entry is fresh.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param shader_source_path Filesystem path identifying the target resource.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function does not throw exceptions.
+    /// Reports whether the entry for `key` is at least as new as the shader source at `shader_source_path`.
+    /// @note Does not throw. False when either time cannot be read.
     [[nodiscard]] bool shader_cache_entry_is_fresh(
         const std::filesystem::path &directory,
         u64 key,
         const std::filesystem::path &shader_source_path) noexcept;
 
-
-    /// Loads shader reflection cache entry.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    ///
-    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-    /// @note Normal inability to produce a value is represented by an empty optional.
-    [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
+    /// As `load_shader_cache_entry`, for a reflection-only entry (shader discovery).
+    [[nodiscard]] ShaderCacheResult<ShaderReflection> load_shader_reflection_cache_entry(
         const std::filesystem::path &directory, u64 key);
-    /// Performs the store shader reflection cache entry operation for `Slang` using the supplied arguments.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param reflection `reflection` value used by the operation.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    bool store_shader_reflection_cache_entry(
+
+    /// As `store_shader_cache_entry`, for a reflection-only entry.
+    [[nodiscard]] ShaderCacheResult<void> store_shader_reflection_cache_entry(
         const std::filesystem::path &directory, u64 key, const ShaderReflection &reflection);
 
 } // namespace SFT::Core::Slang

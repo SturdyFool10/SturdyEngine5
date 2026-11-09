@@ -1,4 +1,5 @@
 #include <Core/Slang/ShaderCache.hpp>
+#include <slang.h>
 #include <Core/Slang/ShaderLibrary.hpp>
 
 #pragma region Imports
@@ -35,7 +36,7 @@ namespace SFT::Core::Slang {
         // texture_multisampled_2d / texture_depth_2d vs texture_depth_multisampled_2d).
         // All of these change what is cached without changing the source, the target, or anything
         // else the cache key mixes in, so older entries would otherwise be served as fresh.
-        constexpr u32 shader_cache_format_version = 10;
+        constexpr u32 shader_cache_format_version = 11;
         constexpr u32 shader_cache_magic = 0x53484341u;
 
 
@@ -50,22 +51,31 @@ namespace SFT::Core::Slang {
         constexpr u32 max_shader_cache_collection_items = 65'536;
         constexpr usize max_shader_reflection_nesting_depth = 64;
 
-        [[nodiscard]] optional<string> read_cache_file(const path &file_path) {
+        [[nodiscard]] ShaderCacheResult<string> read_cache_file(const path &file_path) {
+            const auto issue = [](ShaderCacheCode code, string message) {
+                return std::unexpected(ShaderCacheIssue{code, std::move(message)});
+            };
             std::error_code ec;
             const auto size = std::filesystem::file_size(file_path, ec);
-            if (ec || size > max_shader_cache_file_bytes) {
-                return std::nullopt;
+            if (ec) {
+                if (ec == std::errc::no_such_file_or_directory) {
+                    return issue(ShaderCacheCode::Missing, "no cache entry '" + file_path.string() + "'");
+                }
+                return issue(ShaderCacheCode::Unreadable, "cannot stat '" + file_path.string() + "': " + ec.message());
+            }
+            if (size > max_shader_cache_file_bytes) {
+                return issue(ShaderCacheCode::TooLarge, "'" + file_path.string() + "' is " + std::to_string(size) + " bytes, more than any entry the engine writes");
             }
 
             ifstream file(file_path, ios::binary);
             if (!file) {
-                return std::nullopt;
+                return issue(ShaderCacheCode::Unreadable, "cannot open '" + file_path.string() + "' for reading");
             }
 
             string contents(static_cast<usize>(size), '\0');
             if (!contents.empty() &&
                 !file.read(contents.data(), static_cast<std::streamsize>(contents.size()))) {
-                return std::nullopt;
+                return issue(ShaderCacheCode::Truncated, "'" + file_path.string() + "' ended before its " + std::to_string(size) + " bytes");
             }
             return contents;
         }
@@ -789,6 +799,13 @@ namespace SFT::Core::Slang {
 
 
         mix_u32(static_cast<u32>(options.optimization));
+        // What is generated depends on the Slang that generates it and on the targets it is asked for; an entry made by another Slang (an
+        // engine update) or for other targets must not be served as this one.
+        mix_text(spGetBuildTagString());
+        for (const ShaderTarget &target : options.targets) {
+            mix_u32(static_cast<u32>(target.format));
+            mix_text(target.profile);
+        }
         mix_byte(static_cast<u8>(options.allow_glsl_syntax ? 1 : 0));
         mix_byte(static_cast<u8>(options.skip_spirv_validation ? 1 : 0));
         mix_byte(static_cast<u8>(options.enable_effect_annotations ? 1 : 0));
@@ -810,48 +827,88 @@ namespace SFT::Core::Slang {
         return value;
     }
 
-    /// Reports whether shader cache entry is fresh.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param shader_source_path Filesystem path identifying the target resource.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] bool shader_cache_entry_is_fresh(
-        const path &directory, u64 key, const path &shader_source_path) noexcept {
-        std::error_code error;
-        const std::filesystem::file_time_type cache_time =
-            std::filesystem::last_write_time(cache_file_path(directory, key), error);
-        if (error) {
-            return false;
+    void report_shader_cache_issue(const ShaderCacheIssue &issue, string_view operation, string_view what) {
+        if (issue.routine()) {
+            Foundation::log_debug("Shader cache: {} {}: {}", operation, what, issue.message);
+            return;
         }
-        const std::filesystem::file_time_type source_time =
-            std::filesystem::last_write_time(shader_source_path, error);
-        if (error) {
-            return false;
-        }
-        return cache_time >= source_time;
+        SFT_LOG_WARN_THROTTLED(10000, "Shader cache: {} {} failed: {}. Shaders will be compiled instead; this costs startup time, nothing else.",
+                               operation, what, issue.message);
     }
 
-    /// Loads shader cache entry.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    ///
-    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-    /// @note Normal inability to produce a value is represented by an empty optional.
-    [[nodiscard]] optional<ShaderCacheEntry> load_shader_cache_entry(
+    namespace {
+
+        [[nodiscard]] std::unexpected<ShaderCacheIssue> cache_issue(ShaderCacheCode code, string message) {
+            return std::unexpected(ShaderCacheIssue{code, std::move(message)});
+        }
+
+        /// The one way entries are written: `write_body` fills the buffer, the result goes to `final_path` via a temporary file.
+        template <typename WriteBody>
+        [[nodiscard]] ShaderCacheResult<void> store_cache_file(const path &directory, const path &final_path, WriteBody &&write_body) {
+            try {
+                std::error_code ec;
+                std::filesystem::create_directories(directory, ec);
+                if (ec) {
+                    return cache_issue(ShaderCacheCode::DirectoryFailed, "cannot create '" + directory.string() + "': " + ec.message());
+                }
+
+                ByteWriter w;
+                write_body(w);
+                if (w.buffer().size() > max_shader_cache_file_bytes) {
+                    return cache_issue(ShaderCacheCode::TooLarge, "the entry for '" + final_path.string() + "' would be " +
+                                                                      std::to_string(w.buffer().size()) + " bytes, over the limit of " +
+                                                                      std::to_string(max_shader_cache_file_bytes));
+                }
+
+                path temp_path = final_path;
+                temp_path += ".tmp";
+                {
+                    ofstream file(temp_path, ios::binary | ios::trunc);
+                    if (!file) {
+                        return cache_issue(ShaderCacheCode::WriteFailed, "cannot create '" + temp_path.string() + "' (is the folder writable?)");
+                    }
+                    file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
+                    file.flush();
+                    if (!file) {
+                        return cache_issue(ShaderCacheCode::WriteFailed, "cannot write " + std::to_string(w.buffer().size()) + " bytes to '" +
+                                                                             temp_path.string() + "' (disk full?)");
+                    }
+                }
+                std::filesystem::rename(temp_path, final_path, ec);
+                if (ec) {
+                    const string reason = ec.message();
+                    std::filesystem::remove(temp_path, ec);
+                    return cache_issue(ShaderCacheCode::ReplaceFailed, "cannot move '" + temp_path.string() + "' to '" + final_path.string() + "': " + reason);
+                }
+                return {};
+            } catch (const std::exception &exception) {
+                return cache_issue(ShaderCacheCode::Exception, string{"exception while storing '"} + final_path.string() + "': " + exception.what());
+            } catch (...) {
+                return cache_issue(ShaderCacheCode::Exception, "unknown exception while storing '" + final_path.string() + "'");
+            }
+        }
+
+    } // namespace
+
+    [[nodiscard]] ShaderCacheResult<ShaderCacheEntry> load_shader_cache_entry(
         const path &directory, u64 key) {
+        const path file_path = cache_file_path(directory, key);
         try {
-            const optional<string> contents = read_cache_file(cache_file_path(directory, key));
-            if (!contents || contents->size() < sizeof(u32) * 2) {
-                return std::nullopt;
+            auto contents = read_cache_file(file_path);
+            if (!contents) {
+                return std::unexpected(std::move(contents.error()));
+            }
+            if (contents->size() < sizeof(u32) * 2) {
+                return cache_issue(ShaderCacheCode::Truncated, "'" + file_path.string() + "' is " + std::to_string(contents->size()) + " bytes, too short for a header");
             }
 
             ByteReader r(reinterpret_cast<const byte *>(contents->data()), contents->size());
-            if (r.read<u32>() != shader_cache_magic || r.read<u32>() != shader_cache_format_version) {
-                return std::nullopt;
+            if (r.read<u32>() != shader_cache_magic) {
+                return cache_issue(ShaderCacheCode::BadMagic, "'" + file_path.string() + "' is not a shader cache entry");
+            }
+            if (const u32 version = r.read<u32>(); version != shader_cache_format_version) {
+                return cache_issue(ShaderCacheCode::VersionMismatch, "'" + file_path.string() + "' has format version " + std::to_string(version) +
+                                                                         ", this build reads " + std::to_string(shader_cache_format_version));
             }
 
             ShaderCacheEntry entry{};
@@ -859,140 +916,85 @@ namespace SFT::Core::Slang {
             entry.artifacts = read_vector<ShaderCacheTargetArtifact>(
                 r, sizeof(u32) * 2, read_target_artifact);
             if (!r.ok()) {
-                return std::nullopt;
+                return cache_issue(ShaderCacheCode::Corrupt, "'" + file_path.string() + "' does not parse (damaged, or written by a different build)");
             }
             return entry;
+        } catch (const std::exception &exception) {
+            return cache_issue(ShaderCacheCode::Exception, string{"exception while reading '"} + file_path.string() + "': " + exception.what());
         } catch (...) {
-            return std::nullopt;
+            return cache_issue(ShaderCacheCode::Exception, "unknown exception while reading '" + file_path.string() + "'");
         }
     }
 
-    /// Performs the store shader cache entry operation for `Slang` using the supplied arguments.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param entry `entry` value used by the operation.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    bool store_shader_cache_entry(
+    ShaderCacheResult<void> store_shader_cache_entry(
         const path &directory, u64 key, const ShaderCacheEntry &entry) {
-        try {
-            std::error_code ec;
-            std::filesystem::create_directories(directory, ec);
-            if (ec) {
-                return false;
-            }
-
-            ByteWriter w;
+        return store_cache_file(directory, cache_file_path(directory, key), [&entry](ByteWriter &w) {
             w.write(shader_cache_magic);
             w.write(shader_cache_format_version);
             w.write_string(entry.module_name);
             write_vector<ShaderCacheTargetArtifact>(w, entry.artifacts, write_target_artifact);
-            if (w.buffer().size() > max_shader_cache_file_bytes) {
-                return false;
-            }
-
-
-            const path final_path = cache_file_path(directory, key);
-            const path temp_path = final_path.string() + ".tmp";
-            {
-                ofstream file(temp_path, ios::binary | ios::trunc);
-                if (!file) {
-                    return false;
-                }
-                file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
-                if (!file) {
-                    return false;
-                }
-            }
-            std::filesystem::rename(temp_path, final_path, ec);
-            if (ec) {
-                std::filesystem::remove(temp_path, ec);
-                return false;
-            }
-            return true;
-        } catch (...) {
-            return false;
-        }
+        });
     }
 
-    /// Loads shader reflection cache entry.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    ///
-    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-    /// @note Normal inability to produce a value is represented by an empty optional.
-    [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
+    [[nodiscard]] bool shader_cache_entry_is_fresh(
+        const path &directory, u64 key, const path &shader_source_path) noexcept {
+        std::error_code error;
+        const std::filesystem::file_time_type cache_time =
+            std::filesystem::last_write_time(cache_file_path(directory, key), error);
+        if (error) {
+            // No entry yet: the routine reason, not worth saying.
+            return false;
+        }
+        const std::filesystem::file_time_type source_time =
+            std::filesystem::last_write_time(shader_source_path, error);
+        if (error) {
+            Foundation::log_debug("Shader cache: cannot read the modification time of '{}' ({}); treating its cache entry as stale.",
+                                  shader_source_path.string(), error.message());
+            return false;
+        }
+        return cache_time >= source_time;
+    }
+
+    [[nodiscard]] ShaderCacheResult<ShaderReflection> load_shader_reflection_cache_entry(
         const path &directory, u64 key) {
+        const path file_path = reflection_cache_file_path(directory, key);
         try {
-            const optional<string> contents = read_cache_file(reflection_cache_file_path(directory, key));
-            if (!contents || contents->size() < sizeof(u32) * 2) {
-                return std::nullopt;
+            auto contents = read_cache_file(file_path);
+            if (!contents) {
+                return std::unexpected(std::move(contents.error()));
+            }
+            if (contents->size() < sizeof(u32) * 2) {
+                return cache_issue(ShaderCacheCode::Truncated, "'" + file_path.string() + "' is " + std::to_string(contents->size()) + " bytes, too short for a header");
             }
 
             ByteReader r(reinterpret_cast<const byte *>(contents->data()), contents->size());
-            if (r.read<u32>() != shader_reflection_cache_magic || r.read<u32>() != shader_reflection_cache_format_version) {
-                return std::nullopt;
+            if (r.read<u32>() != shader_reflection_cache_magic) {
+                return cache_issue(ShaderCacheCode::BadMagic, "'" + file_path.string() + "' is not a shader reflection cache entry");
+            }
+            if (const u32 version = r.read<u32>(); version != shader_reflection_cache_format_version) {
+                return cache_issue(ShaderCacheCode::VersionMismatch, "'" + file_path.string() + "' has format version " + std::to_string(version) +
+                                                                         ", this build reads " + std::to_string(shader_reflection_cache_format_version));
             }
 
             ShaderReflection reflection = read_reflection(r);
             if (!r.ok()) {
-                return std::nullopt;
+                return cache_issue(ShaderCacheCode::Corrupt, "'" + file_path.string() + "' does not parse (damaged, or written by a different build)");
             }
             return reflection;
+        } catch (const std::exception &exception) {
+            return cache_issue(ShaderCacheCode::Exception, string{"exception while reading '"} + file_path.string() + "': " + exception.what());
         } catch (...) {
-            return std::nullopt;
+            return cache_issue(ShaderCacheCode::Exception, "unknown exception while reading '" + file_path.string() + "'");
         }
     }
 
-    /// Performs the store shader reflection cache entry operation for `Slang` using the supplied arguments.
-    ///
-    /// @param directory `directory` value used by the operation.
-    /// @param key Key used to identify the requested entry.
-    /// @param reflection `reflection` value used by the operation.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    bool store_shader_reflection_cache_entry(
+    ShaderCacheResult<void> store_shader_reflection_cache_entry(
         const path &directory, u64 key, const ShaderReflection &reflection) {
-        try {
-            std::error_code ec;
-            std::filesystem::create_directories(directory, ec);
-            if (ec) {
-                return false;
-            }
-
-            ByteWriter w;
+        return store_cache_file(directory, reflection_cache_file_path(directory, key), [&reflection](ByteWriter &w) {
             w.write(shader_reflection_cache_magic);
             w.write(shader_reflection_cache_format_version);
             write_reflection(w, reflection);
-            if (w.buffer().size() > max_shader_cache_file_bytes) {
-                return false;
-            }
-
-            const path final_path = reflection_cache_file_path(directory, key);
-            const path temp_path = final_path.string() + ".tmp";
-            {
-                ofstream file(temp_path, ios::binary | ios::trunc);
-                if (!file) {
-                    return false;
-                }
-                file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
-                if (!file) {
-                    return false;
-                }
-            }
-            std::filesystem::rename(temp_path, final_path, ec);
-            if (ec) {
-                std::filesystem::remove(temp_path, ec);
-                return false;
-            }
-            return true;
-        } catch (...) {
-            return false;
-        }
+        });
     }
 
 } // namespace SFT::Core::Slang

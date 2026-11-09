@@ -9,6 +9,7 @@
 #include <cstring>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -20,7 +21,9 @@
 
 #include <Core/Slang/ShaderLibrary.hpp>
 #include <Async/Mutex.hpp>
+#include <Core/Slang/BundledDxc.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
+#include <Core/Slang/ShaderPath.hpp>
 #include <Core/Slang/Shader.hpp>
 #include <Core/Slang/ShaderError.hpp>
 #include <Core/Slang/ShaderSource.hpp>
@@ -75,8 +78,8 @@ namespace SFT::Core::Slang {
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string path_stem_or_module_name(const string &path) {
-            filesystem_path file_path{path};
-            string stem = file_path.stem().string();
+            const filesystem_path file_path = shader_path_from_utf8(path);
+            string stem = shader_path_to_utf8(file_path.stem());
             if (!stem.empty()) {
                 return stem;
             }
@@ -96,7 +99,7 @@ namespace SFT::Core::Slang {
             if (auto override_source = find_shader_module_override_for_path(path)) {
                 return std::move(*override_source);
             }
-            ifstream file(path, ios::binary);
+            ifstream file(shader_path_from_utf8(path), ios::binary);
             bool disk_ok = static_cast<bool>(file);
             string contents;
             if (disk_ok) {
@@ -113,11 +116,25 @@ namespace SFT::Core::Slang {
                 return contents;
             }
 
+            // Say what is actually wrong with the file: "not found" and "found but unreadable" call for different fixes.
+            std::error_code status_error;
+            const bool exists = std::filesystem::exists(shader_path_from_utf8(path), status_error);
+            string reason;
+            if (status_error) {
+                reason = "its status cannot be read: " + status_error.message();
+            } else if (!exists) {
+                reason = "it does not exist";
+            } else if (std::filesystem::is_directory(shader_path_from_utf8(path), status_error)) {
+                reason = "it is a directory";
+            } else {
+                reason = "it exists but could not be read (permissions, or another process has it locked)";
+            }
             if (const EmbeddedShaderSource *embedded = find_embedded_shader(path)) {
-                Foundation::log_info("Slang: '{}' not found on disk, using the embedded copy.", path);
+                Foundation::log_info("Slang: '{}' is not used from disk ({}); using the copy embedded in the engine.", path, reason);
                 return string{embedded->source};
             }
-            return shader_error(ShaderErrorCode::FileReadFailed, "Failed to open Slang shader file: " + path);
+            return shader_error(ShaderErrorCode::FileReadFailed,
+                                "Failed to open Slang shader file '" + path + "': " + reason + ", and the engine has no embedded copy of it.");
         }
 
 
@@ -185,7 +202,7 @@ namespace SFT::Core::Slang {
                     return SLANG_OK;
                 }
 
-                ifstream file(path, ios::binary);
+                ifstream file(shader_path_from_utf8(path), ios::binary);
                 if (file) {
                     string contents;
                     file.seekg(0, ios::end);
@@ -302,6 +319,18 @@ namespace SFT::Core::Slang {
                 return blob;
             }
         };
+
+        [[nodiscard]] const char *shader_target_format_name(ShaderTargetFormat format) noexcept {
+            switch (format) {
+                case ShaderTargetFormat::Spirv: return "SPIR-V";
+                case ShaderTargetFormat::Dxil: return "DXIL";
+                case ShaderTargetFormat::Hlsl: return "HLSL";
+                case ShaderTargetFormat::Glsl: return "GLSL";
+                case ShaderTargetFormat::Metal: return "Metal";
+                case ShaderTargetFormat::Wgsl: return "WGSL";
+            }
+            return "unknown";
+        }
 
         /// Converts the value to slang target representation.
         ///
@@ -1296,8 +1325,7 @@ namespace SFT::Core::Slang {
         /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InvalidArgument`.
         [[nodiscard]] ShaderExpected<vector<slang::TargetDesc>> build_target_descs(
             slang::IGlobalSession *global_session,
-            const vector<ShaderTarget> &targets,
-            const ShaderCompileOptions &options) {
+            const vector<ShaderTarget> &targets) {
             if (targets.empty()) {
                 return shader_error(ShaderErrorCode::InvalidArgument, "At least one Slang shader target is required.");
             }
@@ -1312,18 +1340,46 @@ namespace SFT::Core::Slang {
                 desc.profile = global_session->findProfile(profile);
                 desc.flags = kDefaultTargetFlags;
 
-                if (desc.format == SLANG_TARGET_UNKNOWN) {
-                    return shader_error(ShaderErrorCode::InvalidArgument, "Unsupported Slang shader target.");
+                // findProfile answers "unknown" for a name this Slang does not have, and compiling without a profile then changes what is
+                // generated without any error. For the formats the renderer consumes that is a mistake worth stopping on.
+                if (*profile != '\0' && desc.profile == SLANG_PROFILE_UNKNOWN) {
+                    const string message = std::format("This Slang does not know the profile '{}' requested for a {} target.", profile,
+                                                       shader_target_format_name(target.format));
+                    if (target.format == ShaderTargetFormat::Spirv || target.format == ShaderTargetFormat::Dxil ||
+                        target.format == ShaderTargetFormat::Hlsl) {
+                        return shader_error(ShaderErrorCode::InvalidArgument, message);
+                    }
+                    Foundation::log_warn("Slang: {} It will be compiled without a profile.", message);
                 }
 
-                if (options.skip_spirv_validation && target.format == ShaderTargetFormat::Spirv) {
-
+                if (desc.format == SLANG_TARGET_UNKNOWN) {
+                    return shader_error(ShaderErrorCode::InvalidArgument, "Unsupported Slang shader target.");
                 }
 
                 target_descs.push_back(desc);
             }
 
             return target_descs;
+        }
+
+    } // namespace
+
+    namespace {
+
+        /// Creates the process's Slang global session on first use, and makes it use the bundled DXC where there is one (see BundledDxc.hpp), so
+        /// DXIL generation needs nothing installed beside the program.
+        [[nodiscard]] ShaderExpected<void> ensure_global_session(::Slang::ComPtr<slang::IGlobalSession> &global_session) {
+            if (global_session.get()) {
+                return {};
+            }
+            const SlangResult result = slang::createGlobalSession(global_session.writeRef());
+            if (SLANG_FAILED(result) || !global_session.get()) {
+                return shader_error(ShaderErrorCode::InitializationFailed,
+                                    std::format("Failed to create the Slang global session (Slang result 0x{:08x}); no shader can be compiled in this process.",
+                                                static_cast<unsigned>(result)));
+            }
+            prepare_bundled_dxc(global_session.get());
+            return {};
         }
 
     } // namespace
@@ -1382,9 +1438,9 @@ namespace SFT::Core::Slang {
                 }
                 source_text = std::move(*loaded);
 
-                const filesystem_path parent_path = filesystem_path{path}.parent_path();
+                const filesystem_path parent_path = shader_path_from_utf8(path).parent_path();
                 if (!parent_path.empty()) {
-                    effective_search_paths.push_back(parent_path.string());
+                    effective_search_paths.push_back(shader_path_to_utf8(parent_path));
                 }
             } else if (module_name.empty()) {
                 module_name = "runtime_shader";
@@ -1397,7 +1453,7 @@ namespace SFT::Core::Slang {
                 path = module_name + ".slang";
             }
 
-            auto target_descs = build_target_descs(global_session, options.targets, options);
+            auto target_descs = build_target_descs(global_session, options.targets);
             if (!target_descs) {
                 return unexpected(target_descs.error());
             }
@@ -1494,7 +1550,8 @@ namespace SFT::Core::Slang {
 
             SlangResult result = global_session->createSession(session_desc, shader_state->session.writeRef());
             if (SLANG_FAILED(result) || !shader_state->session.get()) {
-                return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang session.");
+                return shader_error(ShaderErrorCode::InitializationFailed,
+                                    std::format("Failed to create a Slang session for '{}' (Slang result 0x{:08x}).", module_name, static_cast<unsigned>(result)));
             }
 
             ::Slang::ComPtr<slang::IBlob> diagnostics;
@@ -1505,6 +1562,10 @@ namespace SFT::Core::Slang {
                 diagnostics.writeRef());
             if (!shader_state->module.get()) {
                 return shader_error(ShaderErrorCode::CompilationFailed, "Failed to load Slang shader module: " + module_name, blob_string(diagnostics));
+            }
+            // Warnings of a module that loaded are not an error, but they are the only hint at why it behaves oddly on one target.
+            if (const string notes = blob_string(diagnostics); !notes.empty()) {
+                Foundation::log_debug("Slang: '{}' loaded with diagnostics:\n{}", module_name, notes);
             }
 
             return shader_state;
@@ -1637,7 +1698,18 @@ namespace SFT::Core::Slang {
             if (!reason.empty()) {
                 message += " Compiler said: " + reason;
             }
+            // For DXIL the likeliest cause is the DXC it depends on; say what is known about that rather than leaving the reader to guess.
+            if (state_->targets[target_index].format == ShaderTargetFormat::Dxil) {
+                const DxcStatus dxc = bundled_dxc_status();
+                if (dxc.health != DxcHealth::Ok && dxc.health != DxcHealth::NotApplicable) {
+                    message += " DXC setup: " + dxc.describe();
+                }
+            }
             return shader_error(ShaderErrorCode::CodeGenerationFailed, std::move(message), blob_string(diagnostics));
+        }
+
+        if (const string notes = blob_string(diagnostics); !notes.empty()) {
+            Foundation::log_debug("Slang: code generation for '{}' reported:\n{}", state_->module_name, notes);
         }
 
         ShaderBytecode bytecode{};
@@ -1785,11 +1857,8 @@ namespace SFT::Core::Slang {
         try {
             auto global_session = state_->global_session.lock();
 
-            if (!global_session->get()) {
-                const SlangResult result = slang::createGlobalSession(global_session->writeRef());
-                if (SLANG_FAILED(result) || !global_session->get()) {
-                    return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
-                }
+            if (auto created = ensure_global_session(*global_session); !created) {
+                return unexpected(created.error());
             }
 
 
@@ -1897,11 +1966,8 @@ namespace SFT::Core::Slang {
         try {
             auto global_session = state_->global_session.lock();
 
-            if (!global_session->get()) {
-                const SlangResult result = slang::createGlobalSession(global_session->writeRef());
-                if (SLANG_FAILED(result) || !global_session->get()) {
-                    return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
-                }
+            if (auto created = ensure_global_session(*global_session); !created) {
+                return unexpected(created.error());
             }
 
             auto loaded_state = load_shader_module(global_session->get(), source, options);
@@ -2034,11 +2100,21 @@ namespace SFT::Core::Slang {
     }
 
 
-    /// Whether this process can turn Slang source into DXIL (the shader format D3D12 consumes). Slang hands DXIL to DXC, which it loads
-    /// at run time (`dxcompiler.dll`, plus `dxil.dll` to sign the result); a machine without them compiles SPIR-V fine and fails every
-    /// DXIL shader. Found out once, by compiling a one-line compute shader, and remembered.
-    bool dxil_generation_available() {
-        static const bool available = [] {
+    namespace {
+
+        [[nodiscard]] DxilAvailability probe_dxil() {
+            DxilAvailability result;
+            const DxcStatus dxc = bundled_dxc_status();
+            result.details = dxc.details;
+
+            // Everything the user needs to act on, in one sentence: the compiler's own words first, then what the DXC setup knows.
+            const auto with_dxc = [&dxc](std::string message) {
+                if (dxc.health != DxcHealth::NotApplicable && !dxc.summary.empty()) {
+                    message += " DXC: " + dxc.summary + ".";
+                }
+                return message;
+            };
+
             ShaderCompiler compiler;
             ShaderCompileOptions options{};
             options.targets = {ShaderTarget{.format = ShaderTargetFormat::Dxil, .profile = "sm_6_6"}};
@@ -2048,17 +2124,54 @@ namespace SFT::Core::Slang {
                     "[shader(\"compute\")] [numthreads(1, 1, 1)] void sturdyDxilProbe(uint3 id : SV_DispatchThreadID) {}"),
                 options);
             if (!shader) {
-                Foundation::log_warn("DXIL probe: compile failed: {}", shader.error().message);
-                return false;
+                result.issue = DxilIssue::ProbeCompileFailed;
+                result.message = with_dxc("The DXIL probe shader did not compile, so Slang itself is not working: " + shader.error().message + ".");
+                if (!shader.error().diagnostics.empty()) {
+                    result.details.push_back("Slang said: " + shader.error().diagnostics);
+                }
+                Foundation::log_warn("DXIL probe: {}", result.message);
+                return result;
             }
             auto code = shader->entry_point_code(0, 0);
             if (!code) {
-                Foundation::log_warn("DXIL probe: DXIL generation is unavailable: {}", code.error().message);
-                return false;
+#if defined(_WIN32)
+                result.issue = DxilIssue::CodeGenerationFailed;
+                result.message = with_dxc("Slang could not generate DXIL: " + code.error().message);
+#else
+                result.issue = DxilIssue::SlangWithoutDxil;
+                result.message = "This build of Slang cannot generate DXIL (it is only built with DXIL support on Windows): " + code.error().message;
+#endif
+                if (!code.error().diagnostics.empty()) {
+                    result.details.push_back("Slang said: " + code.error().diagnostics);
+                }
+                Foundation::log_warn("DXIL probe: {}", result.message);
+                return result;
             }
-            return true;
-        }();
-        return available;
+            // DXC without dxil.dll still produces a container, but an unsigned one, which the D3D12 runtime refuses at pipeline creation. A probe
+            // that only checked for output would offer D3D12 and then fail every shader.
+            if (!dxil_container_is_signed(code->bytes)) {
+                result.issue = DxilIssue::Unsigned;
+                result.message = with_dxc("DXC produced unsigned DXIL, because dxil.dll is missing or could not be loaded, and D3D12 rejects unsigned shaders.");
+                Foundation::log_warn("DXIL probe: {}", result.message);
+                return result;
+            }
+            result.available = true;
+            if (dxc.health == DxcHealth::Degraded) {
+                // It works, but not the way it was meant to; say so where a caller will see it rather than only in the setup log.
+                result.issue = DxilIssue::Degraded;
+                result.message = "DXIL generation works, but degraded. DXC: " + dxc.summary + ".";
+                Foundation::log_warn("DXIL probe: {}", result.message);
+            }
+            return result;
+        }
+
+    } // namespace
+
+    const DxilAvailability &dxil_availability() {
+        static const DxilAvailability availability = probe_dxil();
+        return availability;
     }
+
+    bool dxil_generation_available() { return dxil_availability().available; }
 
 } // namespace SFT::Core::Slang

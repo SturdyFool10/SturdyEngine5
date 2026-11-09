@@ -36,21 +36,30 @@ namespace SFT::Core {
 #endif
         RHI::GpuInventory inventory = RHI::enumerate_gpu_inventory(backends, instance_desc);
 #if defined(STURDY_PLATFORM_WINDOWS)
-        // D3D12 takes DXIL, which Slang can only make with DXC beside the program. Without it every shader fails to build and the window
-        // never draws, so D3D12 is not offered at all: an application asking for it falls back to another API (Vulkan) instead.
-        if (!SFT::Core::Slang::dxil_generation_available()) {
-            bool removed = false;
-            for (RHI::PhysicalGpu &gpu : inventory.gpus) {
-                removed |= std::erase_if(gpu.api_support, [](const RHI::GpuApiSupport &support) {
-                               return support.adapter.backend == RHI::BackendType::D3D12;
-                           }) > 0;
-            }
-            std::erase_if(inventory.gpus, [](const RHI::PhysicalGpu &gpu) { return gpu.api_support.empty(); });
-            if (removed) {
-                const std::string reason =
-                    "D3D12 is not offered: shaders cannot be compiled to DXIL here (dxcompiler.dll and dxil.dll are missing).";
-                Foundation::log_warn("{}", reason);
-                inventory.failures.push_back(RHI::BackendDiscoveryFailure{.backend = RHI::BackendType::D3D12, .message = reason});
+        // D3D12 takes signed DXIL, which Slang can only make through DXC (the engine carries its own; see Slang/BundledDxc.hpp). If that cannot
+        // work, every shader fails to build and the window never draws, so D3D12 is not offered at all: an application asking for it falls back to
+        // another API (Vulkan) instead, and the reason it was left out - specific to what actually went wrong - is reported with the inventory.
+        {
+            const SFT::Core::Slang::DxilAvailability &dxil = SFT::Core::Slang::dxil_availability();
+            if (!dxil.available) {
+                bool removed = false;
+                for (RHI::PhysicalGpu &gpu : inventory.gpus) {
+                    removed |= std::erase_if(gpu.api_support, [](const RHI::GpuApiSupport &support) {
+                                   return support.adapter.backend == RHI::BackendType::D3D12;
+                               }) > 0;
+                }
+                std::erase_if(inventory.gpus, [](const RHI::PhysicalGpu &gpu) { return gpu.api_support.empty(); });
+                std::string reason = "D3D12 is not offered: " + dxil.message;
+                for (const std::string &detail : dxil.details) {
+                    reason += "\n  - " + detail;
+                }
+                if (removed) {
+                    Foundation::log_warn("{}", reason);
+                    inventory.failures.push_back(RHI::BackendDiscoveryFailure{.backend = RHI::BackendType::D3D12, .message = std::move(reason)});
+                }
+            } else if (dxil.issue == SFT::Core::Slang::DxilIssue::Degraded) {
+                // Offered, but a user should be able to find out that it is running on a fallback and why.
+                Foundation::log_warn("D3D12 is offered with degraded shader compilation: {}", dxil.message);
             }
         }
 #endif

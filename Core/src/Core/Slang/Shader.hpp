@@ -4,7 +4,9 @@
 
 #pragma region Imports
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 #pragma endregion
 
 #pragma region Imports
@@ -232,8 +234,38 @@ namespace SFT::Core::Slang {
         shared_ptr<ShaderCompilerState> state_;
     };
 
-    /// Whether DXIL (what D3D12 consumes) can be generated in this process: it needs DXC (`dxcompiler.dll` and `dxil.dll`) next to the
-    /// program or on the path. Probed once by compiling a trivial shader; false on any platform where Slang was built without DXIL.
+    /// Why signed DXIL cannot be generated here, or what is not ideal about how it can.
+    enum class DxilIssue {
+        /// Nothing wrong.
+        None,
+        /// Works, but not as intended (for example a DXC that Slang refused and then found elsewhere); `message`/`details` say what.
+        Degraded,
+        /// This build of Slang cannot target DXIL at all.
+        SlangWithoutDxil,
+        /// The trivial probe shader did not compile, so Slang itself is not working.
+        ProbeCompileFailed,
+        /// Slang compiled it but could not produce DXIL: no usable DXC (missing, blocked, wrong architecture, ...).
+        CodeGenerationFailed,
+        /// DXIL came out, but unsigned: `dxil.dll` is missing or could not be loaded. D3D12 rejects that at pipeline creation.
+        Unsigned,
+    };
+
+    /// The outcome of the DXIL probe, with the specifics a caller needs to tell a user what is wrong.
+    struct DxilAvailability {
+        bool available = false;
+        DxilIssue issue = DxilIssue::None;
+        /// One accurate sentence: what is wrong (or degraded) and why, naming files and error codes where there are any.
+        std::string message;
+        /// Further specifics, one per entry: the compiler's own diagnostics, each DXC setup problem.
+        std::vector<std::string> details;
+    };
+
+    /// Whether signed DXIL (what D3D12 consumes) can be generated in this process, and if not (or not fully) why. On Windows the engine carries
+    /// DXC itself (see BundledDxc.hpp), so nothing needs installing; a `dxcompiler.dll` and `dxil.dll` beside the program take precedence.
+    /// Probed once by compiling a trivial shader and checking that the DXIL comes out signed, then cached; the result is also logged.
+    [[nodiscard]] const DxilAvailability &dxil_availability();
+
+    /// `dxil_availability().available`.
     [[nodiscard]] bool dxil_generation_available();
 
 } // namespace SFT::Core::Slang

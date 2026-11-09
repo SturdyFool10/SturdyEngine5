@@ -740,6 +740,13 @@ namespace SFT::D3D12 {
             if (FAILED(D3D12CreateDevice(adapter.Get(), minimum_feature_level, IID_PPV_ARGS(&device)))) {
                 continue;
             }
+            // Every shader of the renderer is compiled for Shader Model 6.6; an adapter whose driver stops short of it would be offered and then
+            // fail every pipeline it is asked to build. Other APIs (Vulkan, WebGPU) remain available for it.
+            if (const D3D_SHADER_MODEL model = highest_shader_model(device.Get()); model < D3D_SHADER_MODEL_6_6) {
+                Foundation::log_warn("D3D12: skipping '{}': its driver supports {} and the renderer needs Shader Model 6.6.",
+                                     narrow(desc.Description), shader_model_name(model));
+                continue;
+            }
 
             rhi::AdapterInfo info{};
             info.name = narrow(desc.Description);

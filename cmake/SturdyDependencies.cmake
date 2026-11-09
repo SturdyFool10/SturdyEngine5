@@ -769,6 +769,8 @@ function(sturdy_configure_dependencies)
     endif()
 
     sturdy_normalize_dependency_targets()
+    # Before the licenses are finalised: a bundled DXC brings its licenses with it, and an unbundled build must not.
+    sturdy_configure_bundled_dxc()
     sturdy_finalize_licenses()
 endfunction()
 

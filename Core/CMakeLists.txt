@@ -83,6 +83,7 @@ sturdy_add_package(Core
     SOURCES
         "${STURDY_LICENSES_EMBED_CPP}"
         "${STURDY_SHADERS_EMBED_CPP}"
+        "${STURDY_DXC_EMBED_CPP}"
 
     EXCLUDE_SOURCE_DIRS
         ${_sturdy_core_excluded_source_dirs}
