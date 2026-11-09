@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,9 @@ namespace sturdy_rs::ui {
             /// Open element scopes, innermost last. Held by pointer because `ElementScope` closes
             /// its element on destruction and must not be moved or copied out from under the layout.
             std::vector<std::unique_ptr<SFT::UI::ElementScope>> open_elements;
+            /// How many times each element id was declared in this layout, so a repeat can be given its own id
+            /// instead of sharing (and fighting over) the first one's hover, bounds and scroll state.
+            std::unordered_map<std::string, std::uint32_t> declared_ids;
         };
 
         thread_local UiSession g_session;
@@ -225,6 +229,7 @@ namespace sturdy_rs::ui {
             }
             g_session.open = false;
             g_session.context = nullptr;
+            g_session.declared_ids.clear();
         }
 
         SFT::UI::Color to_engine_color(const std::array<float, 4> &rgba) noexcept {
@@ -266,7 +271,13 @@ namespace sturdy_rs::ui {
                                                         desc.corner_radius[2], desc.corner_radius[3]};
             decl.clip = SFT::UI::ClipConfig{desc.clip_horizontal, desc.clip_vertical};
             if (!desc.id.empty()) {
-                decl.id = SFT::UString{std::string_view{desc.id.data(), desc.id.size()}};
+                std::string id{desc.id.data(), desc.id.size()};
+                // A second element with an id already used in this layout gets "#2", "#3", ...: ids that share a
+                // hash share bounds and hover, and the layout can only follow one of them. The first keeps its name.
+                if (const auto repeats = g_session.declared_ids[id]++; repeats > 0) {
+                    id += "#" + std::to_string(repeats + 1);
+                }
+                decl.id = SFT::UString{std::string_view{id.data(), id.size()}};
             }
             decl.child_alignment.x = static_cast<SFT::UI::AlignX>(static_cast<std::uint8_t>(desc.align_x));
             decl.child_alignment.y = static_cast<SFT::UI::AlignY>(static_cast<std::uint8_t>(desc.align_y));
@@ -503,6 +514,7 @@ namespace sturdy_rs::ui {
             ui.set_scale_mode(g_raw_pixel_layout.load() ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale);
             ui.begin_frame(viewport, static_cast<float>(delta_seconds));
 
+            g_session.declared_ids.clear();
             g_session.open = true;
             g_session.context = &ui.context();
             g_session.viewport = viewport;
