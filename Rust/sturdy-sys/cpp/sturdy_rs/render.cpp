@@ -46,6 +46,22 @@ namespace sturdy_rs::render {
             return rust::String::lossy(text);
         }
 
+        // One camera per offscreen target, kept across frames so its previous view-projection (motion vectors, motion blur) survives, and
+        // the frame counter of each. Erased when the target is destroyed. Function-local statics: first use creates them, and they are
+        // never destroyed (a frame can still be in flight at exit).
+        std::mutex &offscreen_history_mutex() {
+            static auto *mutex = new std::mutex();
+            return *mutex;
+        }
+        std::unordered_map<std::uint64_t, E::Camera> &offscreen_camera_history() {
+            static auto *history = new std::unordered_map<std::uint64_t, E::Camera>();
+            return *history;
+        }
+        std::unordered_map<std::uint64_t, std::uint64_t> &offscreen_frame_indices() {
+            static auto *indices = new std::unordered_map<std::uint64_t, std::uint64_t>();
+            return *indices;
+        }
+
         // Additional windows opened through `window_open`/`window_recreate` are owned here (mirroring
         // `Application::windows_`'s ownership of every window it spawns) since `Engine::add_window`
         // only borrows the `WindowManager::Window` it is given; something has to keep it alive for as
@@ -799,6 +815,14 @@ namespace sturdy_rs::render {
 
     void offscreen_target_destroy(EngineView &engine, std::uint64_t handle) noexcept {
         engine.destroy_offscreen_render_target(E::RenderTargetHandle{handle});
+        // The camera history belongs to the target. Left behind, it grew with every target ever made, and a new target that was given the
+        // same handle would start from the old one's previous view (a first frame smeared by motion blur that never happened).
+        try {
+            const std::lock_guard<std::mutex> lock{offscreen_history_mutex()};
+            offscreen_camera_history().erase(handle);
+            offscreen_frame_indices().erase(handle);
+        } catch (...) {
+        }
     }
 
     Status offscreen_target_resize(EngineView &engine, std::uint64_t handle, std::uint32_t width, std::uint32_t height) {
@@ -859,18 +883,15 @@ namespace sturdy_rs::render {
 
         // One camera per target, kept across frames so its previous view-projection (motion vectors, motion blur) survives:
         // each frame starts from the last committed camera, gets the requested state applied, then commits itself.
-        static std::mutex history_mutex;
-        static std::unordered_map<std::uint64_t, E::Camera> history;
-        static std::unordered_map<std::uint64_t, std::uint64_t> frame_indices;
         E::Camera camera;
         std::uint64_t frame_index = 0;
         {
-            const std::lock_guard<std::mutex> lock{history_mutex};
-            E::Camera &stored = history[handle];
+            const std::lock_guard<std::mutex> lock{offscreen_history_mutex()};
+            E::Camera &stored = offscreen_camera_history()[handle];
             ::sturdy_rs::camera::camera_apply_desc(stored, camera_desc);
             camera = stored;
             stored.commit_frame();
-            frame_index = frame_indices[handle]++;
+            frame_index = offscreen_frame_indices()[handle]++;
         }
 
         E::RenderFrameParameters params{};
