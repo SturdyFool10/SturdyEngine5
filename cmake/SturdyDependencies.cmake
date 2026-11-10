@@ -392,7 +392,23 @@ function(sturdy_fetch_boost)
         ${_cache_dirs}
         ${_find_package_args}
     )
+    # Boost.Context assembles its context switch with MASM (ml64). A clang-cl cross build has no ml64; LLVM's llvm-ml64 takes the same
+    # command line.
+    if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+        find_program(_sturdy_real_ml64 NAMES ml64 NO_CMAKE_FIND_ROOT_PATH)
+        if(NOT _sturdy_real_ml64)
+            find_program(_sturdy_llvm_ml64 NAMES llvm-ml64 llvm-ml NO_CMAKE_FIND_ROOT_PATH)
+            if(_sturdy_llvm_ml64)
+                set(CMAKE_ASM_MASM_COMPILER "${_sturdy_llvm_ml64}" CACHE FILEPATH "MASM assembler" FORCE)
+            endif()
+        endif()
+    endif()
     FetchContent_MakeAvailable(Boost)
+    # Boost.Container's bundled dlmalloc passes `int *` to the Interlocked intrinsics (`volatile long *`). Older clang-cl accepted that;
+    # clang 21+ makes it an error. It is harmless on Windows (both are 32 bits), so keep it a warning.
+    if(TARGET boost_container AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(boost_container PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types>)
+    endif()
 endfunction()
 
 # OpenSSL for Async's TLS. OpenSSL has no CMake build of its own, so when no system copy is found it is built from source through
