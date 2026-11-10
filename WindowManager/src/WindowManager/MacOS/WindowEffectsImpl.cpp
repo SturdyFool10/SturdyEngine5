@@ -355,7 +355,7 @@ namespace SFT::WindowManager {
             case WindowType::PopupMenu:
             case WindowType::DropdownMenu: level = 101; break;
         }
-        send<void>(static_cast<id>(handle.window), "setLevel:", level);
+        Detail::send<void>(static_cast<id>(handle.window), "setLevel:", level);
         return WindowEffectResult::success("macOS window level set.");
 #else
         (void)handle;
@@ -379,9 +379,9 @@ namespace SFT::WindowManager {
         const id child_window = static_cast<id>(child.window);
         // AppKit window ordering must run on the main thread; this call is made from there by the window thread, which
         // is the main thread on macOS.
-        const id current_parent = send<id>(child_window, "parentWindow");
+        const id current_parent = Detail::send<id>(child_window, "parentWindow");
         if (current_parent != nullptr) {
-            send<void>(current_parent, "removeChildWindow:", child_window);
+            Detail::send<void>(current_parent, "removeChildWindow:", child_window);
         }
         if (!parent) {
             return WindowEffectResult::success("macOS child window detached.");
@@ -390,7 +390,7 @@ namespace SFT::WindowManager {
             return WindowEffectResult::failed("The parent window is not an NSWindow.");
         }
         // NSWindowAbove (1): the child stays in front of its parent and moves with it.
-        send<void>(static_cast<id>(parent->window), "addChildWindow:ordered:", child_window, static_cast<long>(1));
+        Detail::send<void>(static_cast<id>(parent->window), "addChildWindow:ordered:", child_window, static_cast<long>(1));
         return modal ? WindowEffectResult::degraded("The window is a child of its parent; modality is not enforced on a plain NSWindow.")
                      : WindowEffectResult::success("macOS child window attached.");
 #else

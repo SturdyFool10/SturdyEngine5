@@ -402,6 +402,14 @@ function(sturdy_fetch_boost)
                 set(CMAKE_ASM_MASM_COMPILER "${_sturdy_llvm_ml64}" CACHE FILEPATH "MASM assembler" FORCE)
             endif()
         endif()
+        # Windows on ARM64 assembles the context switch with armasm64, which only a real Visual Studio ships and LLVM has no stand-in
+        # for. Without it Boost.Context switches stacks with Windows fibers instead, which needs no assembler.
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64|AARCH64)$" OR STURDY_ARCH STREQUAL "Arm64")
+            find_program(_sturdy_armasm64 NAMES armasm64 NO_CMAKE_FIND_ROOT_PATH)
+            if(NOT _sturdy_armasm64)
+                set(BOOST_CONTEXT_IMPLEMENTATION "winfib" CACHE STRING "Boost.Context implementation" FORCE)
+            endif()
+        endif()
     endif()
     FetchContent_MakeAvailable(Boost)
     # Boost.Container's bundled dlmalloc passes `int *` to the Interlocked intrinsics (`volatile long *`). Older clang-cl accepted that;
@@ -467,7 +475,17 @@ function(sturdy_build_openssl_windows_cross out_root out_reason)
     else()
         set(_base "${CMAKE_BINARY_DIR}/_deps")
     endif()
-    set(_dir "${_base}/openssl-${_version}-windows-x64-r${STURDY_OPENSSL_CROSS_RECIPE}")
+    # The machine the library is for: x64 unless this is a Windows on ARM64 build (an x64 library cannot be linked into an ARM64 binary).
+    if(STURDY_ARCH STREQUAL "Arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64|AARCH64)$")
+        set(_arch_name "arm64")
+        set(_arch_triple "aarch64-pc-windows-msvc")
+        set(_arch_bn_ops "SIXTY_FOUR_BIT RC4_CHAR")
+    else()
+        set(_arch_name "x64")
+        set(_arch_triple "x86_64-pc-windows-msvc")
+        set(_arch_bn_ops "SIXTY_FOUR_BIT")
+    endif()
+    set(_dir "${_base}/openssl-${_version}-windows-${_arch_name}-r${STURDY_OPENSSL_CROSS_RECIPE}")
     set(_root "${_dir}/root")
     if(EXISTS "${_root}/lib/libssl.lib" AND EXISTS "${_root}/lib/libcrypto.lib" AND EXISTS "${_root}/include/openssl/ssl.h")
         set(${out_root} "${_root}" PARENT_SCOPE)
@@ -503,7 +521,7 @@ my %targets = (
     \"VC-WIN64A-xwin\" => {
         inherit_from     => [ \"BASE_unix\" ],
         CC               => \"${CMAKE_C_COMPILER}\",
-        CFLAGS           => \"/W3 /wd4090 /nologo /O2 --target=x86_64-pc-windows-msvc -Wno-unused-command-line-argument -Wno-pragma-pack -Wno-ignored-attributes${_include_flags}\",
+        CFLAGS           => \"/W3 /wd4090 /nologo /O2 --target=${_arch_triple} -Wno-unused-command-line-argument -Wno-pragma-pack -Wno-ignored-attributes${_include_flags}\",
         cflags           => \"/Gs0 /GF /Gy\",
         lib_cflags       => \"/MT /Zl\",
         bin_cflags       => \"/MT\",
@@ -512,13 +530,13 @@ my %targets = (
         RANLIB           => undef,
         defines          => [ \"OPENSSL_SYS_WIN32\", \"WIN32_LEAN_AND_MEAN\", \"UNICODE\", \"_UNICODE\", \"_CRT_SECURE_NO_DEPRECATE\", \"_WINSOCK_DEPRECATED_NO_WARNINGS\" ],
         lib_defines      => [ \"L_ENDIAN\" ],
-        bn_ops           => \"SIXTY_FOUR_BIT\",
+        bn_ops           => \"${_arch_bn_ops}\",
         sys_id           => \"WIN64A\",
         thread_scheme    => \"winthreads\",
         dso_scheme       => \"win32\",
         shared_target    => \"\",
         ex_libs          => \"ws2_32.lib gdi32.lib advapi32.lib crypt32.lib user32.lib\",
-        multilib         => \"-x64\",
+        multilib         => \"-${_arch_name}\",
     },
 );
 ")
@@ -622,6 +640,33 @@ function(sturdy_fetch_openssl)
     set(OPENSSL_TARGET_VERSION "${STURDY_OPENSSL_VERSION}" CACHE STRING "" FORCE)
     if(STURDY_OS STREQUAL "Windows")
         set(OPENSSL_CONFIGURE_OPTIONS "no-asm;no-tests;no-docs" CACHE STRING "" FORCE)
+    endif()
+    # OpenSSL's own build system (Configure + make) picks `cc` and `ar` from the environment. Cross compiling (for macOS from another
+    # OS, or for another CPU on Linux), that would be the host's compiler, which builds for the host (or does not know -arch): hand it
+    # the cross clang with its target and SDK / sysroot, and LLVM's archiver, which can index objects of any target.
+    if(CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Windows" AND NOT CMAKE_HOST_APPLE)
+        set(_cc "${CMAKE_C_COMPILER}")
+        if(CMAKE_C_COMPILER_TARGET)
+            string(APPEND _cc " --target=${CMAKE_C_COMPILER_TARGET}")
+        endif()
+        if(CMAKE_SYSROOT)
+            string(APPEND _cc " --sysroot=${CMAKE_SYSROOT}")
+        endif()
+        if(CMAKE_OSX_SYSROOT)
+            string(APPEND _cc " -isysroot ${CMAKE_OSX_SYSROOT}")
+        endif()
+        if(CMAKE_OSX_DEPLOYMENT_TARGET)
+            string(APPEND _cc " -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
+        set(ENV{CC} "${_cc}")
+        find_program(_sturdy_llvm_ar NAMES llvm-ar NO_CMAKE_FIND_ROOT_PATH)
+        find_program(_sturdy_llvm_ranlib NAMES llvm-ranlib NO_CMAKE_FIND_ROOT_PATH)
+        if(_sturdy_llvm_ar)
+            set(ENV{AR} "${_sturdy_llvm_ar}")
+        endif()
+        if(_sturdy_llvm_ranlib)
+            set(ENV{RANLIB} "${_sturdy_llvm_ranlib}")
+        endif()
     endif()
     set(OPENSSL_INSTALL OFF CACHE BOOL "" FORCE)
     sturdy_fetchcontent_declare(openssl-cmake

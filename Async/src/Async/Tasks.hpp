@@ -37,10 +37,18 @@ namespace SFT::Async {
     template <typename T>
     class JoinSet {
         using Outcome = JoinResult<T>;
+        /// An outcome in the queue. Held in a struct, not directly: a std::deque<std::expected<...>> makes its iterators' `!=` find
+        /// libc++'s `expected == value` operator through ADL, which recurses in C++26 mode (libc++ 22/23, e.g. the one zig ships).
+        struct Finished {
+            Outcome outcome;
+        };
+        struct Waiter {
+            Promise<std::optional<Outcome>> promise;
+        };
         struct Inner {
             std::size_t active = 0;                          ///< spawned and not yet handed out by join_next
-            std::deque<Outcome> finished;
-            std::deque<Promise<std::optional<Outcome>>> waiters;
+            std::deque<Finished> finished;
+            std::deque<Waiter> waiters;
         };
         struct Shared {
             Mutex<Inner> inner;
@@ -84,10 +92,10 @@ namespace SFT::Async {
                 {
                     auto guard = shared->inner.lock();
                     if (guard->waiters.empty()) {
-                        guard->finished.push_back(std::move(outcome));
+                        guard->finished.push_back(Finished{std::move(outcome)});
                         return;
                     }
-                    waiter = std::move(guard->waiters.front());
+                    waiter = std::move(guard->waiters.front().promise);
                     guard->waiters.pop_front();
                     --guard->active;
                 }
@@ -103,14 +111,14 @@ namespace SFT::Async {
             {
                 auto guard = shared_->inner.lock();
                 if (!guard->finished.empty()) {
-                    ready = std::move(guard->finished.front());
+                    ready = std::move(guard->finished.front().outcome);
                     guard->finished.pop_front();
                     --guard->active;
                 } else if (guard->active == 0) {
                     (void)promise.set_value(std::optional<Outcome>{});
                     return handle;
                 } else {
-                    guard->waiters.push_back(promise);
+                    guard->waiters.push_back(Waiter{promise});
                     return handle;
                 }
             }

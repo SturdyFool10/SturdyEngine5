@@ -71,7 +71,8 @@ namespace {
             }
             mix(shader_path_to_utf8(it->path().filename()));
             mix(std::to_string(it->file_size(entry_error)));
-            mix(std::to_string(it->last_write_time(entry_error).time_since_epoch().count()));
+            // libc++'s file clock counts in a 128-bit integer, which std::to_string has no overload for; a fingerprint needs no more than 64 bits.
+            mix(std::to_string(static_cast<long long>(it->last_write_time(entry_error).time_since_epoch().count())));
         }
         if (error) {
             // The fingerprint then misses edits to modules in this folder, so a stale cache entry could be served for them: say so, once.

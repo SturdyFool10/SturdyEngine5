@@ -262,15 +262,21 @@ namespace SFT::Foundation::Cpu {
             return;
         }
         Detail::IsaScopeState *outermost = t_scope_stack[0];
-        if (!outermost || !outermost->entered || !outermost->affinity_saved) {
+        if (!outermost || !outermost->entered) {
             return;
         }
 #if defined(__linux__)
+        if (!outermost->affinity_saved) {
+            return;
+        }
         if (pthread_getaffinity_np(pthread_self(), sizeof(state_->active_affinity), &state_->active_affinity) != 0 ||
             pthread_setaffinity_np(pthread_self(), sizeof(outermost->previous_affinity), &outermost->previous_affinity) != 0) {
             return;
         }
 #elif defined(_WIN32)
+        if (!outermost->affinity_saved) {
+            return;
+        }
         if (!GetThreadGroupAffinity(GetCurrentThread(), &state_->active_affinity) ||
             !SetThreadGroupAffinity(GetCurrentThread(), &outermost->previous_affinity, nullptr)) {
             return;
