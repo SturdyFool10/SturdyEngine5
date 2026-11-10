@@ -40,6 +40,9 @@ namespace SFT::UI {
         std::string name = "ui";
         /// HDR displays only: scales the reference white the UI is composed at.
         f32 hdr_reference_white_scale = 1.0f;
+        /// HDR displays only: when above zero, the reference white in nits the UI is composed at, instead of the
+        /// compositor's SDR white.
+        f32 hdr_paper_white_nits = 0.0f;
     };
 
     /// How a `UiSurface` maps its layout units onto the framebuffer.

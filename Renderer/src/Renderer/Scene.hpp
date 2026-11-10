@@ -226,6 +226,9 @@ namespace SFT::Renderer {
         /// HDR only: scales the reference-white level this overlay is composed at (UI brightness). The first overlay
         /// in the list decides for the frame.
         f32 hdr_reference_white_scale = 1.0f;
+        /// HDR only: when above zero, the absolute reference white in nits this overlay is composed at, in place of the
+        /// window compositor's SDR white (or the render graph's paper white). `hdr_reference_white_scale` still applies.
+        f32 hdr_paper_white_nits = 0.0f;
     };
 
 

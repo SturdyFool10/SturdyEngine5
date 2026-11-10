@@ -2067,12 +2067,13 @@ namespace SFT::Renderer {
                 platform_reference_white = true;
             }
         }
-        if (hdr_output) {
-            ui_reference_white_nits *= std::clamp(
-                submission.render_graph.overlay_passes.empty()
-                    ? 1.0f
-                    : submission.render_graph.overlay_passes.front().hdr_reference_white_scale,
-                0.25f, 4.0f);
+        if (hdr_output && !submission.render_graph.overlay_passes.empty()) {
+            const OverlayPass &first_overlay = submission.render_graph.overlay_passes.front();
+            if (first_overlay.hdr_paper_white_nits > 0.0f) {
+                ui_reference_white_nits = std::clamp(first_overlay.hdr_paper_white_nits, 10.0f, 10000.0f);
+                platform_reference_white = false;
+            }
+            ui_reference_white_nits *= std::clamp(first_overlay.hdr_reference_white_scale, 0.05f, 8.0f);
         }
         if (hdr_output &&
             (record.ui_reference_white_nits == 0.0f ||
@@ -2080,7 +2081,7 @@ namespace SFT::Renderer {
             Foundation::log_info(
                 "UI HDR reference white: {:.1f} nits ({}).",
                 ui_reference_white_nits,
-                platform_reference_white ? "window compositor SDR white" : "render-graph fallback");
+                platform_reference_white ? "window compositor SDR white" : "render-graph fallback or launcher setting");
             record.ui_reference_white_nits = ui_reference_white_nits;
         }
         if (!direct_overlay_presentation || direct_overlay_display_transform) {

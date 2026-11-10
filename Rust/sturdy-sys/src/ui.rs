@@ -675,6 +675,8 @@ pub mod ffi {
         fn ui_measure_text(style: &UiTextStyle, content: &str) -> [f32; 2];
         /// HDR displays: scales the reference white the UI is composed at (1.0 = the display's SDR white).
         fn ui_set_hdr_reference_white(scale: f32);
+        /// HDR displays: the reference white in nits the UI is composed at; 0 uses the compositor's SDR white.
+        fn ui_set_hdr_paper_white_nits(nits: f32);
         /// `true` lays the UI out in framebuffer pixels (pixel-art / design-size UI); `false` (default) in logical
         /// units that follow the window's content scale.
         fn ui_set_raw_pixel_layout(raw: bool);

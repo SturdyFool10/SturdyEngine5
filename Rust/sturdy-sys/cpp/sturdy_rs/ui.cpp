@@ -81,6 +81,7 @@ namespace sturdy_rs::ui {
 
         /// Process-wide UI composition options (see `ui_set_hdr_reference_white` / `ui_set_raw_pixel_layout`).
         std::atomic<float> g_hdr_reference_white{1.0f};
+        std::atomic<float> g_hdr_paper_white_nits{0.0f};
         std::atomic<bool> g_raw_pixel_layout{false};
 
         /// A font loaded through `ui_register_font`, kept alongside the id it was registered under.
@@ -538,7 +539,8 @@ namespace sturdy_rs::ui {
             auto snapshot = std::make_shared<SFT::UI::FrameSnapshot>(ui.context().finish_frame(viewport));
             SFT::Renderer::OverlayPass overlay =
                 ui.surface().overlay_for_snapshot(std::move(snapshot), engine.renderer(),
-                                                  SFT::UI::UiOverlayOptions{.hdr_reference_white_scale = g_hdr_reference_white.load()});
+                                                  SFT::UI::UiOverlayOptions{.hdr_reference_white_scale = g_hdr_reference_white.load(),
+                                                                            .hdr_paper_white_nits = g_hdr_paper_white_nits.load()});
             {
                 const std::lock_guard<std::mutex> lock{g_pending_mutex};
                 g_pending_overlay = std::move(overlay);
@@ -621,6 +623,7 @@ namespace sturdy_rs::ui {
     }
 
     void ui_set_hdr_reference_white(float scale) noexcept { g_hdr_reference_white.store(scale > 0.0f ? scale : 1.0f); }
+    void ui_set_hdr_paper_white_nits(float nits) noexcept { g_hdr_paper_white_nits.store(nits > 0.0f ? nits : 0.0f); }
     void ui_set_raw_pixel_layout(bool raw) noexcept { g_raw_pixel_layout.store(raw); }
 
     std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content) {

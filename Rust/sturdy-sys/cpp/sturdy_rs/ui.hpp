@@ -89,6 +89,7 @@ namespace sturdy_rs::ui {
     std::size_t ui_hit_test_text(const UiTextStyle &style, rust::Str content, float local_x);
     std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content);
     void ui_set_hdr_reference_white(float scale) noexcept;
+    void ui_set_hdr_paper_white_nits(float nits) noexcept;
     void ui_set_raw_pixel_layout(bool raw) noexcept;
 
     bool ui_begin_element(const UiElementDesc &desc);

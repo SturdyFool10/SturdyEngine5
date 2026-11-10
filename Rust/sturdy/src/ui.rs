@@ -1456,6 +1456,13 @@ pub fn set_hdr_reference_white(scale: f32) {
     ffi::ui_set_hdr_reference_white(scale);
 }
 
+/// HDR displays: the absolute reference white, in nits, the UI is composed at. 0 (the default) uses the window
+/// compositor's SDR white level when it reports one. [`set_hdr_reference_white`] still scales it. Takes effect on the
+/// next frame.
+pub fn set_hdr_paper_white_nits(nits: f32) {
+    ffi::ui_set_hdr_paper_white_nits(nits);
+}
+
 /// `true` lays the UI out in framebuffer pixels (pixel-art or design-size UI); `false`, the default, lays it out in
 /// logical units that follow the window's content scale (DPI), which is what an application UI wants.
 pub fn set_raw_pixel_layout(raw: bool) {

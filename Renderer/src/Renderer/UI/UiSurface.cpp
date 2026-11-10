@@ -76,6 +76,7 @@ namespace SFT::UI {
         Renderer::OverlayPass overlay;
         overlay.name = std::move(options.name);
         overlay.hdr_reference_white_scale = options.hdr_reference_white_scale;
+        overlay.hdr_paper_white_nits = options.hdr_paper_white_nits;
         const std::shared_ptr<RendererState> state = renderer_state_;
         {
             auto guard = state->renderer.lock();
