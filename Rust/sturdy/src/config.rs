@@ -61,6 +61,9 @@ pub struct RuntimeConfig {
     pub(crate) app_name: String,
     pub(crate) app_id: String,
     pub(crate) shaders_directory: String,
+    pub(crate) shader_discovery: bool,
+    pub(crate) shader_allow: Vec<String>,
+    pub(crate) shader_deny: Vec<String>,
     pub(crate) size: (u32, u32),
     pub(crate) resizable: bool,
     pub(crate) decorated: bool,
@@ -99,6 +102,9 @@ impl RuntimeConfig {
             app_id: String::new(),
             window_title: title,
             shaders_directory: "Shaders".into(),
+            shader_discovery: true,
+            shader_allow: Vec::new(),
+            shader_deny: Vec::new(),
             size: (1280, 720),
             resizable: true,
             decorated: true,
@@ -196,6 +202,35 @@ impl RuntimeConfig {
     #[must_use]
     pub fn shaders_directory(mut self, dir: impl Into<String>) -> Self {
         self.shaders_directory = dir.into();
+        self
+    }
+    /// Whether the engine pre-reflects its shaders at start-up (default on). Off, each shader is reflected the first time
+    /// it is used instead; nothing else changes, because every shader is compiled on first use either way.
+    #[must_use]
+    pub fn shader_discovery(mut self, on: bool) -> Self {
+        self.shader_discovery = on;
+        self
+    }
+    /// Limits start-up shader discovery to the named shader modules (file names without `.slang`, e.g. `"ui_quad"`).
+    /// Shaders left out are still compiled when first used; they just are not checked ahead of time. An empty list means
+    /// every shader.
+    #[must_use]
+    pub fn only_shaders<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.shader_allow = names.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Keeps the named shader modules out of start-up shader discovery, whatever [`RuntimeConfig::only_shaders`] says.
+    #[must_use]
+    pub fn skip_shaders<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.shader_deny = names.into_iter().map(Into::into).collect();
         self
     }
     /// Refresh the window title (e.g. with frame stats) every `seconds`.
@@ -326,6 +361,9 @@ impl RuntimeConfig {
             app_name: self.app_name.clone(),
             app_id: self.app_id.clone(),
             shaders_directory: self.shaders_directory.clone(),
+            shader_discovery: self.shader_discovery,
+            shader_allow: self.shader_allow.clone(),
+            shader_deny: self.shader_deny.clone(),
             width: self.size.0,
             height: self.size.1,
             resizable: self.resizable,

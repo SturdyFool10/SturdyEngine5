@@ -655,6 +655,10 @@ namespace SFT::Renderer {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         usize poll_shader_hot_reload();
 
+        /// Turns shader hot reload on or off and says where the shader sources are. Off, nothing is polled: an
+        /// application running on the embedded shaders has no files to watch.
+        void set_shader_hot_reload(bool enabled, std::filesystem::path directory);
+
         /// Destroys the material template identified by the supplied parameters.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -3614,6 +3618,8 @@ namespace SFT::Renderer {
         vector<RenderItem> frame_draws_;
 
 
+        bool shader_hot_reload_enabled_ = true;
+        std::filesystem::path shader_hot_reload_directory_{"Shaders"};
         std::shared_ptr<Core::Slang::ShaderWatcher> shader_watcher_;
         optional<Async::TaskHandle<ShaderHotReloadPollResult>> shader_hot_reload_poll_;
         steady_clock::time_point next_shader_hot_reload_poll_{};

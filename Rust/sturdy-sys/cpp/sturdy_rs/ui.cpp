@@ -160,7 +160,19 @@ namespace sturdy_rs::ui {
             std::optional<std::string> file_bytes;
             std::span<const std::byte> bytes;
             std::string described;
+            // A font whose bytes live for the whole process is used in place instead of copied (see `Font::load_static`).
+            bool use_in_place = false;
             switch (source.kind) {
+            case 3: // bytes with static lifetime
+                described = "embedded font bytes";
+                if (source.static_ptr == 0 || source.static_len == 0) {
+                    error = "embedded font bytes are empty";
+                    return nullptr;
+                }
+                bytes = std::span<const std::byte>{reinterpret_cast<const std::byte *>(static_cast<std::uintptr_t>(source.static_ptr)),
+                                                    static_cast<std::size_t>(source.static_len)};
+                use_in_place = true;
+                break;
             case 0: { // file
                 described = std::string(source.path);
                 file_bytes = SFT::Foundation::read_file_to_string(described);
@@ -195,7 +207,7 @@ namespace sturdy_rs::ui {
                 error = "unknown font source kind";
                 return nullptr;
             }
-            auto loaded = SFT::Text::Font::load(bytes);
+            auto loaded = use_in_place ? SFT::Text::Font::load_static(bytes) : SFT::Text::Font::load(bytes);
             if (!loaded) {
                 error = described + " is not a usable font: " + loaded.error().message.cpp_string();
                 return nullptr;

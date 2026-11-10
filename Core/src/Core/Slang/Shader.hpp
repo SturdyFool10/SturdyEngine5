@@ -149,10 +149,21 @@ namespace SFT::Core::Slang {
       public:
 
 
-        /// Constructs a `ShaderCompiler` in its default state.
+        /// Constructs a `ShaderCompiler` that shares the process-wide Slang session.
+        ///
+        /// Creating a Slang session costs 60-110 ms, and Slang serializes the creation, so every default compiler uses the one session instead of
+        /// paying that for each shader. Compiles through it are serialized with one another (a Slang session is not thread-safe). Use `isolated()`
+        /// for a compiler that can run at the same time as the others.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderCompiler();
+
+        /// A compiler with a Slang session of its own: it can compile while other compilers do, at the price of creating its session on first use.
+        [[nodiscard]] static ShaderCompiler isolated();
+
+        /// Drops the process-wide session shared by default compilers (a later compile creates it again). Gives back its memory once the
+        /// shaders compiled through it are gone.
+        static void release_shared_session() noexcept;
         /// Destroys the `ShaderCompiler` and releases resources owned by it.
         ///
         /// @note This function does not throw exceptions.
@@ -231,6 +242,8 @@ namespace SFT::Core::Slang {
         void release_session() noexcept;
 
       private:
+        explicit ShaderCompiler(shared_ptr<ShaderCompilerState> state);
+
         shared_ptr<ShaderCompilerState> state_;
     };
 

@@ -1,9 +1,13 @@
 #include <Core/Slang/ShaderPath.hpp>
+#include <algorithm>
 #include <Core/Slang/ShaderDiscovery.hpp>
 
 #include <Core/Slang/EmbeddedShaders.hpp>
 #include <Core/Slang/ShaderCache.hpp>
 
+#include <atomic>
+#include <optional>
+#include <thread>
 #include <unordered_set>
 
 using std::unordered_set;
@@ -21,35 +25,37 @@ namespace SFT::Core::Slang {
 namespace {
 
 
-    /// Performs the reflect and append operation for `Slang` using the supplied arguments.
-    ///
-    /// @param shaders Shader used or affected by the operation.
-    /// @param source Source value or resource.
-    /// @param compiler `compiler` value used by the operation.
-    /// @param options Configuration values controlling the operation.
-    /// @param enable_disk_cache Whether the associated behavior is enabled.
-    /// @param cache_directory `cache_directory` value used by the operation.
-    /// @param context Context that supplies state required by the operation.
-    /// @param failed `failed` value used by the operation.
-    /// @param cache_hits `cache_hits` value used by the operation.
-    ///
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void reflect_and_append(vector<UnCompiledShader> &shaders, ShaderSource source, ShaderCompiler &compiler,
-                             const ShaderCompileOptions &options, bool enable_disk_cache,
-                             const std::filesystem::path &cache_directory, const string &context,
-                             usize &failed, usize &cache_hits) {
+    /// One shader waiting to be reflected.
+    struct DiscoveryJob {
+        ShaderSource source;
+        /// Where it came from, for messages: the file path, or `<embedded>/...`.
+        string context;
+    };
+
+    /// What reflecting one job produced; empty when it failed (already reported).
+    struct DiscoveryResult {
+        std::optional<UnCompiledShader> shader;
+        bool cache_hit = false;
+        bool failed = false;
+    };
+
+    /// Reflects one shader, from the reflection cache when it is there. `compiler` is only used on a cache miss.
+    DiscoveryResult reflect_one(DiscoveryJob &job, ShaderCompiler &compiler, const ShaderCompileOptions &options,
+                                bool enable_disk_cache, const std::filesystem::path &cache_directory) {
+        DiscoveryResult result{};
+        ShaderSource source = std::move(job.source);
         const u64 cache_key = enable_disk_cache
-            ? compute_shader_cache_key(source.module_name, source.source,                       "", options)
+            ? compute_shader_cache_key(source.module_name, source.source, "", options)
             : 0;
 
         if (enable_disk_cache) {
             auto cached = load_shader_reflection_cache_entry(cache_directory, cache_key);
             if (cached) {
-                ++cache_hits;
-                shaders.push_back(UnCompiledShader{std::move(source), std::move(*cached)});
-                return;
+                result.cache_hit = true;
+                result.shader = UnCompiledShader{std::move(source), std::move(*cached)};
+                return result;
             }
-            report_shader_cache_issue(cached.error(), "loading the reflection cache entry of", context);
+            report_shader_cache_issue(cached.error(), "loading the reflection cache entry of", job.context);
         }
 
         auto reflected = compiler.reflect(source, options);
@@ -58,22 +64,54 @@ namespace {
             Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
                 .code = "shader.discovery.reflect",
                 .summary = "shader reflection failed",
-                .context = context,
+                .context = job.context,
                 .cause_code = string{shader_error_code_name(error.code)},
                 .cause = error.message,
                 .details = error.diagnostics,
                 .help = "fix the reported Slang diagnostics before starting the renderer",
             });
-            ++failed;
-            return;
+            result.failed = true;
+            return result;
         }
 
         if (enable_disk_cache) {
             if (auto stored = store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected); !stored) {
-                report_shader_cache_issue(stored.error(), "storing the reflection cache entry of", context);
+                report_shader_cache_issue(stored.error(), "storing the reflection cache entry of", job.context);
             }
         }
-        shaders.push_back(UnCompiledShader{std::move(source), std::move(*reflected)});
+        result.shader = UnCompiledShader{std::move(source), std::move(*reflected)};
+        return result;
+    }
+
+    /// Reflects every job, several at a time, and returns the results in job order.
+    ///
+    /// A cold cache means reflecting every shader through Slang, tens of milliseconds each. Slang allows distinct sessions on distinct threads
+    /// but serializes creating them (60-110 ms each), so the extra workers each bring a session of their own: that pays for itself once there
+    /// are more than a handful of shaders to reflect. Cache hits need no session at all and are read on whichever worker gets to them.
+    vector<DiscoveryResult> reflect_all(vector<DiscoveryJob> &jobs, ShaderCompiler &compiler, const ShaderCompileOptions &options,
+                                        bool enable_disk_cache, const std::filesystem::path &cache_directory) {
+        vector<DiscoveryResult> results(jobs.size());
+        constexpr usize jobs_per_extra_worker = 12;
+        const usize hardware = std::max<usize>(1, std::thread::hardware_concurrency());
+        const usize workers = std::clamp<usize>(jobs.size() / jobs_per_extra_worker, 1, std::min<usize>(hardware, 8));
+        std::atomic<usize> next{0};
+        const auto work = [&](ShaderCompiler &worker_compiler) {
+            for (usize index = next.fetch_add(1); index < jobs.size(); index = next.fetch_add(1)) {
+                results[index] = reflect_one(jobs[index], worker_compiler, options, enable_disk_cache, cache_directory);
+            }
+        };
+        vector<std::thread> threads;
+        for (usize worker = 1; worker < workers; ++worker) {
+            threads.emplace_back([&work] {
+                ShaderCompiler own = ShaderCompiler::isolated();
+                work(own);
+            });
+        }
+        work(compiler);
+        for (std::thread &thread : threads) {
+            thread.join();
+        }
+        return results;
     }
 
 } // namespace
@@ -87,11 +125,35 @@ namespace {
 ///
 /// @return Returns the value produced by the operation.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+bool ShaderSelection::allows(string_view module_name) const noexcept {
+        if (!enabled) {
+            return false;
+        }
+        const auto listed = [module_name](const vector<string> &names) {
+            return std::find(names.begin(), names.end(), module_name) != names.end();
+        };
+        if (listed(deny)) {
+            return false;
+        }
+        return allow.empty() || listed(allow);
+    }
+
 vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
                                                                    const ShaderCompileOptions &options,
-                                                                   bool enable_disk_cache) {
+                                                                   bool enable_disk_cache,
+                                                                   const ShaderSelection &selection,
+                                                                   ShaderDiscoveryReport *report) {
         vector<UnCompiledShader> shaders;
+        if (!selection.enabled) {
+            // The directory is still looked at once, so the engine knows whether it has anything to watch.
+            std::error_code probe_ec;
+            if (report != nullptr) {
+                report->directory_found = fs::is_directory(directory, probe_ec) && !probe_ec;
+            }
+            Foundation::log_info("Slang: shader discovery is turned off; shaders are reflected when first used.");
+            return shaders;
+        }
         Foundation::log_info("Slang: discovering shaders under '{}'...", directory.string());
         const Foundation::Stopwatch stopwatch;
         const std::filesystem::path cache_directory = shader_cache_directory();
@@ -102,20 +164,18 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
 
 
         unordered_set<string> discovered_module_names;
+        vector<DiscoveryJob> jobs;
 
         error_code ec;
         const bool directory_ok = fs::is_directory(directory, ec) && !ec;
+        if (report != nullptr) {
+            report->directory_found = directory_ok;
+        }
         if (!directory_ok) {
-            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
-                .severity = Foundation::DiagnosticSeverity::Warning,
-                .code = "shader.discovery.directory_missing",
-                .summary = "shader discovery directory is unavailable; falling back to embedded shaders",
-                .context = directory.string(),
-                .cause_code = ec ? "filesystem.error" : "filesystem.not_found",
-                .cause = ec ? ec.message() : "the configured path is not a directory",
-                .details = {},
-                .help = "set EngineConfig::shaders_directory to a readable shader directory to enable hot-reload",
-            });
+            // Not a problem: an installed application ships its shaders inside the executable. Looked at once; nothing is watched afterwards.
+            Foundation::log_info("Slang: shader directory '{}' not found ({}); running on the embedded shaders only, with hot reload off.",
+                                 directory.string(), ec ? ec.message() : string{"not a directory"});
+            ec.clear(); // reported just above; the "listing stopped early" warning below is for a directory that existed
         } else {
             fs::recursive_directory_iterator it(directory, fs::directory_options::skip_permission_denied, ec);
             const fs::recursive_directory_iterator end;
@@ -148,9 +208,10 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                 }
 
                 discovered_module_names.insert(module_name);
-                ShaderSource source = ShaderSource::from_source(module_name, std::move(*text), path_string);
-                reflect_and_append(shaders, std::move(source), compiler, options, enable_disk_cache,
-                                    cache_directory, path_string, failed, cache_hits);
+                if (!selection.allows(module_name)) {
+                    continue;
+                }
+                jobs.push_back(DiscoveryJob{ShaderSource::from_source(module_name, std::move(*text), path_string), path_string});
             }
         }
 
@@ -163,14 +224,20 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
 
         for (const EmbeddedShaderSource &embedded : embedded_shaders()) {
             const string module_name{embedded.module_name};
-            if (discovered_module_names.contains(module_name)) {
+            if (discovered_module_names.contains(module_name) || !selection.allows(module_name)) {
                 continue;
             }
             ++embedded_fallbacks;
             const string context = "<embedded>/" + string{embedded.relative_path};
-            ShaderSource source = ShaderSource::from_source(module_name, string{embedded.source}, context);
-            reflect_and_append(shaders, std::move(source), compiler, options, enable_disk_cache,
-                                cache_directory, context, failed, cache_hits);
+            jobs.push_back(DiscoveryJob{ShaderSource::from_source(module_name, string{embedded.source}, context), context});
+        }
+
+        for (DiscoveryResult &result : reflect_all(jobs, compiler, options, enable_disk_cache, cache_directory)) {
+            cache_hits += result.cache_hit ? 1 : 0;
+            failed += result.failed ? 1 : 0;
+            if (result.shader) {
+                shaders.push_back(std::move(*result.shader));
+            }
         }
 
         Foundation::log_info(

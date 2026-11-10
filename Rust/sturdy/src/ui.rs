@@ -1297,6 +1297,9 @@ pub enum FontSource {
     File(std::path::PathBuf),
     /// Font file bytes already in memory (an embedded font).
     Bytes(Vec<u8>),
+    /// Font file bytes that live for the whole program (an `include_bytes!` font). Unlike [`FontSource::Bytes`] they are
+    /// never copied: the engine reads them in place, so registering a large font stack costs next to nothing.
+    Static(&'static [u8]),
     /// An installed font by family name (see [`system_font_families`]).
     System { family: String, bold: bool, italic: bool },
 }
@@ -1315,6 +1318,13 @@ impl FontSource {
                 ffi::FontSource { kind: 0, path: path.to_string_lossy().into_owned(), variations, ..Default::default() }
             }
             Self::Bytes(bytes) => ffi::FontSource { kind: 1, bytes: bytes.clone(), variations, ..Default::default() },
+            Self::Static(bytes) => ffi::FontSource {
+                kind: 3,
+                static_ptr: bytes.as_ptr() as usize as u64,
+                static_len: bytes.len() as u64,
+                variations,
+                ..Default::default()
+            },
             Self::System { family, bold, italic } => ffi::FontSource {
                 kind: 2,
                 family: family.clone(),

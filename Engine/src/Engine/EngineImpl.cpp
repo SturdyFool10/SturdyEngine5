@@ -499,11 +499,17 @@ namespace SFT::Engine {
 #endif
 
 
-        shaders_ = Core::Slang::discover_shaders(
-            config.shaders_directory,
-            shader_compiler_,
-            Core::Slang::ShaderCompileOptions{},
-            config.enable_shader_disk_cache);
+        {
+            Core::Slang::ShaderDiscoveryReport report{};
+            shaders_ = Core::Slang::discover_shaders(
+                config.shaders_directory,
+                shader_compiler_,
+                Core::Slang::ShaderCompileOptions{},
+                config.enable_shader_disk_cache,
+                config.shader_selection,
+                &report);
+            shader_directory_found_ = report.directory_found;
+        }
 
         RHI::BackendType start_backend = config.graphics_backend;
         string start_physical_device_id = config.graphics_physical_device_id;
@@ -539,6 +545,8 @@ namespace SFT::Engine {
             return unexpected(surface.error());
         }
 
+        // Looked at once, at start-up: with no shader directory there is nothing to hot-reload from, so nothing is polled.
+        renderer_.set_shader_hot_reload(shader_directory_found_, config.shaders_directory);
         initialized_ = true;
         config_ = config;
         config_.graphics_backend = start_backend;
@@ -823,11 +831,15 @@ namespace SFT::Engine {
 
         if (backend_features_changed || app_name_changed || config_.shaders_directory != settings.shaders_directory) {
             if (config_.shaders_directory != settings.shaders_directory) {
+                Core::Slang::ShaderDiscoveryReport report{};
                 shaders_ = Core::Slang::discover_shaders(
                     settings.shaders_directory,
                     shader_compiler_,
                     Core::Slang::ShaderCompileOptions{},
-                    settings.enable_shader_disk_cache);
+                    settings.enable_shader_disk_cache,
+                    settings.shader_selection,
+                    &report);
+                shader_directory_found_ = report.directory_found;
             }
 
             Core::RendererCreateInfo renderer_info{};

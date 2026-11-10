@@ -275,6 +275,13 @@ namespace sturdy_rs {
         }
         app.engine.app_name = app_name.c_str();
         app.engine.shaders_directory = std::string{options.shaders_directory};
+        app.engine.shader_selection.enabled = options.shader_discovery;
+        for (const auto &name : options.shader_allow) {
+            app.engine.shader_selection.allow.emplace_back(name.data(), name.size());
+        }
+        for (const auto &name : options.shader_deny) {
+            app.engine.shader_selection.deny.emplace_back(name.data(), name.size());
+        }
         app.engine.features.raytracing = options.raytracing;
         app.engine.graphics_physical_device_id = std::string{options.graphics_physical_device_id};
         if (options.has_device_request) {

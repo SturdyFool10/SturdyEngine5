@@ -60,13 +60,23 @@ Font &Font::operator=(Font &&other) noexcept {
 /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::LoadFailed`.
 [[nodiscard]] TextExpected<Font> Font::load(span<const std::byte> data, unsigned int face_index) {
+    return load_with_memory_mode(data, face_index, true);
+}
+
+/// Loads a font that keeps referring to `data` instead of copying it. See the declaration for the lifetime contract.
+[[nodiscard]] TextExpected<Font> Font::load_static(span<const std::byte> data, unsigned int face_index) {
+    return load_with_memory_mode(data, face_index, false);
+}
+
+/// The shared body of `load` and `load_static`.
+[[nodiscard]] TextExpected<Font> Font::load_with_memory_mode(span<const std::byte> data, unsigned int face_index, bool copy) {
             if (data.empty()) {
                 return text_error(TextErrorCode::InvalidArgument, "Cannot load a font from empty data.");
             }
 
             hb_blob_t *blob = hb_blob_create(reinterpret_cast<const char *>(data.data()),
                                              static_cast<unsigned int>(data.size()),
-                                             HB_MEMORY_MODE_DUPLICATE, nullptr, nullptr);
+                                             copy ? HB_MEMORY_MODE_DUPLICATE : HB_MEMORY_MODE_READONLY, nullptr, nullptr);
             if (blob == nullptr || blob == hb_blob_get_empty()) {
                 if (blob != nullptr) {
                     hb_blob_destroy(blob);

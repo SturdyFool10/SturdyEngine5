@@ -41,12 +41,15 @@
 #[cxx::bridge(namespace = "sturdy_rs::ui")]
 pub mod ffi {
     /// Where a font comes from: `kind` 0 = file `path`, 1 = in-memory `bytes`, 2 = installed `family` (with
-    /// `bold`/`italic`), 255 = none (an absent optional font).
+    /// `bold`/`italic`), 3 = bytes with static lifetime at `static_ptr` for `static_len` bytes (used in place, never
+    /// copied), 255 = none (an absent optional font).
     #[derive(Debug, Clone, Default)]
     struct FontSource {
         kind: u8,
         path: String,
         bytes: Vec<u8>,
+        static_ptr: u64,
+        static_len: u64,
         family: String,
         bold: bool,
         italic: bool,

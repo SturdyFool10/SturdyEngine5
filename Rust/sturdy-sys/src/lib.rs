@@ -85,6 +85,10 @@ pub mod ffi {
         /// Reverse-DNS application id (Wayland app_id / X11 WM_CLASS); empty = the window system's default.
         app_id: String,
         shaders_directory: String,
+        /// Start-up shader discovery: whether it runs, and which module names it covers (empty `allow` = all) or skips.
+        shader_discovery: bool,
+        shader_allow: Vec<String>,
+        shader_deny: Vec<String>,
         width: u32,
         height: u32,
         resizable: bool,

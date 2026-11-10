@@ -67,6 +67,15 @@ namespace SFT::Text {
         /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::LoadFailed`.
         [[nodiscard]] static TextExpected<Font> load(span<const std::byte> data, unsigned int face_index = 0);
 
+        /// Like `load`, but the font keeps *referring* to `data` instead of copying it, so loading a large font costs
+        /// no memory traffic.
+        ///
+        /// @param data The font file bytes. They must stay valid and unchanged for as long as the returned `Font` (and anything made from it) lives, which is why this is meant for data with static storage duration (an embedded font).
+        /// @param face_index Zero-based index of the face to use.
+        ///
+        /// @return Returns the same value or error alternatives as `load`.
+        [[nodiscard]] static TextExpected<Font> load_static(span<const std::byte> data, unsigned int face_index = 0);
+
 
         /// Loads hinted.
         ///
@@ -151,6 +160,9 @@ namespace SFT::Text {
         void set_variations(span<const Variation> variations) noexcept;
 
       private:
+        /// The shared body of `load` and `load_static`; `copy` says whether HarfBuzz duplicates `data`.
+        [[nodiscard]] static TextExpected<Font> load_with_memory_mode(span<const std::byte> data, unsigned int face_index, bool copy);
+
         /// Resets the object to its baseline state.
         ///
         /// @note This function does not throw exceptions.

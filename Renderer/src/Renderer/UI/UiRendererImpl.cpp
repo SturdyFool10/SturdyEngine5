@@ -90,6 +90,8 @@ namespace SFT::UI {
             return unexpected(sector_pipeline.error());
         }
         renderer.sector_pipeline_ = std::move(*sector_pipeline);
+        // The four pipelines compiled through the one shared Slang session; nothing is compiling now, so give its memory back.
+        Core::Slang::ShaderCompiler::release_shared_session();
         renderer.color_format_ = color_format;
         renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
 

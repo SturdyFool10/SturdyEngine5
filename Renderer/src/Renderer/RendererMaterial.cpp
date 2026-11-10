@@ -570,6 +570,17 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Turns shader hot reload on or off and says where the shader sources are.
+    void Renderer::set_shader_hot_reload(bool enabled, std::filesystem::path directory) {
+        auto guard = shader_hot_reload_lock_.lock();
+        shader_hot_reload_enabled_ = enabled;
+        if (shader_hot_reload_directory_ != directory) {
+            // A different directory needs a fresh watcher (it is made on the next poll).
+            shader_hot_reload_directory_ = std::move(directory);
+            shader_watcher_.reset();
+        }
+    }
+
     /// Polls shader hot reload for available work or state changes.
     ///
     /// @return Returns the current poll shader hot reload value.
@@ -577,6 +588,9 @@ namespace SFT::Renderer {
     usize Renderer::poll_shader_hot_reload() {
         ZoneScopedN("Renderer::poll_shader_hot_reload");
         auto guard = shader_hot_reload_lock_.lock();
+        if (!shader_hot_reload_enabled_) {
+            return 0;
+        }
 
         usize reloaded = 0;
         if (shader_hot_reload_poll_ && shader_hot_reload_poll_->is_done()) {
@@ -606,12 +620,12 @@ namespace SFT::Renderer {
             (next_shader_hot_reload_poll_ == steady_clock::time_point{} || now >= next_shader_hot_reload_poll_)) {
             next_shader_hot_reload_poll_ = now + std::chrono::milliseconds{250};
             auto watcher = shader_watcher_;
-            shader_hot_reload_poll_ = Async::Scheduler::spawn([watcher = std::move(watcher)]() mutable {
+            shader_hot_reload_poll_ = Async::Scheduler::spawn([watcher = std::move(watcher), directory = shader_hot_reload_directory_]() mutable {
                 ShaderHotReloadPollResult result{};
                 result.watcher = std::move(watcher);
                 if (!result.watcher) {
 
-                    result.watcher = std::make_shared<slang::ShaderWatcher>(std::filesystem::path{"Shaders"});
+                    result.watcher = std::make_shared<slang::ShaderWatcher>(directory);
                 }
                 result.changes = result.watcher->poll();
                 return result;

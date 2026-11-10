@@ -1372,7 +1372,9 @@ namespace SFT::Core::Slang {
             if (global_session.get()) {
                 return {};
             }
+            const Foundation::Stopwatch creation_clock;
             const SlangResult result = slang::createGlobalSession(global_session.writeRef());
+            Foundation::log_info("Slang: created a global session in {}", creation_clock.elapsed_human());
             if (SLANG_FAILED(result) || !global_session.get()) {
                 return shader_error(ShaderErrorCode::InitializationFailed,
                                     std::format("Failed to create the Slang global session (Slang result 0x{:08x}); no shader can be compiled in this process.",
@@ -1818,8 +1820,32 @@ namespace SFT::Core::Slang {
     /// Performs the shader compiler operation for `Slang` using the supplied arguments.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    namespace {
+
+        /// The state default compilers share. Never destroyed: Slang wants its global session freed after everything made from it, which a
+        /// static destructor cannot promise.
+        [[nodiscard]] const shared_ptr<ShaderCompilerState> &shared_compiler_state() {
+            static const auto *state = new shared_ptr<ShaderCompilerState>(make_shared<ShaderCompilerState>());
+            return *state;
+        }
+
+    } // namespace
+
     ShaderCompiler::ShaderCompiler()
-        : state_(make_shared<ShaderCompilerState>()) {
+        : state_(shared_compiler_state()) {
+    }
+
+    ShaderCompiler::ShaderCompiler(shared_ptr<ShaderCompilerState> state)
+        : state_(std::move(state)) {
+    }
+
+    ShaderCompiler ShaderCompiler::isolated() {
+        return ShaderCompiler{make_shared<ShaderCompilerState>()};
+    }
+
+    void ShaderCompiler::release_shared_session() noexcept {
+        auto global_session = shared_compiler_state()->global_session.lock();
+        global_session->setNull();
     }
 
     /// Destroys the `Slang` and releases resources owned by it.

@@ -97,6 +97,9 @@ namespace SFT::Engine {
 
 
         std::filesystem::path shaders_directory = "Shaders";
+        /// Which shaders start-up discovery pre-reflects (see `Core::Slang::ShaderSelection`). Shaders left out are still
+        /// compiled when first used.
+        Core::Slang::ShaderSelection shader_selection{};
 
 
         bool enable_shader_disk_cache = true;
@@ -748,6 +751,9 @@ namespace SFT::Engine {
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;
+        /// The shader directory existed when the shaders were last discovered. When it did not the engine is running on its
+        /// embedded shaders alone, and nothing watches the disk for changes.
+        bool shader_directory_found_ = false;
         EngineConfig config_{};
         WindowManager::Window *primary_window_ = nullptr;
         bool initialized_ = false;
