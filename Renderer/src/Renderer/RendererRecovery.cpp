@@ -220,6 +220,7 @@ namespace SFT::Renderer {
 
         vertex_arena_ = GeometryArena{.usage = vertex_arena_.usage};
         index_arena_ = GeometryArena{.usage = index_arena_.usage};
+        reset_geometry_allocator();
         for (MeshResource &mesh : meshes_) {
             mesh.vertex_offset = 0;
             mesh.index_offset = 0;

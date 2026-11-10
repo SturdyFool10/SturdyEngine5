@@ -69,7 +69,7 @@ namespace SFT::Renderer {
             }
             skinning->skins[handle.value] = std::move(skin);
         }
-        resource->has_lens_variant = false;
+        drop_lens_variant(*resource);
         resource->skinned = true;
         resource->bounds_radius *= std::max(desc.bounds_scale, 1.0f);
         return {};

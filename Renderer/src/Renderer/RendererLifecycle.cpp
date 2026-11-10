@@ -512,6 +512,11 @@ namespace SFT::Renderer {
                                                 "Renderer surface is not registered.");
         }
 
+        // Under the vertex-warp lens, camera passes draw each mesh's tessellated variant; make the ones still missing now, before
+        // any pass is open (making one writes to the geometry arenas, and may grow them).
+        if (submission.render_graph.frame.camera_emulation.lens_strength > 0.0f) {
+            ensure_lens_variants(submission.draws);
+        }
 
         {
             ScopedRendererStageTimer timer{"sort render items",
@@ -2746,6 +2751,7 @@ namespace SFT::Renderer {
         // Textures replaced or destroyed since the last submit may still be sampled by frames already in flight; this
         // slot's fence signals after all of them, so it frees them.
         move_retired_texture_gpu_to_slot(slot);
+        move_retired_geometry_to_slot(slot);
         slot.transient_bind_groups.insert(slot.transient_bind_groups.end(),
                                           submission.transient_bind_groups.begin(),
                                           submission.transient_bind_groups.end());
@@ -3234,6 +3240,9 @@ namespace SFT::Renderer {
         slot.transient_samplers.clear();
         slot.transient_texture_views.clear();
         slot.transient_textures.clear();
+        // The frame's fence has signalled: the mesh space it may have read is free to be written again.
+        release_geometry_ranges(slot.retired_geometry);
+        slot.retired_geometry.clear();
         if (destroy_retired_presentation) {
             slot.retired_presentation_texture_views.clear();
             slot.retired_presentation_textures.clear();
@@ -3521,6 +3530,7 @@ namespace SFT::Renderer {
         if (graphics_backend_) {
             graphics_backend_->wait_idle();
             destroy_retired_texture_gpu_now();
+            release_retired_geometry_now();
         }
     }
 

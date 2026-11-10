@@ -34,6 +34,7 @@
 #include <Renderer/DisplacementMeshPath.hpp>
 #include <Renderer/Scene.hpp>
 #include <Renderer/ReflectionBinding.hpp>
+#include <Renderer/GeometryAllocator.hpp>
 #include <Renderer/Resources.hpp>
 #include <Renderer/RenderGraph.hpp>
 #include <Renderer/RestirGi.hpp>
@@ -1278,6 +1279,8 @@ namespace SFT::Renderer {
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
             vector<RHI::SamplerHandle> transient_samplers;
+            /// Arena ranges of meshes destroyed before this frame was submitted; freed when its fence signals.
+            vector<GeometryRange> retired_geometry;
             vector<RHI::BindGroupHandle> transient_bind_groups;
 
 
@@ -2619,6 +2622,10 @@ namespace SFT::Renderer {
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult try_upload_mesh(MeshResource &mesh);
+        /// Packs the live meshes together again: used when the arenas have plenty of free space but none of it in one piece large
+        /// enough, instead of growing them. Waits for the GPU to be idle.
+        void compact_geometry_arenas();
+
 
 
         /// Creates a owned texture GPU from the supplied parameters.
@@ -3515,6 +3522,28 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult grow_geometry_arena(GeometryArena &arena, u64 required_bytes,
                                                                const char *label);
+        /// Takes `bytes` of the vertex (`index == false`) or index arena for a mesh: a freed range when one fits, else the end of the
+        /// arena (growing it if need be). Returns the byte offset.
+        [[nodiscard]] Core::RendererExpected<u64> allocate_geometry(bool index, u64 bytes, const char *label);
+        /// True when taking `bytes` would grow the arena although a quarter of it or more is free space (in pieces too small): packing
+        /// the live meshes together is then cheaper than growing.
+        [[nodiscard]] bool geometry_fragmented(bool index, u64 bytes);
+        /// Queues a destroyed mesh's arena ranges to be freed once the frames that may still read them have finished.
+        void retire_mesh_geometry(const MeshResource &mesh);
+        /// Moves the ranges retired since the last submit onto the frame slot being submitted.
+        void move_retired_geometry_to_slot(FrameInFlight &slot);
+        /// Frees ranges whose frames have finished.
+        void release_geometry_ranges(const vector<GeometryRange> &ranges);
+        /// Frees everything retired so far; the GPU must be idle.
+        void release_retired_geometry_now();
+        /// Frees a range at once: it was never used by a frame (an upload that failed part way).
+        void retire_range_now(bool index, u64 offset, u64 bytes);
+        void reset_geometry_allocator() noexcept;
+        /// Makes the camera-lens variant of every mesh in `items` that does not have one yet. Called before a frame under the lens is
+        /// recorded: it writes to the arenas, which must not happen inside a render pass.
+        void ensure_lens_variants(span<const RenderItem> items);
+        /// Forgets a mesh's lens variant (its vertices changed) and frees its arena space.
+        void drop_lens_variant(MeshResource &mesh);
 
 
         /// Result of resolving a mesh-path pipeline plus the per-template draw settings.
@@ -3549,6 +3578,18 @@ namespace SFT::Renderer {
                                              RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst};
         GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::Storage |
                                             RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst};
+        /// Free space inside each arena (see `GeometryRangeSet`), and the ranges of destroyed meshes still waiting for the frames that may
+        /// read them. Guarded: ranges are released from the frame-retirement path and taken by uploads.
+        struct GeometryAllocatorState {
+            GeometryRangeSet vertex;
+            GeometryRangeSet index;
+            vector<GeometryRange> retired;
+            u64 epoch = 1;
+        };
+        Async::Mutex<GeometryAllocatorState> geometry_allocator_;
+        /// Slots of `meshes_` whose mesh was destroyed, to be reused.
+        vector<u32> free_mesh_slots_;
+        bool compacting_geometry_arenas_ = false;
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;

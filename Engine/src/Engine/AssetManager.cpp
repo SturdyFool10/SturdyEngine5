@@ -736,8 +736,63 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Asset insert(Record record) {
             record.loaded = true;
-            records.push_back(std::move(record));
-            return asset_for(records.size() - 1, records.back());
+            note_model_references(record, +1);
+            usize index = 0;
+            if (!free_records.empty()) {
+                // The slot of a destroyed model, shader, sound or file: it comes back under a newer generation, so handles to what it
+                // held are stale. (Texture slots are never reused: the streaming lists below hold raw indices of those.)
+                index = free_records.back();
+                free_records.pop_back();
+                record.generation = records[index].generation;
+                records[index] = std::move(record);
+            } else {
+                records.push_back(std::move(record));
+                index = records.size() - 1;
+            }
+            ++loaded_count;
+            return asset_for(index, records[index]);
+        }
+
+        /// What a model asset needs to stay loaded: its shaders and textures. Counted exactly, so unloading a shader or texture asks one
+        /// table instead of scanning every asset for a model that uses it.
+        [[nodiscard]] static u64 reference_key(const Asset &asset) noexcept {
+            return (static_cast<u64>(asset.generation_) << 40) | asset.id_;
+        }
+
+        void note_model_references(const Record &record, int direction) {
+            const auto *model = std::get_if<ModelData>(&record.data);
+            if (model == nullptr) {
+                return;
+            }
+            const auto note = [&](const Asset &asset) {
+                if (!asset) {
+                    return;
+                }
+                if (direction > 0) {
+                    ++model_references[reference_key(asset)];
+                    return;
+                }
+                // Dropping a reference never allocates (`destroy` must not throw).
+                const auto found = model_references.find(reference_key(asset));
+                if (found == model_references.end()) {
+                    return;
+                }
+                if (found->second <= 1) {
+                    model_references.erase(found);
+                } else {
+                    --found->second;
+                }
+            };
+            for (const ModelPrimitiveData &primitive : model->primitives) {
+                note(primitive.shader);
+                for (const Asset &texture : primitive.textures) {
+                    note(texture);
+                }
+            }
+        }
+
+        [[nodiscard]] bool referenced_by_a_model(const Asset &asset) const {
+            return model_references.contains(reference_key(asset));
         }
 
         /// Destroys or releases the `AssetManager` resource represented by the supplied parameters.
@@ -749,6 +804,7 @@ namespace SFT::Engine {
             if (!record.loaded) {
                 return;
             }
+            note_model_references(record, -1);
             if (auto *model = std::get_if<ModelData>(&record.data)) {
                 for (ModelPrimitiveData &primitive : model->primitives) {
                     if (primitive.material && !primitive.shares_material) {
@@ -792,6 +848,7 @@ namespace SFT::Engine {
                 path_cache.erase("progressive|" + source_string + "|linear");
             }
 
+            const AssetType destroyed_type = record.type;
             record.data = std::monostate{};
             record.loaded = false;
             record.memory_bytes = 0;
@@ -800,6 +857,10 @@ namespace SFT::Engine {
             ++record.generation;
             if (record.generation == 0) {
                 record.generation = 1;
+            }
+            --loaded_count;
+            if (destroyed_type != AssetType::Texture) {
+                free_records.push_back(static_cast<usize>(&record - records.data()));
             }
         }
 
@@ -822,6 +883,11 @@ namespace SFT::Engine {
         u64 owner = 0;
         mutable std::shared_mutex mutex;
         std::vector<Record> records;
+        /// Slots of destroyed non-texture records, to be reused by `insert`.
+        std::vector<usize> free_records;
+        usize loaded_count = 0;
+        /// How many loaded models use each shader and texture (see `note_model_references`).
+        std::unordered_map<u64, u32> model_references;
 
 
         std::unordered_map<std::string, Asset> path_cache;
@@ -2584,6 +2650,7 @@ namespace SFT::Engine {
         }
         if (std::ranges::find(target.textures, texture_asset) == target.textures.end()) {
             target.textures.push_back(texture_asset);
+            ++impl_->model_references[Impl::reference_key(texture_asset)];
         }
         return {};
     }
@@ -2605,9 +2672,7 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     usize AssetManager::size() const noexcept {
         std::shared_lock lock{impl_->mutex};
-        return static_cast<usize>(std::ranges::count_if(impl_->records, [](const Impl::Record &record) {
-            return record.loaded;
-        }));
+        return impl_->loaded_count;
     }
 
     /// Performs the info operation for `Engine` using the supplied arguments.
@@ -2767,24 +2832,10 @@ namespace SFT::Engine {
                                          "Asset is stale, unloaded, or belongs to another AssetManager."));
         }
 
-        if (record->type == AssetType::Shader || record->type == AssetType::Texture) {
-            for (const Impl::Record &candidate : impl_->records) {
-                const auto *model = candidate.loaded ? std::get_if<Impl::ModelData>(&candidate.data) : nullptr;
-                if (model == nullptr) {
-                    continue;
-                }
-                for (const Impl::ModelPrimitiveData &primitive : model->primitives) {
-                    const bool referenced = record->type == AssetType::Shader
-                                                ? primitive.shader == asset
-                                                : std::ranges::find(primitive.textures, asset) != primitive.textures.end();
-                    if (referenced) {
-                        return std::unexpected(error(
-                            AssetErrorCode::InUse,
-                            "Cannot unload a " + std::string{to_string(record->type)} +
-                                " asset while a loaded model depends on it."));
-                    }
-                }
-            }
+        if ((record->type == AssetType::Shader || record->type == AssetType::Texture) && impl_->referenced_by_a_model(asset)) {
+            return std::unexpected(error(AssetErrorCode::InUse,
+                                         "Cannot unload a " + std::string{to_string(record->type)} +
+                                             " asset while a loaded model depends on it."));
         }
 
         impl_->destroy(*record);
@@ -2992,6 +3043,9 @@ namespace SFT::Engine {
             impl_->destroy(record);
         }
         impl_->records.clear();
+        impl_->free_records.clear();
+        impl_->model_references.clear();
+        impl_->loaded_count = 0;
     }
 
     /// Appends the supplied value or range to the current contents.

@@ -169,7 +169,7 @@ namespace {
     }
 
 
-    bool render(Harness &h, MeshHandle mesh, MaterialInstanceHandle material, Image &image) {
+    bool render(Harness &h, MeshHandle mesh, MaterialInstanceHandle material, Image &image, f32 lens_strength = 0.0f) {
         SceneRenderable renderable{};
         renderable.mesh = mesh;
         renderable.material = material;
@@ -190,6 +190,7 @@ namespace {
         desc.view.lighting.sun.radiance = {3.0f, 2.9f, 2.7f};
         desc.view.renderables = std::span<const SceneRenderable>{&renderable, 1};
         desc.view.render_graph.frame.execution_mode = SFT::RenderSettings::ExecutionMode::WaitForCompletion;
+        desc.view.render_graph.frame.camera_emulation.lens_strength = lens_strength;
         desc.view.render_graph.frame.bloom.enabled = false;
         desc.view.render_graph.frame.shadows.contact_shadows = false;
         for (int i = 0; i < 2; ++i) {
@@ -313,6 +314,18 @@ int run() {
     if (!render(harness, *mesh, *material, baseline)) return 1;
     check(mean_luma(baseline) > 5.0, "default space renders the plane (image is not black)");
     check(harness.renderer.space_model()->name == "euclidean", "the default space model is Euclidean");
+
+    // The camera-lens variant of a mesh is made the first time a lens camera draws it, not when the mesh is created.
+    {
+        const MeshResource *resource = harness.renderer.mesh(*mesh);
+        check(resource != nullptr && !resource->has_lens_variant, "a mesh has no lens variant until a lens camera draws it");
+        Image lensed;
+        if (!render(harness, *mesh, *material, lensed, 0.35f)) return 1;
+        resource = harness.renderer.mesh(*mesh);
+        check(mean_luma(lensed) > 5.0, "the plane still renders under the camera lens");
+        check(resource != nullptr && resource->has_lens_variant && resource->lens_index_count > resource->index_count,
+              "drawing under the lens built a finer lens variant of the mesh");
+    }
 
     // 1. Vertex transform: the whole world shifted +0.8 in x by the sturdy_space module.
     SpaceModel shifted;
