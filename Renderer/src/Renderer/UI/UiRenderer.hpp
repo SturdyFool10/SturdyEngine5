@@ -6,6 +6,7 @@
 #include <atomic>
 #include <glm/vec2.hpp>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -28,6 +29,30 @@ using std::vector;
 
 namespace SFT::UI {
 
+
+    /// What the last `UiRenderer::prepare` built, for finding out what a UI costs (draw calls, descriptor traffic, bytes
+    /// uploaded) before deciding what to optimise.
+    struct UiRenderStats {
+        /// Quads, glyphs, stroke segments, sectors and custom-shader elements the frame drew after culling.
+        u32 quads = 0;
+        u32 glyphs = 0;
+        u32 strokes = 0;
+        u32 sectors = 0;
+        u32 custom_elements = 0;
+        /// Draws issued per kind, which is what batching is meant to shrink.
+        u32 quad_batches = 0;
+        u32 text_batches = 0;
+        u32 stroke_batches = 0;
+        u32 sector_batches = 0;
+        /// Different textures the quads sampled; with bindless textures this is the size of the table.
+        u32 quad_textures = 0;
+        /// Bind groups created while preparing (zero on a frame that looks like the last one).
+        u32 bind_groups_created = 0;
+        /// Bytes written to the quad instance buffer (zero when the frame's quads matched the last upload).
+        u64 quad_bytes_uploaded = 0;
+        /// Whether quad textures are bound as one array.
+        bool bindless_textures = false;
+    };
 
     class UiRenderer {
       public:
@@ -139,7 +164,56 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         [[nodiscard]] u64 generation() const noexcept;
 
+        /// What the most recent `prepare` built; see `UiRenderStats`.
+        [[nodiscard]] UiRenderStats stats() const;
+
       private:
+        /// One thing to paint, before the paint order puts them in sequence.
+        struct PaintEntry {
+            PaintKey paint;
+            enum class Kind : u8 { Quad, Text, Custom, Stroke, Fill, Sector, CustomStroke } kind = Kind::Quad;
+            usize index = 0;
+            usize count = 1;
+            /// The draw group the entry was assigned (see `assign_paint_groups`).
+            u32 group = 0;
+        };
+
+        /// Gives each entry (already in paint order) the draw group it is drawn in. A group is one pipeline's batches, so
+        /// a UI that alternates panels and text would otherwise draw once per alternation. An entry moves into an earlier
+        /// group of its own kind when nothing it would be drawn in front of overlaps it; entries that overlap keep their
+        /// paint order. Entries of one group end up next to each other in the result.
+        static void assign_paint_groups(const FrameSnapshot &snapshot, Core::Extent2D viewport, vector<PaintEntry> &entries);
+
+        /// Working vectors of `prepare`, kept so a frame reuses the memory of the last instead of allocating it all
+        /// again. Everything in it is cleared at the start of each `prepare`; `prepare` is serialised, so one set will do.
+        struct PrepareScratch {
+            vector<PaintEntry> entries;
+            vector<UiQuadInstance> quad_instances;
+            vector<RHI::TextureViewHandle> quad_texture_views;
+            vector<u64> quad_texture_revisions;
+            std::unordered_map<u64, f32> drawn_image_sizes;
+            vector<std::pair<Renderer::TextureHandle, f32>> drawn_images;
+            vector<RHI::Rect2D> quad_scissors;
+            vector<u32> quad_groups;
+            vector<UiStrokeInstance> stroke_instances;
+            vector<RHI::Rect2D> stroke_scissors;
+            vector<u32> stroke_groups;
+            vector<UiStrokeInstance> mask_instances;
+            vector<RHI::Rect2D> mask_scissors;
+            vector<u32> mask_groups;
+            vector<UiSectorInstance> sector_instances;
+            vector<RHI::Rect2D> sector_scissors;
+            vector<u32> sector_groups;
+            vector<Renderer::GlyphPlacement> ordered_glyphs;
+            vector<RHI::Rect2D> ordered_glyph_scissors;
+            vector<u32> glyph_groups;
+            vector<Renderer::GlyphRequest> glyph_requests;
+            vector<Renderer::GlyphSlot> glyph_slots;
+            vector<Renderer::GlyphInstance> glyph_instances;
+        };
+        PrepareScratch scratch_;
+        UiRenderStats stats_{};
+
         Renderer::TextPipeline text_pipeline_;
         UiQuadPipeline quad_pipeline_;
         UiStrokePipeline stroke_pipeline_;
@@ -179,6 +253,11 @@ namespace SFT::UI {
             RHI::TextureViewHandle glow_mask_view{};
             RHI::TextureHandle glow_bloom_texture{};
             RHI::TextureViewHandle glow_bloom_view{};
+            /// The size those two textures were made at, and how many frames in a row have not used them. They are kept
+            /// from frame to frame (the graph imports them as `Undefined`, so nothing is carried over) and only
+            /// released after a stretch of frames without glow, or remade when the surface changes size.
+            Core::Extent2D glow_extent{};
+            u32 glow_idle_frames = 0;
             UiStrokeFrameResources glow_mask_stroke;
             vector<UiStrokeDrawBatch> glow_mask_stroke_batches;
             UiQuadFrameResources glow_composite_quad;
@@ -191,6 +270,9 @@ namespace SFT::UI {
             vector<FrameResources> frames;
         };
         vector<SurfaceFrameResources> surface_frame_resources_;
+
+        /// Destroys a frame slot's glow targets (and the composite quad bound to them).
+        static void release_glow_targets(RHI::RhiDevice &device, FrameResources &resources) noexcept;
 
 
         RHI::Format color_format_{};

@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
+#include <cstdlib>
 #include <glm/geometric.hpp>
 #include <limits>
 #include <span>
+#include <string_view>
 #include <unordered_map>
 #pragma endregion
 
@@ -104,12 +107,8 @@ namespace SFT::UI {
     namespace {
 
 
-        struct PaintEntry {
-            PaintKey paint;
-            enum class Kind : u8 { Quad, Text, Custom, Stroke, Fill, Sector, CustomStroke } kind = Kind::Quad;
-            usize index = 0;
-            usize count = 1;
-        };
+        /// Frames in a row the glow targets may go unused before their memory is given back.
+        constexpr u32 kGlowIdleFramesBeforeRelease = 120;
 
         /// Cheap CPU-side visibility cull: an axis-aligned overlap test between an item's own bounding
         /// box and its resolved scissor rect. `false` means the item is either fully outside its own
@@ -220,6 +219,140 @@ namespace SFT::UI {
 
     } // namespace
 
+    void UiRenderer::assign_paint_groups(const FrameSnapshot &snapshot, Core::Extent2D viewport, vector<PaintEntry> &entries) {
+        // The order entries were sorted into (paint order) is what has to look unchanged wherever two things overlap.
+        // Work out, per entry, the rectangle it can draw into, then place each entry in the earliest group of its kind
+        // that comes after every group already touching that rectangle. A coarse grid remembers the latest group
+        // that touched each cell, so this costs a few cells per entry, not a comparison against every other entry.
+        static const bool reorder = [] {
+            const char *forced = std::getenv("STURDY_UI_REORDER");
+            return forced == nullptr || std::string_view{forced} != "0";
+        }();
+        constexpr f32 kEdgePad = 2.0f; // anti-aliased edges reach a little past the geometry
+        constexpr i32 kCell = 8;
+        const i32 columns = std::max<i32>(1, (static_cast<i32>(viewport.x) + kCell - 1) / kCell);
+        const i32 rows = std::max<i32>(1, (static_cast<i32>(viewport.y) + kCell - 1) / kCell);
+        vector<i32> latest(static_cast<usize>(columns) * static_cast<usize>(rows), -1);
+        constexpr usize kKinds = 7;
+        std::array<vector<u32>, kKinds> groups_of_kind;
+        u32 group_count = 0;
+        // Plain fills go through the quad pipeline, so they group with quads.
+        const auto kind_slot = [](PaintEntry::Kind kind) {
+            return static_cast<usize>(kind == PaintEntry::Kind::Fill ? PaintEntry::Kind::Quad : kind);
+        };
+
+        for (PaintEntry &entry : entries) {
+            // Everything but the batched kinds (custom shader elements) is a barrier: it can neither move nor be moved past.
+            bool barrier = false;
+            glm::vec2 lo{std::numeric_limits<f32>::max()};
+            glm::vec2 hi{std::numeric_limits<f32>::lowest()};
+            const auto grow = [&](glm::vec2 a, glm::vec2 size, f32 pad) {
+                lo = glm::min(lo, a - glm::vec2{pad});
+                hi = glm::max(hi, a + size + glm::vec2{pad});
+            };
+            switch (entry.kind) {
+                case PaintEntry::Kind::Quad: {
+                    const UiQuadInstance &quad = snapshot.quads_[entry.index].instance;
+                    grow(quad.position, quad.size, kEdgePad);
+                    break;
+                }
+                case PaintEntry::Kind::Fill: {
+                    for (const FillQuad &quad : snapshot.fills_[entry.index].quads) {
+                        grow(quad.position, quad.size, kEdgePad);
+                    }
+                    break;
+                }
+                case PaintEntry::Kind::Stroke: {
+                    for (const StrokePath &path : snapshot.strokes_[entry.index].paths) {
+                        const f32 pad = path.style.width * 0.5f + path.style.feather_px + kEdgePad;
+                        for (const glm::vec2 &point : path.points) {
+                            grow(point, glm::vec2{0.0f}, pad);
+                        }
+                        // A glowing path also draws into the shared glow mask, which spreads across the surface.
+                        if (path.style.glow_intensity > 0.0f) {
+                            barrier = true;
+                        }
+                    }
+                    break;
+                }
+                case PaintEntry::Kind::Sector: {
+                    for (const Sector &sector : snapshot.sectors_[entry.index].sectors) {
+                        grow(sector.center - glm::vec2{sector.outer_radius}, glm::vec2{sector.outer_radius * 2.0f},
+                             kEdgePad + sector.style.feather_px);
+                    }
+                    break;
+                }
+                case PaintEntry::Kind::Text: {
+                    for (usize k = 0; k < entry.count; ++k) {
+                        const Renderer::GlyphPlacement &glyph = snapshot.glyphs_[entry.index + k];
+                        // A glyph's quad can sit anywhere near its pen position (bearings, outlines, SDF spread).
+                        const f32 pad = glyph.pixel_size + kEdgePad;
+                        grow(glyph.position, glyph.size, pad);
+                    }
+                    break;
+                }
+                case PaintEntry::Kind::Custom:
+                case PaintEntry::Kind::CustomStroke:
+                    barrier = true;
+                    break;
+            }
+            if (barrier || !reorder) {
+                lo = glm::vec2{0.0f};
+                hi = glm::vec2{static_cast<f32>(viewport.x), static_cast<f32>(viewport.y)};
+            }
+            // Cells the rectangle touches, clamped to the surface (what is off it draws nothing and constrains nothing).
+            const i32 x0 = std::clamp(static_cast<i32>(std::floor(lo.x / kCell)), 0, columns - 1);
+            const i32 x1 = std::clamp(static_cast<i32>(std::floor(hi.x / kCell)), 0, columns - 1);
+            const i32 y0 = std::clamp(static_cast<i32>(std::floor(lo.y / kCell)), 0, rows - 1);
+            const i32 y1 = std::clamp(static_cast<i32>(std::floor(hi.y / kCell)), 0, rows - 1);
+            const bool on_surface = hi.x >= 0.0f && hi.y >= 0.0f && lo.x <= static_cast<f32>(viewport.x) &&
+                                    lo.y <= static_cast<f32>(viewport.y) && lo.x <= hi.x && lo.y <= hi.y;
+            i32 after = -1;
+            if (on_surface) {
+                for (i32 y = y0; y <= y1; ++y) {
+                    for (i32 x = x0; x <= x1; ++x) {
+                        after = std::max(after, latest[static_cast<usize>(y) * static_cast<usize>(columns) + static_cast<usize>(x)]);
+                    }
+                }
+            }
+            // The earliest group of this kind that is not before `after`; failing that, a new one at the end.
+            vector<u32> &same_kind = groups_of_kind[kind_slot(entry.kind)];
+            const auto found = std::ranges::lower_bound(same_kind, static_cast<u32>(std::max<i32>(after, 0)));
+            u32 group = 0;
+            if (barrier || found == same_kind.end()) {
+                group = group_count++;
+                same_kind.push_back(group);
+            } else {
+                group = *found;
+            }
+            entry.group = group;
+            if (on_surface) {
+                for (i32 y = y0; y <= y1; ++y) {
+                    for (i32 x = x0; x <= x1; ++x) {
+                        i32 &cell = latest[static_cast<usize>(y) * static_cast<usize>(columns) + static_cast<usize>(x)];
+                        cell = std::max(cell, static_cast<i32>(group));
+                    }
+                }
+            }
+        }
+        std::ranges::stable_sort(entries, {}, &PaintEntry::group);
+    }
+
+    void UiRenderer::release_glow_targets(RHI::RhiDevice &device, FrameResources &resources) noexcept {
+        if (resources.glow_mask_view) device.destroy_texture_view(resources.glow_mask_view);
+        if (resources.glow_mask_texture) device.destroy_texture(resources.glow_mask_texture);
+        if (resources.glow_bloom_view) device.destroy_texture_view(resources.glow_bloom_view);
+        if (resources.glow_bloom_texture) device.destroy_texture(resources.glow_bloom_texture);
+        resources.glow_mask_texture = {};
+        resources.glow_mask_view = {};
+        resources.glow_bloom_texture = {};
+        resources.glow_bloom_view = {};
+        resources.glow_extent = {};
+        resources.glow_idle_frames = 0;
+        // Its bind group points at the bloom view that was just destroyed.
+        destroy_ui_quad_frame_resources(device, resources.glow_composite_quad);
+    }
+
     /// Prepares the required state or resources for a later operation.
     ///
     /// @param device Device used or affected by the operation.
@@ -283,27 +416,14 @@ namespace SFT::UI {
         frame_resources.custom_group_ids.clear();
         frame_resources.custom_strokes.clear();
         frame_resources.custom_stroke_group_ids.clear();
-        // Torn down here rather than immediately after use: the (surface, frame_resource_index) slot
-        // being reused is itself the engine's existing signal that last time's GPU work on this slot
-        // has completed (every other per-slot resource above is reused/rewritten the same way), so
-        // it's safe to destroy the previous frame's owned glow mask/bloom textures now.
-        if (frame_resources.glow_mask_view) device.destroy_texture_view(frame_resources.glow_mask_view);
-        if (frame_resources.glow_mask_texture) device.destroy_texture(frame_resources.glow_mask_texture);
-        if (frame_resources.glow_bloom_view) device.destroy_texture_view(frame_resources.glow_bloom_view);
-        if (frame_resources.glow_bloom_texture) device.destroy_texture(frame_resources.glow_bloom_texture);
-        frame_resources.glow_mask_texture = {};
-        frame_resources.glow_mask_view = {};
-        frame_resources.glow_bloom_texture = {};
-        frame_resources.glow_bloom_view = {};
+        // The glow mask and bloom targets stay alive from frame to frame: a frame that draws glow reuses them (the render
+        // graph imports them as Undefined, so no content is carried over), and the (surface, frame_resource_index)
+        // slot being reused is itself the engine's signal that this slot's earlier GPU work has finished, so remaking or
+        // releasing them here is safe. They are let go after a long enough stretch without any glow.
         frame_resources.glow_mask_stroke_batches.clear();
-        // destroy_ui_quad_frame_resources (not a plain .clear()) is required here: glow_bloom_view is a
-        // brand-new RHI::TextureViewHandle every frame (the texture above it was just destroyed and is
-        // about to be recreated), so quad_pipeline_'s per-texture-view binding cache can never find a
-        // matching entry to reuse — every frame would otherwise push one more *persistent* bind group
-        // into glow_composite_quad.binding_cache that's never evicted, since nothing else ever removes
-        // an entry from that cache. That's a real, unbounded leak of persistent-descriptor-pool-backed
-        // bind groups (visible as ever-growing descriptor pool chunk counts), not just wasted memory.
-        destroy_ui_quad_frame_resources(device, frame_resources.glow_composite_quad);
+        if (frame_resources.glow_mask_texture && ++frame_resources.glow_idle_frames > kGlowIdleFramesBeforeRelease) {
+            release_glow_targets(device, frame_resources);
+        }
         frame_resources.glow_composite_quad_batches.clear();
         if (!white_texture_) {
 
@@ -334,7 +454,9 @@ namespace SFT::UI {
         const Core::Extent2D viewport_extent = snapshot.viewport_extent();
         const RHI::Rect2D full_viewport_scissor{.x = 0, .y = 0, .width = viewport_extent.x, .height = viewport_extent.y};
 
-        vector<PaintEntry> entries;
+        PrepareScratch &scratch = scratch_;
+        vector<PaintEntry> &entries = scratch.entries;
+        entries.clear();
         entries.reserve(snapshot.quads_.size() + snapshot.strokes_.size() + snapshot.custom_draws_.size() + 8);
         for (usize i = 0; i < snapshot.quads_.size(); ++i) {
             entries.push_back(PaintEntry{.paint = snapshot.quads_[i].paint, .kind = PaintEntry::Kind::Quad, .index = i});
@@ -370,35 +492,47 @@ namespace SFT::UI {
                  [](const PaintEntry &a, const PaintEntry &b) noexcept { return a.paint < b.paint; });
 
 
-        vector<UiQuadInstance> quad_instances;
-        vector<RHI::TextureViewHandle> quad_texture_views;
-        vector<u64> quad_texture_revisions;
+        auto &quad_instances = scratch.quad_instances;
+        auto &quad_texture_views = scratch.quad_texture_views;
+        auto &quad_texture_revisions = scratch.quad_texture_revisions;
         // Largest drawn size per image texture this frame, reported once after the loop.
-        std::unordered_map<u64, f32> drawn_image_sizes;
-        vector<RHI::Rect2D> quad_scissors;
-        vector<u32> quad_groups;
-        vector<UiStrokeInstance> stroke_instances;
-        vector<RHI::Rect2D> stroke_scissors;
-        vector<u32> stroke_groups;
-        vector<UiStrokeInstance> mask_instances;
-        vector<RHI::Rect2D> mask_scissors;
-        vector<u32> mask_groups;
-        vector<UiSectorInstance> sector_instances;
-        vector<RHI::Rect2D> sector_scissors;
-        vector<u32> sector_groups;
-        vector<Renderer::GlyphPlacement> ordered_glyphs;
-        vector<RHI::Rect2D> ordered_glyph_scissors;
-        vector<u32> glyph_groups;
+        auto &drawn_image_sizes = scratch.drawn_image_sizes;
+        auto &quad_scissors = scratch.quad_scissors;
+        auto &quad_groups = scratch.quad_groups;
+        auto &stroke_instances = scratch.stroke_instances;
+        auto &stroke_scissors = scratch.stroke_scissors;
+        auto &stroke_groups = scratch.stroke_groups;
+        auto &mask_instances = scratch.mask_instances;
+        auto &mask_scissors = scratch.mask_scissors;
+        auto &mask_groups = scratch.mask_groups;
+        auto &sector_instances = scratch.sector_instances;
+        auto &sector_scissors = scratch.sector_scissors;
+        auto &sector_groups = scratch.sector_groups;
+        auto &ordered_glyphs = scratch.ordered_glyphs;
+        auto &ordered_glyph_scissors = scratch.ordered_glyph_scissors;
+        auto &glyph_groups = scratch.glyph_groups;
+        quad_instances.clear();
+        quad_texture_views.clear();
+        quad_texture_revisions.clear();
+        drawn_image_sizes.clear();
+        quad_scissors.clear();
+        quad_groups.clear();
+        stroke_instances.clear();
+        stroke_scissors.clear();
+        stroke_groups.clear();
+        mask_instances.clear();
+        mask_scissors.clear();
+        mask_groups.clear();
+        sector_instances.clear();
+        sector_scissors.clear();
+        sector_groups.clear();
+        ordered_glyphs.clear();
+        ordered_glyph_scissors.clear();
+        glyph_groups.clear();
 
-        u32 group_id = 0;
-        bool has_previous_kind = false;
-        PaintEntry::Kind previous_kind{};
+        assign_paint_groups(snapshot, snapshot.viewport_extent(), entries);
         for (const PaintEntry &entry : entries) {
-            if (has_previous_kind && entry.kind != previous_kind) {
-                ++group_id;
-            }
-            has_previous_kind = true;
-            previous_kind = entry.kind;
+            const u32 group_id = entry.group;
 
             switch (entry.kind) {
                 case PaintEntry::Kind::Quad: {
@@ -536,7 +670,8 @@ namespace SFT::UI {
         }
 
         if (!drawn_image_sizes.empty()) {
-            vector<std::pair<Renderer::TextureHandle, f32>> drawn;
+            auto &drawn = scratch.drawn_images;
+            drawn.clear();
             drawn.reserve(drawn_image_sizes.size());
             for (const auto &[value, pixels] : drawn_image_sizes) {
                 drawn.emplace_back(Renderer::TextureHandle{value}, pixels);
@@ -578,7 +713,8 @@ namespace SFT::UI {
         }
 
         if (!ordered_glyphs.empty()) {
-            vector<Renderer::GlyphRequest> requests;
+            auto &requests = scratch.glyph_requests;
+            requests.clear();
             requests.reserve(ordered_glyphs.size());
             for (const Renderer::GlyphPlacement &placement : ordered_glyphs) {
                 requests.push_back(Renderer::GlyphRequest{
@@ -591,14 +727,16 @@ namespace SFT::UI {
                     .font = placement.font,
                 });
             }
-            vector<Renderer::GlyphSlot> slots;
+            auto &slots = scratch.glyph_slots;
+            slots.clear();
             if (auto resident = surface_resources->text_atlas.ensure_resident(
                     device, encoder, requests, slots, out_transient_buffers, out_retired_atlas_resources);
                 !resident) {
                 return unexpected(resident.error());
             }
 
-            vector<Renderer::GlyphInstance> instances;
+            auto &instances = scratch.glyph_instances;
+            instances.clear();
             instances.reserve(ordered_glyphs.size());
             for (usize i = 0; i < ordered_glyphs.size(); ++i) {
                 instances.push_back(
@@ -614,6 +752,28 @@ namespace SFT::UI {
             }
         }
 
+        stats_ = UiRenderStats{
+            .quads = frame_resources.quads.stats.instances,
+            .glyphs = static_cast<u32>(ordered_glyphs.size()),
+            .strokes = static_cast<u32>(stroke_instances.size()),
+            .sectors = static_cast<u32>(sector_instances.size()),
+            .custom_elements = static_cast<u32>(frame_resources.custom_draws.size() + frame_resources.custom_strokes.size()),
+            .quad_batches = static_cast<u32>(frame_resources.quad_batches.size()),
+            .text_batches = static_cast<u32>(frame_resources.text_batches.size()),
+            .stroke_batches = static_cast<u32>(frame_resources.stroke_batches.size()),
+            .sector_batches = static_cast<u32>(frame_resources.sector_batches.size()),
+            .quad_textures = frame_resources.quads.stats.textures,
+            .bind_groups_created = frame_resources.quads.stats.bind_groups_created,
+            .quad_bytes_uploaded = frame_resources.quads.stats.bytes_uploaded,
+            .bindless_textures = quad_pipeline_.bindless(),
+        };
+        SFT_LOG_INFO_THROTTLED(5000,
+            "UI frame: {} quads in {} batches ({} textures, {}), {} glyphs in {} batches, {} stroke segments in {} batches, "
+            "{} sectors in {} batches, {} custom elements; {} bind groups created, {} bytes of quads uploaded.",
+            stats_.quads, stats_.quad_batches, stats_.quad_textures, stats_.bindless_textures ? "bindless" : "bind group per texture",
+            stats_.glyphs, stats_.text_batches, stats_.strokes, stats_.stroke_batches, stats_.sectors, stats_.sector_batches,
+            stats_.custom_elements, stats_.bind_groups_created, stats_.quad_bytes_uploaded);
+
         if (!mask_instances.empty()) {
             if (Core::RendererResult mask_prepared = stroke_pipeline_.prepare(
                     device, mask_instances, mask_scissors, mask_groups,
@@ -622,47 +782,53 @@ namespace SFT::UI {
                 return mask_prepared;
             }
 
-            auto mask_texture = device.create_texture(RHI::TextureDesc{
-                .dimension = RHI::TextureDimension::Dim2D,
-                .format = color_format_,
-                .extent = RHI::Extent3D{.width = viewport_extent.x, .height = viewport_extent.y, .depth_or_layers = 1},
-                .mip_levels = 1,
-                .samples = RHI::SampleCount::X1,
-                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
-                .label = "ui glow mask",
-            });
-            if (!mask_texture) {
-                return unexpected(Renderer::graphics_error_from_rhi(mask_texture.error(), "create ui glow mask texture"));
-            }
-            frame_resources.glow_mask_texture = *mask_texture;
-            auto mask_view = device.create_texture_view(RHI::TextureViewDesc{
-                .texture = frame_resources.glow_mask_texture, .view_type = RHI::TextureViewType::View2D,
-                .format = color_format_, .label = "ui glow mask view"});
-            if (!mask_view) {
-                return unexpected(Renderer::graphics_error_from_rhi(mask_view.error(), "create ui glow mask texture view"));
-            }
-            frame_resources.glow_mask_view = *mask_view;
+            if (!frame_resources.glow_mask_texture || frame_resources.glow_extent.x != viewport_extent.x ||
+                frame_resources.glow_extent.y != viewport_extent.y) {
+                release_glow_targets(device, frame_resources);
+                auto mask_texture = device.create_texture(RHI::TextureDesc{
+                    .dimension = RHI::TextureDimension::Dim2D,
+                    .format = color_format_,
+                    .extent = RHI::Extent3D{.width = viewport_extent.x, .height = viewport_extent.y, .depth_or_layers = 1},
+                    .mip_levels = 1,
+                    .samples = RHI::SampleCount::X1,
+                    .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                    .label = "ui glow mask",
+                });
+                if (!mask_texture) {
+                    return unexpected(Renderer::graphics_error_from_rhi(mask_texture.error(), "create ui glow mask texture"));
+                }
+                frame_resources.glow_mask_texture = *mask_texture;
+                auto mask_view = device.create_texture_view(RHI::TextureViewDesc{
+                    .texture = frame_resources.glow_mask_texture, .view_type = RHI::TextureViewType::View2D,
+                    .format = color_format_, .label = "ui glow mask view"});
+                if (!mask_view) {
+                    return unexpected(Renderer::graphics_error_from_rhi(mask_view.error(), "create ui glow mask texture view"));
+                }
+                frame_resources.glow_mask_view = *mask_view;
 
-            auto bloom_texture = device.create_texture(RHI::TextureDesc{
-                .dimension = RHI::TextureDimension::Dim2D,
-                .format = color_format_,
-                .extent = RHI::Extent3D{.width = viewport_extent.x, .height = viewport_extent.y, .depth_or_layers = 1},
-                .mip_levels = 1,
-                .samples = RHI::SampleCount::X1,
-                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
-                .label = "ui glow bloom",
-            });
-            if (!bloom_texture) {
-                return unexpected(Renderer::graphics_error_from_rhi(bloom_texture.error(), "create ui glow bloom texture"));
+                auto bloom_texture = device.create_texture(RHI::TextureDesc{
+                    .dimension = RHI::TextureDimension::Dim2D,
+                    .format = color_format_,
+                    .extent = RHI::Extent3D{.width = viewport_extent.x, .height = viewport_extent.y, .depth_or_layers = 1},
+                    .mip_levels = 1,
+                    .samples = RHI::SampleCount::X1,
+                    .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                    .label = "ui glow bloom",
+                });
+                if (!bloom_texture) {
+                    return unexpected(Renderer::graphics_error_from_rhi(bloom_texture.error(), "create ui glow bloom texture"));
+                }
+                frame_resources.glow_bloom_texture = *bloom_texture;
+                auto bloom_view = device.create_texture_view(RHI::TextureViewDesc{
+                    .texture = frame_resources.glow_bloom_texture, .view_type = RHI::TextureViewType::View2D,
+                    .format = color_format_, .label = "ui glow bloom view"});
+                if (!bloom_view) {
+                    return unexpected(Renderer::graphics_error_from_rhi(bloom_view.error(), "create ui glow bloom texture view"));
+                }
+                frame_resources.glow_bloom_view = *bloom_view;
+                frame_resources.glow_extent = viewport_extent;
             }
-            frame_resources.glow_bloom_texture = *bloom_texture;
-            auto bloom_view = device.create_texture_view(RHI::TextureViewDesc{
-                .texture = frame_resources.glow_bloom_texture, .view_type = RHI::TextureViewType::View2D,
-                .format = color_format_, .label = "ui glow bloom view"});
-            if (!bloom_view) {
-                return unexpected(Renderer::graphics_error_from_rhi(bloom_view.error(), "create ui glow bloom texture view"));
-            }
-            frame_resources.glow_bloom_view = *bloom_view;
+            frame_resources.glow_idle_frames = 0;
 
             const Renderer::RenderGraphTextureHandle mask_handle = render_graph.import_texture(Renderer::RenderGraphImportedTextureDesc{
                 .texture = frame_resources.glow_mask_texture,
@@ -775,6 +941,8 @@ namespace SFT::UI {
         FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
 
 
+        // What the quad pipeline left bound; any other pipeline drawing on the pass disturbs it.
+        UiQuadDrawState quad_state;
         usize quad_cursor = 0;
         usize stroke_cursor = 0;
         usize sector_cursor = 0;
@@ -810,7 +978,7 @@ namespace SFT::UI {
             while (quad_cursor < frame_resources.quad_batches.size() &&
                    frame_resources.quad_batches[quad_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = quad_pipeline_.draw(
-                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size);
+                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size, &quad_state);
                     !drawn) {
                     return drawn;
                 }
@@ -824,6 +992,7 @@ namespace SFT::UI {
                     return drawn;
                 }
                 ++stroke_cursor;
+                quad_state = {};
             }
             while (sector_cursor < frame_resources.sector_batches.size() &&
                    frame_resources.sector_batches[sector_cursor].paint_group == next_group) {
@@ -833,6 +1002,7 @@ namespace SFT::UI {
                     return drawn;
                 }
                 ++sector_cursor;
+                quad_state = {};
             }
             while (text_cursor < frame_resources.text_batches.size() &&
                    frame_resources.text_batches[text_cursor].paint_group == next_group) {
@@ -842,6 +1012,7 @@ namespace SFT::UI {
                     return drawn;
                 }
                 ++text_cursor;
+                quad_state = {};
             }
             while (custom_cursor < frame_resources.custom_draws.size() &&
                    frame_resources.custom_group_ids[custom_cursor] == next_group) {
@@ -851,6 +1022,7 @@ namespace SFT::UI {
                     return drawn;
                 }
                 ++custom_cursor;
+                quad_state = {};
             }
             while (custom_stroke_cursor < frame_resources.custom_strokes.size() &&
                    frame_resources.custom_stroke_group_ids[custom_stroke_cursor] == next_group) {
@@ -860,6 +1032,7 @@ namespace SFT::UI {
                     return drawn;
                 }
                 ++custom_stroke_cursor;
+                quad_state = {};
             }
         }
 
@@ -872,6 +1045,12 @@ namespace SFT::UI {
             }
         }
         return {};
+    }
+
+    UiRenderStats UiRenderer::stats() const {
+        auto guard = operation_mutex_->lock();
+        (void)guard;
+        return stats_;
     }
 
     /// Destroys or releases the `UI` resource represented by the supplied parameters.
@@ -890,11 +1069,7 @@ namespace SFT::UI {
                 destroy_ui_sector_frame_resources(device, resources.sectors);
                 destroy_text_frame_resources(device, resources.text);
                 destroy_ui_stroke_frame_resources(device, resources.glow_mask_stroke);
-                destroy_ui_quad_frame_resources(device, resources.glow_composite_quad);
-                if (resources.glow_mask_view) device.destroy_texture_view(resources.glow_mask_view);
-                if (resources.glow_mask_texture) device.destroy_texture(resources.glow_mask_texture);
-                if (resources.glow_bloom_view) device.destroy_texture_view(resources.glow_bloom_view);
-                if (resources.glow_bloom_texture) device.destroy_texture(resources.glow_bloom_texture);
+                release_glow_targets(device, resources);
             }
             surface_resources.text_atlas.destroy(device);
         }

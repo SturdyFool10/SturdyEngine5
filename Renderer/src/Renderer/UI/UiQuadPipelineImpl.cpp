@@ -6,6 +6,7 @@
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <glm/vec3.hpp>
 #include <limits>
@@ -34,10 +35,15 @@ namespace SFT::UI {
     /// @note This function does not throw exceptions.
     void destroy_ui_quad_frame_resources(RHI::RhiDevice &device, UiQuadFrameResources &resources) noexcept {
         for (UiQuadFrameResources::BindingCacheEntry &entry : resources.binding_cache) {
-            for (const UiQuadDrawBatch::BoundGroup &group : entry.bind_groups) {
-                if (group.handle) {
-                    device.destroy_bind_group(group.handle);
+            for (u32 i = 0; i < entry.bind_group_count; ++i) {
+                if (entry.bind_groups[i].handle) {
+                    device.destroy_bind_group(entry.bind_groups[i].handle);
                 }
+            }
+        }
+        for (u32 i = 0; i < resources.table_group_count; ++i) {
+            if (resources.table_groups[i].handle) {
+                device.destroy_bind_group(resources.table_groups[i].handle);
             }
         }
         if (resources.instance_buffer) {
@@ -72,8 +78,8 @@ namespace SFT::UI {
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] bool same_instance(const UiQuadInstance &lhs, const UiQuadInstance &rhs) noexcept {
-            return std::memcmp(&lhs, &rhs, sizeof(UiQuadInstance)) == 0;
+        [[nodiscard]] bool same_instance(const UiQuadInstanceGpu &lhs, const UiQuadInstanceGpu &rhs) noexcept {
+            return std::memcmp(&lhs, &rhs, sizeof(UiQuadInstanceGpu)) == 0;
         }
 
         /// Performs the same rect operation for `UI` using the supplied arguments.
@@ -116,17 +122,51 @@ namespace SFT::UI {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<UiQuadPipeline> UiQuadPipeline::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
+        // Textures as one array when the device can index descriptors; if that path cannot be built for any reason
+        // the pipeline still comes up the one-texture-per-bind-group way.
+        const RHI::FeatureSet bindless_features = RHI::features_of({
+            RHI::Feature::BindlessResources,
+            RHI::Feature::RuntimeDescriptorArrays,
+            RHI::Feature::DescriptorBindingVariableCount,
+            RHI::Feature::DescriptorBindingPartiallyBound,
+            RHI::Feature::DescriptorBindingUpdateAfterBind,
+            RHI::Feature::SampledImageArrayNonUniformIndexing,
+        });
+        const u32 variable_limit = device.feature_properties().descriptor_indexing.max_variable_descriptor_count;
+        // Vulkan uses the table by default (STURDY_UI_BINDLESS=0 turns it off, to compare the two or to rule it out). On
+        // D3D12 it has not been exercised on a real device yet, so it stays off there unless STURDY_UI_BINDLESS=1 asks.
+        const char *forced = std::getenv("STURDY_UI_BINDLESS");
+        const std::string_view forced_value = forced != nullptr ? std::string_view{forced} : std::string_view{};
+        const bool allowed = forced_value == "0" ? false
+                             : forced_value == "1" ? true
+                                                   : device.backend_type() == RHI::BackendType::Vulkan;
+        if (allowed && device.enabled_features().contains_all(bindless_features) && variable_limit >= kMinBindlessCapacity) {
+            auto bindless = create_variant(device, color_format, enable_shader_disk_cache, std::min(kBindlessCapacity, variable_limit));
+            if (bindless) {
+                return bindless;
+            }
+            Foundation::log_warn("UI: the bindless quad pipeline could not be built ({}); falling back to one bind group per texture.",
+                                 bindless.error().message);
+        }
+        return create_variant(device, color_format, enable_shader_disk_cache, 0);
+    }
+
+    Core::RendererExpected<UiQuadPipeline> UiQuadPipeline::create_variant(
+        RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache, u32 bindless_capacity) {
         const auto shader_target = Renderer::shader_target_for_device(device);
         if (!shader_target) {
             return unexpected(shader_target.error());
         }
-        const slang::ShaderCompileOptions options{
+        slang::ShaderCompileOptions options{
             .targets = Renderer::shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
+        if (bindless_capacity != 0) {
+            options.macros.push_back(slang::ShaderMacro{.name = "SFT_UI_BINDLESS", .value = "1"});
+        }
         slang::ShaderVariantCache shader_cache{
             slang::ShaderSource::from_file("Shaders/ui_quad.slang", "ui_quad"),
             options,
@@ -138,6 +178,8 @@ namespace SFT::UI {
         }
 
         UiQuadPipeline pipeline;
+        pipeline.bindless_ = bindless_capacity != 0;
+        pipeline.bindless_capacity_ = bindless_capacity;
 
         auto vertex_code = shader->entry_point_code("vertexMain", shader_target->slang_target.format);
         if (!vertex_code) {
@@ -171,10 +213,15 @@ namespace SFT::UI {
 
         const slang::ShaderReflection &reflection = shader->reflection();
         const RHI::ShaderStage stage_mask = Renderer::reflected_stage_mask(reflection);
-        const vector<Renderer::GeneratedBindGroupLayout> generated = Renderer::generate_bind_group_layouts(reflection, stage_mask);
+        const vector<Renderer::GeneratedBindGroupLayout> generated = Renderer::generate_bind_group_layouts(
+            reflection, stage_mask, bindless_capacity != 0 ? bindless_capacity : 4096u);
         if (generated.empty()) {
             pipeline.destroy(device);
             return unexpected(ui_quad_error("ui_quad shader produced no bind-group layout."));
+        }
+        if (generated.size() > kUiQuadMaxBindGroups) {
+            pipeline.destroy(device);
+            return unexpected(ui_quad_error("ui_quad shader produced more bind-group layouts than a quad batch can hold."));
         }
         for (const Renderer::GeneratedBindGroupLayout &layout : generated) {
             auto handle = device.create_bind_group_layout(RHI::BindGroupLayoutDesc{
@@ -202,13 +249,13 @@ namespace SFT::UI {
             return ResourceBinding{};
         };
         pipeline.instances_binding_ = resolve("instances");
-        pipeline.texture_binding_ = resolve("quadTexture");
+        pipeline.texture_binding_ = resolve(pipeline.bindless_ ? "quadTextures" : "quadTexture");
         pipeline.sampler_binding_ = resolve("quadSampler");
         pipeline.nearest_sampler_binding_ = resolve("quadSamplerNearest");
         if (!pipeline.instances_binding_.found || !pipeline.texture_binding_.found || !pipeline.sampler_binding_.found) {
             pipeline.destroy(device);
             return unexpected(ui_quad_error(
-                "ui_quad shader reflection did not produce the expected instances/quadTexture/quadSampler bindings."));
+                "ui_quad shader reflection did not produce the expected instances/texture/quadSampler bindings."));
         }
 
         const vector<RHI::PushConstantRange> push_constant_ranges = Renderer::generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
@@ -337,6 +384,7 @@ namespace SFT::UI {
                                                  span<const u32> instance_paint_groups,
                                                  UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches) {
         out_batches.clear();
+        resources.stats = {};
         if (instances.size() != instance_texture_views.size() || instances.size() != instance_texture_revisions.size() ||
             instances.size() != instance_scissors.size() ||
             instances.size() != instance_paint_groups.size()) {
@@ -348,29 +396,23 @@ namespace SFT::UI {
             return {};
         }
 
-        usize i = 0;
-        while (i < instances.size()) {
-            usize j = i + 1;
-            while (j < instances.size() && instance_texture_views[j] == instance_texture_views[i] &&
-                   instance_texture_revisions[j] == instance_texture_revisions[i] &&
-                   same_rect(instance_scissors[j], instance_scissors[i]) &&
-                   instance_paint_groups[j] == instance_paint_groups[i]) {
-                ++j;
+        // A quad whose texture is gone (an adopted texture created on a device that has since been replaced, or one
+        // the app destroyed) draws nothing; it must not fail the whole frame, UI included.
+        const usize drawable = static_cast<usize>(std::ranges::count_if(
+            instance_texture_views, [](RHI::TextureViewHandle view) { return static_cast<bool>(view); }));
+        if (const usize dropped = instances.size() - drawable; dropped != 0) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true)) {
+                Foundation::log_warn("UI: skipped {} quad(s) referencing an invalid texture view (once per run).", dropped);
             }
-            out_batches.push_back(UiQuadDrawBatch{
-                .texture_view = instance_texture_views[i],
-                .texture_revision = instance_texture_revisions[i],
-                .scissor = instance_scissors[i],
-                .first_instance = static_cast<u32>(i),
-                .instance_count = static_cast<u32>(j - i),
-                .paint_group = instance_paint_groups[i],
-            });
-            i = j;
+        }
+        if (drawable == 0) {
+            return {};
         }
 
-        const u64 required_bytes = static_cast<u64>(instances.size()) * sizeof(UiQuadInstance);
+        const u64 required_bytes = static_cast<u64>(drawable) * sizeof(UiQuadInstanceGpu);
         if (!resources.instance_buffer || resources.instance_capacity_bytes < required_bytes) {
-            u64 new_capacity = std::max<u64>(sizeof(UiQuadInstance) * 64u, resources.instance_capacity_bytes);
+            u64 new_capacity = std::max<u64>(sizeof(UiQuadInstanceGpu) * 64u, resources.instance_capacity_bytes);
             while (new_capacity < required_bytes) {
                 new_capacity = new_capacity > std::numeric_limits<u64>::max() / 2u ? required_bytes : new_capacity * 2u;
             }
@@ -381,114 +423,260 @@ namespace SFT::UI {
                 .label = "persistent ui quad instance buffer",
             });
             if (!replacement) {
-                out_batches.clear();
                 return unexpected(Renderer::graphics_error_from_rhi(replacement.error(), "create persistent ui quad instance buffer"));
             }
+            // Every bind group of the old buffer goes with it, and the table starts over.
             destroy_ui_quad_frame_resources(device, resources);
             resources.instance_buffer = *replacement;
             resources.instance_capacity_bytes = new_capacity;
         }
 
-        const bool instances_unchanged = resources.uploaded_instances.size() == instances.size() &&
-            std::ranges::equal(resources.uploaded_instances, instances, same_instance);
+        // Builds the bind groups of one layout set each from `entries` (each entry tagged with the layout it belongs to).
+        struct LayoutEntry {
+            usize layout_index = 0;
+            RHI::BindGroupEntry entry{};
+        };
+        const auto build_groups = [&](span<const LayoutEntry> entries, u32 variable_count, const char *label,
+                                      std::array<UiQuadDrawBatch::BoundGroup, kUiQuadMaxBindGroups> &out_groups,
+                                      u32 &out_count) -> Core::RendererResult {
+            out_count = 0;
+            for (usize layout_index = 0; layout_index < bind_group_layouts_.size(); ++layout_index) {
+                vector<RHI::BindGroupEntry> group_entries;
+                for (const LayoutEntry &candidate : entries) {
+                    if (candidate.layout_index == layout_index) {
+                        group_entries.push_back(candidate.entry);
+                    }
+                }
+                if (group_entries.empty()) {
+                    continue;
+                }
+                auto bind_group = device.create_bind_group(RHI::BindGroupDesc{
+                    .layout = bind_group_layouts_[layout_index],
+                    .entries = span<const RHI::BindGroupEntry>{group_entries.data(), group_entries.size()},
+                    .variable_descriptor_count = variable_count,
+                    .label = label,
+                });
+                if (!bind_group) {
+                    for (u32 i = 0; i < out_count; ++i) {
+                        device.destroy_bind_group(out_groups[i].handle);
+                    }
+                    out_count = 0;
+                    return unexpected(Renderer::graphics_error_from_rhi(bind_group.error(), label));
+                }
+                out_groups[out_count++] = UiQuadDrawBatch::BoundGroup{
+                    .set = bind_group_layout_sets_[layout_index],
+                    .handle = *bind_group,
+                };
+                ++resources.stats.bind_groups_created;
+            }
+            return {};
+        };
+        const auto shared_entries = [&](vector<LayoutEntry> &entries) {
+            entries.push_back(LayoutEntry{instances_binding_.layout_index,
+                                          RHI::BindGroupEntry{.binding = instances_binding_.binding,
+                                                              .buffer = resources.instance_buffer,
+                                                              .offset = 0,
+                                                              .size = 0,
+                                                              .structure_stride = sizeof(UiQuadInstanceGpu)}});
+            entries.push_back(LayoutEntry{sampler_binding_.layout_index,
+                                          RHI::BindGroupEntry{.binding = sampler_binding_.binding, .sampler = sampler_}});
+            if (nearest_sampler_binding_.found) {
+                entries.push_back(LayoutEntry{nearest_sampler_binding_.layout_index,
+                                              RHI::BindGroupEntry{.binding = nearest_sampler_binding_.binding,
+                                                                  .sampler = nearest_sampler_}});
+            }
+        };
+
+        // Bindless: one table of every texture the frame draws, and one bind group for the whole frame. The table keeps
+        // its order and its bind group for as long as the set of textures stays the same; a texture that appears or
+        // goes away rebuilds it once.
+        if (bindless_) {
+            auto &table = resources.table;
+            auto &used = resources.table_used;
+            used.assign(table.size(), 0u);
+            bool rebuild = resources.table_group_count == 0;
+            for (usize i = 0; i < instances.size(); ++i) {
+                const RHI::TextureViewHandle view = instance_texture_views[i];
+                if (!view) {
+                    continue;
+                }
+                const auto found = resources.table_index.find(view.value);
+                if (found != resources.table_index.end() && table[found->second].revision == instance_texture_revisions[i]) {
+                    used[found->second] = 1u;
+                } else {
+                    rebuild = true;
+                }
+            }
+            if (!rebuild && std::ranges::find(used, 0u) != used.end()) {
+                rebuild = true;
+            }
+            if (rebuild) {
+                vector<UiQuadFrameResources::TableEntry> &next = resources.table_wanted;
+                next.clear();
+                resources.table_index.clear();
+                for (usize i = 0; i < table.size(); ++i) {
+                    if (used[i] != 0u) {
+                        resources.table_index.emplace(table[i].view.value, static_cast<u32>(next.size()));
+                        next.push_back(table[i]);
+                    }
+                }
+                for (usize i = 0; i < instances.size(); ++i) {
+                    const RHI::TextureViewHandle view = instance_texture_views[i];
+                    if (!view || resources.table_index.contains(view.value)) {
+                        continue;
+                    }
+                    if (next.size() >= bindless_capacity_) {
+                        static std::atomic<bool> warned{false};
+                        if (!warned.exchange(true)) {
+                            Foundation::log_warn("UI: a frame draws more than {} different textures; the rest draw with the first one (once per run).",
+                                                 bindless_capacity_);
+                        }
+                        continue;
+                    }
+                    resources.table_index.emplace(view.value, static_cast<u32>(next.size()));
+                    next.push_back(UiQuadFrameResources::TableEntry{.view = view, .revision = instance_texture_revisions[i]});
+                }
+                table.swap(next);
+                for (u32 i = 0; i < resources.table_group_count; ++i) {
+                    if (resources.table_groups[i].handle) {
+                        device.destroy_bind_group(resources.table_groups[i].handle);
+                    }
+                }
+                resources.table_group_count = 0;
+
+                vector<LayoutEntry> entries;
+                entries.reserve(table.size() + 3);
+                shared_entries(entries);
+                for (usize i = 0; i < table.size(); ++i) {
+                    entries.push_back(LayoutEntry{texture_binding_.layout_index,
+                                                  RHI::BindGroupEntry{.binding = texture_binding_.binding,
+                                                                      .array_element = static_cast<u32>(i),
+                                                                      .texture_view = table[i].view}});
+                }
+                if (Core::RendererResult built = build_groups(entries, static_cast<u32>(table.size()),
+                                                              "ui quad bindless bind group", resources.table_groups,
+                                                              resources.table_group_count);
+                    !built) {
+                    table.clear();
+                    resources.table_index.clear();
+                    return built;
+                }
+            }
+            resources.stats.textures = static_cast<u32>(table.size());
+        }
+
+        // The records themselves, packed straight into the vector that becomes the upload, and the batches: runs of
+        // quads that share a scissor and a paint group (and, without bindless, a texture).
+        vector<UiQuadInstanceGpu> &staged = resources.staged_instances;
+        staged.clear();
+        staged.reserve(drawable);
+        for (usize i = 0; i < instances.size(); ++i) {
+            const RHI::TextureViewHandle view = instance_texture_views[i];
+            if (!view) {
+                continue;
+            }
+            u32 texture_index = 0;
+            if (bindless_) {
+                if (const auto found = resources.table_index.find(view.value); found != resources.table_index.end()) {
+                    texture_index = found->second;
+                }
+            }
+            const bool extends = !out_batches.empty() &&
+                same_rect(out_batches.back().scissor, instance_scissors[i]) &&
+                out_batches.back().paint_group == instance_paint_groups[i] &&
+                (bindless_ || (out_batches.back().texture_view == view &&
+                               out_batches.back().texture_revision == instance_texture_revisions[i]));
+            if (extends) {
+                ++out_batches.back().instance_count;
+            } else {
+                out_batches.push_back(UiQuadDrawBatch{
+                    .texture_view = bindless_ ? RHI::TextureViewHandle{} : view,
+                    .texture_revision = bindless_ ? 0u : instance_texture_revisions[i],
+                    .scissor = instance_scissors[i],
+                    .first_instance = static_cast<u32>(staged.size()),
+                    .instance_count = 1,
+                    .paint_group = instance_paint_groups[i],
+                });
+            }
+            staged.push_back(pack_quad_instance(instances[i], texture_index));
+        }
+        resources.stats.instances = static_cast<u32>(staged.size());
+        resources.stats.batches = static_cast<u32>(out_batches.size());
+
+        const bool instances_unchanged = resources.uploaded_instances.size() == staged.size() &&
+            std::ranges::equal(resources.uploaded_instances, staged, same_instance);
         if (!instances_unchanged) {
-            const auto *bytes = reinterpret_cast<const std::byte *>(instances.data());
+            const u64 bytes_to_write = static_cast<u64>(staged.size()) * sizeof(UiQuadInstanceGpu);
+            const auto *bytes = reinterpret_cast<const std::byte *>(staged.data());
             if (auto written = device.write_buffer(resources.instance_buffer, 0,
-                                                   span<const std::byte>{bytes, static_cast<usize>(required_bytes)});
+                                                   span<const std::byte>{bytes, static_cast<usize>(bytes_to_write)});
                 !written) {
                 out_batches.clear();
                 return unexpected(Renderer::graphics_error_from_rhi(written.error(), "write ui quad instance buffer"));
             }
-            resources.uploaded_instances.assign(instances.begin(), instances.end());
+            resources.uploaded_instances.swap(staged);
+            resources.stats.bytes_uploaded = bytes_to_write;
         }
 
-        // A batch whose texture is gone (an adopted texture created on a device that has since been replaced, or one
-        // the app destroyed) draws nothing; it must not fail the whole frame, UI included.
-        const usize dropped = std::erase_if(out_batches, [](const UiQuadDrawBatch &batch) { return !batch.texture_view; });
-        if (dropped != 0) {
-            static std::atomic<bool> warned{false};
-            if (!warned.exchange(true)) {
-                Foundation::log_warn("UI: skipped {} quad batch(es) referencing an invalid texture view (once per run).", dropped);
+        if (bindless_) {
+            for (UiQuadDrawBatch &batch : out_batches) {
+                batch.instance_buffer = resources.instance_buffer;
+                batch.bind_groups = resources.table_groups;
+                batch.bind_group_count = resources.table_group_count;
             }
+            return {};
         }
-        // The cache is keyed by view handle, and a handle value can come back for a different texture once the old one
-        // is destroyed (an app reloading an icon or avatar, a rebuilt SVG cache). A stale entry would then bind the
-        // dead view and draw as a solid block or garbage, depending on the driver. Dropping every entry the frame does
-        // not use means a texture that goes away for even one frame cannot leave its bind group behind; it also keeps
-        // the cache from growing with every texture the UI has ever shown.
-        for (auto it = resources.binding_cache.begin(); it != resources.binding_cache.end();) {
-            const bool used = std::ranges::any_of(
-                out_batches, [&](const UiQuadDrawBatch &batch) { return batch.texture_view == it->texture_view && batch.texture_revision == it->texture_revision;
-                });
-            if (used) {
-                ++it;
-                continue;
-            }
-            for (const UiQuadDrawBatch::BoundGroup &group : it->bind_groups) {
-                if (group.handle) {
-                    device.destroy_bind_group(group.handle);
-                }
-            }
-            it = resources.binding_cache.erase(it);
+
+        // One texture per bind group. The cache is keyed by view handle, and a handle value can come back for a
+        // different texture once the old one is destroyed (an app reloading an icon or avatar, a rebuilt SVG cache). A
+        // stale entry would then bind the dead view and draw as a solid block or garbage, depending on the driver.
+        // Dropping every entry the frame does not use means a texture that goes away for even one frame cannot leave
+        // its bind group behind; it also keeps the cache from growing with every texture the UI has ever shown.
+        for (UiQuadFrameResources::BindingCacheEntry &entry : resources.binding_cache) {
+            entry.used = false;
         }
+        const auto find_entry = [&](RHI::TextureViewHandle view, u64 revision) {
+            return std::ranges::find_if(resources.binding_cache, [&](const auto &entry) {
+                return entry.texture_view == view && entry.texture_revision == revision;
+            });
+        };
         for (UiQuadDrawBatch &batch : out_batches) {
             batch.instance_buffer = resources.instance_buffer;
-            auto cached = std::ranges::find_if(resources.binding_cache,
-                                               [&](const auto &entry) {
-                                                   return entry.texture_view == batch.texture_view &&
-                                                          entry.texture_revision == batch.texture_revision;
-                                               });
+            auto cached = find_entry(batch.texture_view, batch.texture_revision);
             if (cached == resources.binding_cache.end()) {
                 UiQuadFrameResources::BindingCacheEntry entry{.texture_view = batch.texture_view,
                                                               .texture_revision = batch.texture_revision};
-                struct Group {
-                    usize layout_index = 0;
-                    vector<RHI::BindGroupEntry> entries;
-                };
-                vector<Group> groups;
-                auto add_entry = [&](const ResourceBinding &binding, RHI::BindGroupEntry value) {
-                    value.binding = binding.binding;
-                    auto group = std::ranges::find(groups, binding.layout_index, &Group::layout_index);
-                    if (group == groups.end()) {
-                        groups.push_back(Group{.layout_index = binding.layout_index});
-                        group = std::prev(groups.end());
-                    }
-                    group->entries.push_back(value);
-                };
-                add_entry(instances_binding_, RHI::BindGroupEntry{
-                                                  .buffer = resources.instance_buffer,
-                                                  .offset = 0,
-                                                  .size = 0,
-                                                  .structure_stride = sizeof(UiQuadInstance),
-                                              });
-                add_entry(texture_binding_, RHI::BindGroupEntry{.texture_view = batch.texture_view});
-                add_entry(sampler_binding_, RHI::BindGroupEntry{.sampler = sampler_});
-                if (nearest_sampler_binding_.found) {
-                    add_entry(nearest_sampler_binding_, RHI::BindGroupEntry{.sampler = nearest_sampler_});
-                }
-                for (const Group &group : groups) {
-                    auto bind_group = device.create_bind_group(RHI::BindGroupDesc{
-                        .layout = bind_group_layouts_[group.layout_index],
-                        .entries = span<const RHI::BindGroupEntry>{group.entries.data(), group.entries.size()},
-                        .label = "persistent ui quad bind group",
-                    });
-                    if (!bind_group) {
-                        for (const UiQuadDrawBatch::BoundGroup &created : entry.bind_groups) {
-                            device.destroy_bind_group(created.handle);
-                        }
-                        out_batches.clear();
-                        return unexpected(Renderer::graphics_error_from_rhi(bind_group.error(), "create persistent ui quad bind group"));
-                    }
-                    entry.bind_groups.push_back(UiQuadDrawBatch::BoundGroup{
-                        .set = bind_group_layout_sets_[group.layout_index],
-                        .handle = *bind_group,
-                    });
+                vector<LayoutEntry> entries;
+                shared_entries(entries);
+                entries.push_back(LayoutEntry{texture_binding_.layout_index,
+                                              RHI::BindGroupEntry{.binding = texture_binding_.binding,
+                                                                  .texture_view = batch.texture_view}});
+                if (Core::RendererResult built = build_groups(entries, 0, "persistent ui quad bind group", entry.bind_groups,
+                                                              entry.bind_group_count);
+                    !built) {
+                    out_batches.clear();
+                    return built;
                 }
                 resources.binding_cache.push_back(std::move(entry));
                 cached = std::prev(resources.binding_cache.end());
             }
+            cached->used = true;
             batch.bind_groups = cached->bind_groups;
+            batch.bind_group_count = cached->bind_group_count;
         }
+        for (auto it = resources.binding_cache.begin(); it != resources.binding_cache.end();) {
+            if (it->used) {
+                ++it;
+                continue;
+            }
+            for (u32 i = 0; i < it->bind_group_count; ++i) {
+                if (it->bind_groups[i].handle) {
+                    device.destroy_bind_group(it->bind_groups[i].handle);
+                }
+            }
+            it = resources.binding_cache.erase(it);
+        }
+        resources.stats.textures = static_cast<u32>(resources.binding_cache.size());
         return {};
     }
 
@@ -502,27 +690,53 @@ namespace SFT::UI {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiQuadPipeline::draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,
-                                              glm::vec2 viewport_size) {
+                                              glm::vec2 viewport_size, UiQuadDrawState *state) {
         if (batches.empty()) {
             return {};
         }
         if (!pipeline_ || !additive_pipeline_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UI quad pipeline was not created.");
         }
+        UiQuadDrawState local;
+        UiQuadDrawState &bound = state != nullptr ? *state : local;
 
         for (const UiQuadDrawBatch &batch : batches) {
             if (!batch.instance_buffer) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "UI quad draw batch has no prepared instance buffer.");
             }
-            pass.set_pipeline(batch.additive ? additive_pipeline_ : pipeline_);
-            pass.set_scissor(batch.scissor);
-            for (const UiQuadDrawBatch::BoundGroup &group : batch.bind_groups) {
+            const RHI::RenderPipelineHandle wanted = batch.additive ? additive_pipeline_ : pipeline_;
+            if (bound.pipeline != wanted) {
+                pass.set_pipeline(wanted);
+                bound.pipeline = wanted;
+            }
+            if (!bound.scissor_set || !same_rect(bound.scissor, batch.scissor)) {
+                pass.set_scissor(batch.scissor);
+                bound.scissor = batch.scissor;
+                bound.scissor_set = true;
+            }
+            for (u32 i = 0; i < batch.bind_group_count; ++i) {
+                const UiQuadDrawBatch::BoundGroup &group = batch.bind_groups[i];
                 if (!group.handle) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "UI quad draw batch has an invalid persistent bind group.");
                 }
+                UiQuadDrawBatch::BoundGroup *slot = nullptr;
+                for (u32 k = 0; k < bound.bind_group_count; ++k) {
+                    if (bound.bind_groups[k].set == group.set) {
+                        slot = &bound.bind_groups[k];
+                        break;
+                    }
+                }
+                if (slot != nullptr && slot->handle == group.handle) {
+                    continue;
+                }
                 pass.set_bind_group(group.set, group.handle);
+                if (slot != nullptr) {
+                    slot->handle = group.handle;
+                } else if (bound.bind_group_count < kUiQuadMaxBindGroups) {
+                    bound.bind_groups[bound.bind_group_count++] = group;
+                }
             }
 
             const UiViewConstantsGpu constants{

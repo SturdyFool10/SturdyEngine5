@@ -4,6 +4,11 @@
 
 namespace SFT::UI {
 
+    UiRenderStats UiSurface::render_stats() const {
+        auto guard = renderer_state_->renderer.lock();
+        return guard->has_value() ? (*guard)->stats() : UiRenderStats{};
+    }
+
     bool UiSurface::ensure_ready(RHI::RhiDevice &device, RHI::Format color_format) {
         {
             auto guard = renderer_state_->renderer.lock();

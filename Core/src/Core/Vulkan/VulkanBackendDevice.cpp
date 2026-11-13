@@ -565,6 +565,9 @@ namespace SFT::Core::Vulkan {
                 .set(RHI::Feature::NonUniformResourceIndexing)
                 .set(RHI::Feature::SampledImageArrayNonUniformIndexing);
         };
+        // Descriptor indexing is asked for on every device (optional: one without it just does not get it). The UI draws
+        // all of a frame's textures through one table when it is there, instead of one bind group per texture.
+        optional_rhi_features.set(RHI::Feature::BindlessResources);
         close_ray_tracing_dependencies(required_rhi_features);
         close_ray_tracing_dependencies(optional_rhi_features);
         close_bindless_dependencies(required_rhi_features);

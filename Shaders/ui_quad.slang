@@ -2,8 +2,8 @@
 //
 // Vertex-pulled, same idiom as Shaders/text_sdf.slang: no vertex buffer, six vertices per instance
 // built from SV_VertexID/SV_InstanceID. Every instance in one draw call shares the same texture (a
-// 1x1 white pixel for plain rects, or a real image texture) — batching by (kind, texture, active
-// scissor) happens on the CPU side (UI::UiRenderer::prepare()), keeping a whole UI frame a small,
+// 1x1 white pixel for plain rects, or a real image texture) — batching by (active scissor, and texture
+// unless SFT_UI_BINDLESS puts them all in one array) happens on the CPU side (UI::UiRenderer::prepare()), keeping a whole UI frame a small,
 // constant number of draw calls regardless of widget count.
 //
 // Rounding/borders use a signed-distance rounded-box test (Inigo Quilez's formula, adapted to this
@@ -13,21 +13,39 @@
 
 import sturdy_common;
 
-// Field order must byte-match UI/UiQuad.hpp's UiQuadInstance exactly (see the comment there).
+// The packed per-quad record the pipeline uploads: field order must byte-match UiQuadInstanceGpu in
+// UI/UiQuad.hpp exactly. Radii, widths and colours are half floats (two per uint), which is plenty for
+// pixel sizes and for 0..1 colour with HDR headroom, and takes the record from 112 to 72 bytes.
+// `kindAndTexture` carries the quad kind in the low byte and, when textures are bound as an array
+// (SFT_UI_BINDLESS), the texture's index in that array in the upper 24 bits.
 struct UiQuadInstance {
     float2 position;
     float2 size;
-    float4 cornerRadius; // topLeft, topRight, bottomLeft, bottomRight
-    float4 borderWidth;  // left, right, top, bottom
-    float4 fillColor;
-    float4 borderColor;
+    uint2 cornerRadiusHalf; // topLeft, topRight | bottomLeft, bottomRight
+    uint2 borderWidthHalf;  // left, right | top, bottom
+    uint2 fillColorHalf;    // r, g | b, a
+    uint2 borderColorHalf;
     float2 uvMin;
     float2 uvMax;
-    float kind; // 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced — see UiQuad.hpp), 2 = image sampled nearest-neighbour
-    float _pad0;
-    float _pad1;
-    float _pad2;
+    uint kindAndTexture; // kind: 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced), 2 = image sampled nearest-neighbour
+    uint reserved;       // keeps the record a multiple of 8 bytes, the stride a structured buffer of float2/uint2 members has
 };
+
+// Half to float by hand: f16tof32 makes the compiler declare the Float16/Int16 SPIR-V capabilities, which a device
+// without those features does not allow, and nothing here needs more than the arithmetic below.
+float halfToFloat(uint h) {
+    uint exponent = (h >> 10u) & 0x1Fu;
+    uint mantissa = h & 0x3FFu;
+    float magnitude = exponent == 0u
+        ? float(mantissa) * 5.9604644775390625e-8 // subnormal (and zero): mantissa * 2^-24
+        : asfloat(((exponent + 112u) << 23u) | (mantissa << 13u)); // also carries infinity and NaN through
+    return (h & 0x8000u) != 0u ? -magnitude : magnitude;
+}
+
+float4 unpackHalf4(uint2 packed) {
+    return float4(halfToFloat(packed.x & 0xFFFFu), halfToFloat(packed.x >> 16u),
+                  halfToFloat(packed.y & 0xFFFFu), halfToFloat(packed.y >> 16u));
+}
 
 struct UiViewConstants {
     float2 viewportSize;
@@ -57,10 +75,17 @@ struct UiViewConstants {
 
 #endif
 StructuredBuffer<UiQuadInstance> instances;
+#ifndef SFT_UI_BINDLESS
 Texture2D<float4> quadTexture;
+#endif
 SamplerState quadSampler;
 // Point-filtered twin of quadSampler for images drawn with UI::ImageSampling::Nearest (pixel art).
 SamplerState quadSamplerNearest;
+#ifdef SFT_UI_BINDLESS
+// Every texture the frame draws, indexed by the quad's own texture index. Declared last because the
+// variable-count binding of a descriptor set has to be its highest. Index 0 is the white pixel plain rects sample.
+Texture2D<float4> quadTextures[];
+#endif
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -72,6 +97,7 @@ struct VertexOutput {
     float4 fillColor : COLOR0;
     float4 borderColor : COLOR1;
     float kind : TEXCOORD5;
+    nointerpolation uint textureIndex : TEXCOORD6;
 };
 
 [shader("vertex")]
@@ -87,11 +113,12 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     output.uv = lerp(inst.uvMin, inst.uvMax, corner);
     output.localPixelPos = localPixelPos;
     output.halfSize = inst.size * 0.5;
-    output.cornerRadius = inst.cornerRadius;
-    output.borderWidth = inst.borderWidth;
-    output.fillColor = inst.fillColor;
-    output.borderColor = inst.borderColor;
-    output.kind = inst.kind;
+    output.cornerRadius = unpackHalf4(inst.cornerRadiusHalf);
+    output.borderWidth = unpackHalf4(inst.borderWidthHalf);
+    output.fillColor = unpackHalf4(inst.fillColorHalf);
+    output.borderColor = unpackHalf4(inst.borderColorHalf);
+    output.kind = float(inst.kindAndTexture & 0xFFu);
+    output.textureIndex = inst.kindAndTexture >> 8u;
     return output;
 }
 
@@ -112,6 +139,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // white fallback view for every untextured fill -- so the extra fetch on the non-image path is
     // well-defined and its result simply goes unused.
     // Both filters are fetched for the same reason, and the image kind picks one.
+#ifdef SFT_UI_BINDLESS
+    Texture2D<float4> quadTexture = quadTextures[NonUniformResourceIndex(input.textureIndex)];
+#endif
     float4 sampledLinear = quadTexture.Sample(quadSampler, input.uv);
     float4 sampledNearest = quadTexture.Sample(quadSamplerNearest, input.uv);
     float4 sampled = input.kind > 1.5 ? sampledNearest : sampledLinear;

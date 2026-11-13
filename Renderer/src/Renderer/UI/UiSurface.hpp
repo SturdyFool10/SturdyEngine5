@@ -107,6 +107,9 @@ namespace SFT::UI {
         [[nodiscard]] Renderer::OverlayPass make_overlay(std::shared_ptr<FrameSnapshot> snapshot, Renderer::Renderer *texture_resolver,
                                                          OverlayOptions options = {}) const;
 
+        /// What the renderer built for the most recent frame (draws, textures, bytes uploaded), or zeros before there is one.
+        [[nodiscard]] UiRenderStats render_stats() const;
+
         /// Releases the GPU renderer only (a graphics reconstruction, an HDR toggle). The layout `Context` - fonts,
         /// text caches, widget state - is kept, so nothing has to be re-registered, and snapshots already handed to
         /// the render thread stay valid (they refer into the context). An overlay whose renderer has gone draws
