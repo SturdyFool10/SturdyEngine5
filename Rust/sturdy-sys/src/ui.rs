@@ -570,6 +570,10 @@ pub mod ffi {
             features: &str,
         ) -> String;
         fn ui_unregister_font(engine: Pin<&mut EngineView>, font_id: u16);
+        /// Whether the UI may draw its textures through one descriptor table (on by default; only takes effect where the
+        /// device supports it). A change rebuilds the UI renderer on the next frame.
+        fn ui_set_bindless_textures(enabled: bool);
+        fn ui_bindless_textures() -> bool;
         /// Every installed font family name (sorted, unique). The first call scans the system font directories.
         fn ui_system_font_families() -> Vec<String>;
         /// The variation axes of the font `source` names (empty for a static font); `error` is set on load failure.

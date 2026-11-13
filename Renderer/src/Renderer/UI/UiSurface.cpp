@@ -25,6 +25,7 @@ namespace SFT::UI {
             return false;
         }
 
+        renderer_state_->bindless_preferred.store(UiQuadPipeline::bindless_preferred());
         auto renderer = UiRenderer::create(device, color_format);
         if (!renderer) {
             // Carry the backend's reason: the actual cause (a pipeline or format the device rejected) is only known here.
@@ -104,9 +105,11 @@ namespace SFT::UI {
             // The pass draws into the swapchain, or into a linear RGBA16Float layer for HDR output and for a UI-only frame
             // on a transparent surface. The pipelines are built for one format, so follow the pass: callers cannot know
             // in advance which of the two the renderer will pick (the display may refuse HDR the app asked for).
-            if (prepare.format != RHI::Format::Undefined && state->format.load() != prepare.format) {
+            const bool bindless_changed = state->bindless_preferred.load() != UiQuadPipeline::bindless_preferred();
+            if (prepare.format != RHI::Format::Undefined && (state->format.load() != prepare.format || bindless_changed)) {
                 (*guard)->destroy(prepare.device);
                 guard->reset();
+                state->bindless_preferred.store(UiQuadPipeline::bindless_preferred());
                 auto rebuilt = UiRenderer::create(prepare.device, prepare.format);
                 if (!rebuilt) {
                     Foundation::log_error("UI::UiSurface: failed to rebuild UI::UiRenderer for the overlay target format: {}",

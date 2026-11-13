@@ -187,6 +187,12 @@ namespace SFT::UI {
         /// path remains for the rest (WebGPU, old drivers).
         [[nodiscard]] bool bindless() const noexcept { return bindless_; }
 
+        /// Whether pipelines built from now on may use the bindless table when the device supports it. On by default
+        /// on every backend; `STURDY_UI_BINDLESS=0/1` in the environment overrides it. Process-wide. Renderers that
+        /// are already built keep what they have until `UiSurface` rebuilds them (it does so on the next frame).
+        static void set_bindless_preferred(bool preferred) noexcept;
+        [[nodiscard]] static bool bindless_preferred() noexcept;
+
         /// Destroys or releases the `UiQuadPipeline` resource represented by the supplied parameters.
         ///
         /// @param device Device used or affected by the operation.

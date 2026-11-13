@@ -66,6 +66,8 @@ namespace sturdy_rs::ui {
                                         const FontSource &emoji, const rust::Vec<FontSource> &fallbacks,
                                         rust::Str features);
     void ui_unregister_font(EngineView &engine, std::uint16_t font_id);
+    void ui_set_bindless_textures(bool enabled);
+    bool ui_bindless_textures();
     rust::Vec<rust::String> ui_system_font_families();
     struct FontAxisInfo;
     rust::Vec<FontAxisInfo> ui_font_variation_axes(const FontSource &source, rust::String &error);

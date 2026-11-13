@@ -125,6 +125,8 @@ namespace SFT::UI {
             Async::Mutex<std::optional<UiRenderer>> renderer;
             /// Colour format the renderer's pipelines were built for; the overlay's pass must draw into the same one.
             std::atomic<RHI::Format> format{RHI::Format::Undefined};
+            /// `UiQuadPipeline::bindless_preferred()` when the renderer was built; a change rebuilds it.
+            std::atomic<bool> bindless_preferred{true};
         };
 
         Context context_{};

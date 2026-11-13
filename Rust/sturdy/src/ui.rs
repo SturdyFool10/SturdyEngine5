@@ -1433,6 +1433,18 @@ fn register_font_stack(view: Pin<&mut EngineView>, font_id: u16, stack: &FontSta
     if error.is_empty() { Ok(()) } else { Err(error) }
 }
 
+/// Lets the UI draw all of a frame's textures through one descriptor table instead of one bind group each. On by default
+/// on every graphics API; it only takes effect where the device can index descriptors, and the renderer rebuilds itself on
+/// the next frame when this changes. `STURDY_UI_BINDLESS=0/1` in the environment overrides it.
+pub fn set_bindless_textures(enabled: bool) {
+    ffi::ui_set_bindless_textures(enabled);
+}
+
+/// Whether bindless UI textures are allowed (see [`set_bindless_textures`]); not whether the device is using them.
+pub fn bindless_textures() -> bool {
+    ffi::ui_bindless_textures()
+}
+
 /// Every installed font family name, sorted. The first call scans the system font directories (slow-ish; cache it).
 pub fn system_font_families() -> Vec<String> {
     ffi::ui_system_font_families()

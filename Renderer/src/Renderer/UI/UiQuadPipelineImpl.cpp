@@ -112,6 +112,14 @@ namespace SFT::UI {
 
     } // namespace
 
+    namespace {
+        std::atomic<bool> g_bindless_preferred{true};
+    } // namespace
+
+    void UiQuadPipeline::set_bindless_preferred(bool preferred) noexcept { g_bindless_preferred.store(preferred); }
+
+    bool UiQuadPipeline::bindless_preferred() noexcept { return g_bindless_preferred.load(); }
+
     /// Creates a `UI` resource or value from the supplied parameters.
     ///
     /// @param device Device used or affected by the operation.
@@ -133,13 +141,11 @@ namespace SFT::UI {
             RHI::Feature::SampledImageArrayNonUniformIndexing,
         });
         const u32 variable_limit = device.feature_properties().descriptor_indexing.max_variable_descriptor_count;
-        // Vulkan uses the table by default (STURDY_UI_BINDLESS=0 turns it off, to compare the two or to rule it out). On
-        // D3D12 it has not been exercised on a real device yet, so it stays off there unless STURDY_UI_BINDLESS=1 asks.
+        // The table is used wherever the device can index descriptors, unless the application turned it off
+        // (`set_bindless_preferred`) or STURDY_UI_BINDLESS=0 does; STURDY_UI_BINDLESS=1 overrides the application.
         const char *forced = std::getenv("STURDY_UI_BINDLESS");
         const std::string_view forced_value = forced != nullptr ? std::string_view{forced} : std::string_view{};
-        const bool allowed = forced_value == "0" ? false
-                             : forced_value == "1" ? true
-                                                   : device.backend_type() == RHI::BackendType::Vulkan;
+        const bool allowed = forced_value == "0" ? false : forced_value == "1" ? true : bindless_preferred();
         if (allowed && device.enabled_features().contains_all(bindless_features) && variable_limit >= kMinBindlessCapacity) {
             auto bindless = create_variant(device, color_format, enable_shader_disk_cache, std::min(kBindlessCapacity, variable_limit));
             if (bindless) {
