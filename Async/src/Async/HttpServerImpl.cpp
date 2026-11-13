@@ -4,7 +4,7 @@
 #if !defined(STURDY_PLATFORM_WEB)
 
 #include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
+#include <Async/AsioSsl.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
 #include <openssl/ssl.h>

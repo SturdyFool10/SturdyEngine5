@@ -8,7 +8,7 @@
 #include <Async/Tls.hpp>
 
 #include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
+#include <Async/AsioSsl.hpp>
 #include <openssl/ssl.h>
 
 #include <expected>

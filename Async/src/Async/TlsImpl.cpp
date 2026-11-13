@@ -370,7 +370,12 @@ namespace SFT::Async {
         BIGNUM *serial_number = BN_bin2bn(serial_bytes, sizeof(serial_bytes), nullptr);
         const bool serial_ok = serial_number != nullptr && BN_to_ASN1_INTEGER(serial_number, X509_get_serialNumber(certificate.get())) != nullptr;
         BN_free(serial_number);
-        X509_NAME *name = X509_get_subject_name(certificate.get());
+        // Built here and copied in by the setters below, rather than edited in place through X509_get_subject_name:
+        // OpenSSL 4 returns that one const, and the copy works the same on 3.x.
+        X509_NAME *name = X509_NAME_new();
+        if (name == nullptr) {
+            return std::unexpected(IoError{IoErrorCode::Unknown, "OpenSSL could not allocate the certificate name"});
+        }
         const std::string san = "DNS:" + common_name;
         X509V3_CTX extension_context;
         X509V3_set_ctx_nodb(&extension_context);
@@ -382,10 +387,12 @@ namespace SFT::Async {
                         X509_set_pubkey(certificate.get(), key.get()) == 1 &&
                         X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8, reinterpret_cast<const unsigned char *>(common_name.data()),
                                                    static_cast<int>(common_name.size()), -1, 0) == 1 &&
+                        X509_set_subject_name(certificate.get(), name) == 1 &&
                         X509_set_issuer_name(certificate.get(), name) == 1 && san_extension != nullptr &&
                         X509_add_ext(certificate.get(), san_extension, -1) == 1 &&
                         X509_sign(certificate.get(), key.get(), EVP_sha256()) > 0;
         if (san_extension != nullptr) X509_EXTENSION_free(san_extension);
+        X509_NAME_free(name);
         if (!ok) {
             return std::unexpected(IoError{IoErrorCode::Unknown, "OpenSSL could not build the certificate"});
         }
