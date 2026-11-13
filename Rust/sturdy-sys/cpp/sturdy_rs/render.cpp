@@ -978,6 +978,7 @@ namespace sturdy_rs::render {
                                     : settings.frame_rate_limit_mode == C::FrameRateLimitMode::MatchDisplayRefresh ? 2
                                                                                                                    : 0;
         out.frame_rate_limit_fps = settings.frame_rate_limit_fps;
+        out.snap_frame_rate_limit_to_refresh = static_cast<bool>(settings.snap_frame_rate_limit_to_refresh);
         return out;
     }
 
@@ -998,6 +999,7 @@ namespace sturdy_rs::render {
                                        : settings.frame_rate_limit_mode == 2 ? C::FrameRateLimitMode::MatchDisplayRefresh
                                                                              : C::FrameRateLimitMode::Unlimited;
         native.frame_rate_limit_fps = settings.frame_rate_limit_fps;
+        native.snap_frame_rate_limit_to_refresh = settings.snap_frame_rate_limit_to_refresh;
 
         const C::RendererResult result = engine.set_presentation_settings(to_surface(surface), native);
         if (!result) {

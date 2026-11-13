@@ -272,6 +272,8 @@ pub mod ffi {
         /// 0 unlimited, 1 custom (`frame_rate_limit_fps`), 2 match the display's refresh rate.
         frame_rate_limit_mode: u8,
         frame_rate_limit_fps: f64,
+        /// On a fixed-refresh display, round the limit down to `refresh / n` (what the engine does by default).
+        snap_frame_rate_limit_to_refresh: bool,
     }
 
     #[derive(Debug, Clone)]

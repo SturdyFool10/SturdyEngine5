@@ -934,6 +934,10 @@ pub struct PresentationSettings {
     pub allow_present_from_compute: bool,
     /// A cap on the render rate on top of whatever vsync does. Applies on the next frame, no surface recreation.
     pub frame_rate_limit: FrameRateLimit,
+    /// On a fixed-refresh display, round the frame-rate limit down to the nearest `refresh / n` (a 60 fps limit on a
+    /// 144 Hz display becomes 48), so every frame is shown for the same number of refreshes. On by default; turn it off
+    /// to get exactly the rate asked for, e.g. when the surface presents without vsync and tearing is acceptable.
+    pub snap_frame_rate_limit_to_refresh: bool,
 }
 
 /// The frame limiter. See [`PresentationSettings::frame_rate_limit`].
@@ -951,6 +955,7 @@ impl Default for PresentationSettings {
     fn default() -> Self {
         Self {
             frame_rate_limit: FrameRateLimit::Unlimited,
+            snap_frame_rate_limit_to_refresh: true,
             vsync: VSync::On,
             variable_refresh: VariableRefresh::Disabled,
             latency: LatencyMode::Normal,
@@ -976,6 +981,7 @@ impl PresentationSettings {
         swapchain_image_count: u32,
         allow_present_from_compute: bool,
         frame_rate_limit: FrameRateLimit,
+        snap_frame_rate_limit_to_refresh: bool,
     }
 
     fn to_ffi(self) -> ffi::PresentationSettings {
@@ -987,6 +993,7 @@ impl PresentationSettings {
         ffi::PresentationSettings {
             frame_rate_limit_mode,
             frame_rate_limit_fps,
+            snap_frame_rate_limit_to_refresh: self.snap_frame_rate_limit_to_refresh,
             vsync: self.vsync.into(),
             variable_refresh: self.variable_refresh.into(),
             latency: self.latency.into(),
@@ -1006,6 +1013,7 @@ impl PresentationSettings {
                 2 => FrameRateLimit::MatchDisplay,
                 _ => FrameRateLimit::Unlimited,
             },
+            snap_frame_rate_limit_to_refresh: settings.snap_frame_rate_limit_to_refresh,
             vsync: settings.vsync.into(),
             variable_refresh: settings.variable_refresh.into(),
             latency: settings.latency.into(),
