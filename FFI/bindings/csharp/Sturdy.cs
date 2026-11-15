@@ -4814,7 +4814,11 @@ namespace Sturdy
         public uint input_count;
         public byte linear_filter;
         public byte linear_mips;
+        public byte separate_mag_filter;
+        public byte linear_mag_filter;
         public uint address;
+        public byte separate_address_v;
+        public uint address_v;
         public float lod_bias;
         public float min_lod;
         public float max_lod;
@@ -4849,6 +4853,10 @@ namespace Sturdy
         public fixed float background[4];
         public fixed float corner_radius[4];
         public byte* id;
+        public float width_min;
+        public float width_max;
+        public float height_min;
+        public float height_max;
     }
 
     /// Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`.
@@ -5031,6 +5039,8 @@ namespace Sturdy
         public SturdyUiHitTestMode hit_test_mode;
         public delegate* unmanaged[Cdecl]<SturdyEngine, SturdyUiTreeFrame*, void*, void> builder;
         public void* user;
+        public byte parallel_build;
+        public delegate* unmanaged[Cdecl]<void*, byte> dirty_check;
         public delegate* unmanaged[Cdecl]<void*, void> release_user;
     }
 

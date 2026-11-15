@@ -329,6 +329,7 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_effect_pass_init(SturdyUiEffectPass *pass
         pass->struct_size = static_cast<uint32_t>(sizeof(SturdyUiEffectPass));
         pass->linear_filter = 1;
         pass->linear_mips = 1;
+        pass->linear_mag_filter = 1;
         pass->max_lod = 1000.0f;
         pass->max_anisotropy = 1.0f;
         pass->output_scale = 1.0f;
@@ -447,7 +448,11 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_effect_add_pass(SturdyUiEffect effect, co
         }
         out.linear_filter = pass->linear_filter != 0;
         out.linear_mips = pass->linear_mips != 0;
+        out.separate_mag_filter = pass->separate_mag_filter != 0;
+        out.linear_mag_filter = pass->linear_mag_filter != 0;
         out.address = pass->address;
+        out.separate_address_v = pass->separate_address_v != 0;
+        out.address_v = pass->address_v;
         out.lod_bias = pass->lod_bias;
         out.min_lod = pass->min_lod;
         out.max_lod = pass->max_lod;
@@ -772,7 +777,8 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_graph_draw(SturdyEngine engine, const Stu
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized sizing mode");
         }
         SFT::UI::ElementDecl decl{};
-        decl.sizing = SFT::UI::Sizing{width, height};
+        decl.sizing = SFT::UI::Sizing{SFT::Engine::with_size_limits(width, element->width_min, element->width_max),
+                                      SFT::Engine::with_size_limits(height, element->height_min, element->height_max)};
         if (element->id != nullptr) {
             decl.id = SFT::UString{element->id};
         }

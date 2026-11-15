@@ -50,11 +50,15 @@ namespace {
         }
     };
 
-    [[nodiscard]] E::UiTreeBuilder make_builder(SturdyUiTreeBuilder builder, void *user, void(STURDY_ABI_CALL *release_user)(void *)) {
+    [[nodiscard]] std::shared_ptr<BuilderRecord> make_record(SturdyUiTreeBuilder builder, void *user, void(STURDY_ABI_CALL *release_user)(void *)) {
         auto record = std::make_shared<BuilderRecord>();
         record->builder = builder;
         record->user = user;
         record->release_user = release_user;
+        return record;
+    }
+
+    [[nodiscard]] E::UiTreeBuilder builder_of(std::shared_ptr<BuilderRecord> record) {
         return [record](E::UiTreeFrame &frame) {
             SturdyUiTreeFrame foreign{};
             foreign.struct_size = sizeof(SturdyUiTreeFrame);
@@ -79,6 +83,10 @@ namespace {
                 frame.request_rebuild();
             }
         };
+    }
+
+    [[nodiscard]] E::UiTreeBuilder make_builder(SturdyUiTreeBuilder builder, void *user, void(STURDY_ABI_CALL *release_user)(void *)) {
+        return builder_of(make_record(builder, user, release_user));
     }
 
     constexpr E::UiRebuildPolicy to_native(SturdyUiRebuildPolicy policy, bool *ok) noexcept {
@@ -300,7 +308,12 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_tree_spawn(SturdyEngine engine, const Stu
         if (const SturdyResult parsed = to_native_desc(*desc, native); parsed != STURDY_OK) {
             return parsed;
         }
-        native.builder = make_builder(desc->builder, desc->user, desc->release_user);
+        const auto record = make_record(desc->builder, desc->user, desc->release_user);
+        native.builder = builder_of(record);
+        native.parallel_build = desc->parallel_build != 0;
+        if (desc->dirty_check != nullptr) {
+            native.dirty_check = [record, check = desc->dirty_check]() { return check(record->user) != 0; };
+        }
         *out_entity = from_entity(resolved->spawn_ui_tree(std::move(native)));
         return STURDY_OK;
     });

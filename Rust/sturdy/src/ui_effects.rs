@@ -241,8 +241,15 @@ pub struct EffectPass {
     /// Bilinear (true) or nearest; trilinear between mips or nearest mip.
     pub linear_filter: bool,
     pub linear_mips: bool,
-    /// 0 clamp, 1 repeat, 2 mirror, 3 border.
+    /// Sample magnified inputs (a smaller source drawn larger) with `linear_mag_filter` instead of `linear_filter`, which then only
+    /// applies to minified ones: nearest up and linear down, say.
+    pub separate_mag_filter: bool,
+    pub linear_mag_filter: bool,
+    /// 0 clamp, 1 repeat, 2 mirror, 3 border: the horizontal mode, and the vertical one too unless `separate_address_v` is set.
     pub address: u32,
+    /// Give the vertical axis its own mode, `address_v` (0 clamp, 1 repeat, 2 mirror, 3 border).
+    pub separate_address_v: bool,
+    pub address_v: u32,
     pub lod_bias: f32,
     pub min_lod: f32,
     pub max_lod: f32,
@@ -270,7 +277,11 @@ impl EffectPass {
             inputs: vec![PassInput::group_content()],
             linear_filter: true,
             linear_mips: true,
+            separate_mag_filter: false,
+            linear_mag_filter: true,
             address: 0,
+            separate_address_v: false,
+            address_v: 0,
             lod_bias: 0.0,
             min_lod: 0.0,
             max_lod: 1000.0,
@@ -303,7 +314,11 @@ impl EffectPass {
                 .collect(),
             linear_filter: self.linear_filter,
             linear_mips: self.linear_mips,
+            separate_mag_filter: self.separate_mag_filter,
+            linear_mag_filter: self.linear_mag_filter,
             address: self.address,
+            separate_address_v: self.separate_address_v,
+            address_v: self.address_v,
             lod_bias: self.lod_bias,
             min_lod: self.min_lod,
             max_lod: self.max_lod,

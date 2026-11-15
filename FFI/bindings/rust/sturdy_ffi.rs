@@ -1453,6 +1453,9 @@ pub type SturdyTrayCallback = unsafe extern "C" fn(*mut c_void, u32);
 
 pub type SturdyUiTreeBuilder = unsafe extern "C" fn(SturdyEngine, *mut SturdyUiTreeFrame, *mut c_void);
 
+/// Asked once per update, on the update thread, before the tree's rebuild decision, with the tree's `user` pointer: returning true marks the tree dirty so an on-dirty or fixed-rate tree is laid out this update. For trees that mirror other state. Must be cheap and must not call back into the tree.
+pub type SturdyUiTreeDirtyCheck = unsafe extern "C" fn(*mut c_void) -> u8;
+
 /// Called at the start of every update with the scaled delta (after queued boundary actions and the clocks advanced, before transforms propagate and the update schedule runs). Nothing else touches the world then, so a hook may spawn, destroy and change entities, and register or remove systems.
 pub type SturdyUpdateHook = unsafe extern "C" fn(SturdyEngine, f64, *mut c_void);
 
@@ -8164,7 +8167,11 @@ pub struct SturdyUiEffectPass {
     pub input_count: u32,
     pub linear_filter: u8,
     pub linear_mips: u8,
+    pub separate_mag_filter: u8,
+    pub linear_mag_filter: u8,
     pub address: u32,
+    pub separate_address_v: u8,
+    pub address_v: u32,
     pub lod_bias: f32,
     pub min_lod: f32,
     pub max_lod: f32,
@@ -8182,7 +8189,7 @@ impl Default for SturdyUiEffectPass {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiEffectPass>() == 112 && core::mem::align_of::<SturdyUiEffectPass>() == 8);
+const _: () = assert!(core::mem::size_of::<SturdyUiEffectPass>() == 120 && core::mem::align_of::<SturdyUiEffectPass>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, label) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, shader_path) == 16);
@@ -8192,17 +8199,21 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, inputs) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, input_count) == 48);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, linear_filter) == 52);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, linear_mips) == 53);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, separate_mag_filter) == 54);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, linear_mag_filter) == 55);
 const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, address) == 56);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, lod_bias) == 60);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, min_lod) == 64);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_lod) == 68);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_anisotropy) == 72);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_format) == 76);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_scale) == 80);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_levels) == 84);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_filter) == 88);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameters) == 96);
-const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameter_size) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, separate_address_v) == 60);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, address_v) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, lod_bias) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, min_lod) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_lod) == 76);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_anisotropy) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_format) == 84);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_scale) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_levels) == 92);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_filter) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameters) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameter_size) == 112);
 
 /// One element in the layout tree.
 ///
@@ -8226,6 +8237,10 @@ pub struct SturdyUiElement {
     pub background: [f32; 4],
     pub corner_radius: [f32; 4],
     pub id: *const c_char,
+    pub width_min: f32,
+    pub width_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
 }
 impl Default for SturdyUiElement {
     /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
@@ -8233,7 +8248,7 @@ impl Default for SturdyUiElement {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiElement>() == 88 && core::mem::align_of::<SturdyUiElement>() == 8);
+const _: () = assert!(core::mem::size_of::<SturdyUiElement>() == 104 && core::mem::align_of::<SturdyUiElement>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, width_kind) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, width_value) == 8);
@@ -8248,6 +8263,10 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiElement, direction) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, background) == 44);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, corner_radius) == 60);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, id) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElement, width_min) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElement, width_max) == 92);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElement, height_min) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElement, height_max) == 100);
 
 /// Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`.
 #[repr(C)]
@@ -8536,15 +8555,15 @@ impl Default for SturdyUiNodeDesc {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiNodeDesc>() == 360 && core::mem::align_of::<SturdyUiNodeDesc>() == 8);
+const _: () = assert!(core::mem::size_of::<SturdyUiNodeDesc>() == 376 && core::mem::align_of::<SturdyUiNodeDesc>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, element) == 8);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, extras) == 96);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text) == 240);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text_style) == 248);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, order) == 340);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, visible) == 344);
-const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, parent) == 348);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, extras) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text) == 256);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text_style) == 264);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, order) == 356);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, visible) == 360);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, parent) == 364);
 
 /// What the last layout found for a node that has an `id`.
 #[repr(C)]
@@ -8603,6 +8622,8 @@ pub struct SturdyUiTreeDesc {
     pub hit_test_mode: i32,
     pub builder: Option<SturdyUiTreeBuilder>,
     pub user: *mut c_void,
+    pub parallel_build: u8,
+    pub dirty_check: Option<SturdyUiTreeDirtyCheck>,
     pub release_user: Option<unsafe extern "C" fn(*mut c_void)>,
 }
 impl Default for SturdyUiTreeDesc {
@@ -8611,7 +8632,7 @@ impl Default for SturdyUiTreeDesc {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiTreeDesc>() == 128 && core::mem::align_of::<SturdyUiTreeDesc>() == 8);
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeDesc>() == 144 && core::mem::align_of::<SturdyUiTreeDesc>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, name) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, target) == 16);
@@ -8627,7 +8648,9 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, build_budget_ms) =
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, hit_test_mode) == 96);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, builder) == 104);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, user) == 112);
-const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, release_user) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, parallel_build) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, dirty_check) == 128);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, release_user) == 136);
 
 /// What a builder is handed each time its tree is laid out. Valid only inside the builder.
 #[repr(C)]

@@ -31,6 +31,10 @@ namespace SFT::CxxApi {
             out.width_value = element.width_value;
             out.height_kind = static_cast<E::ForeignUiSizing>(element.height_kind);
             out.height_value = element.height_value;
+            out.width_min = element.width_min;
+            out.width_max = element.width_max;
+            out.height_min = element.height_min;
+            out.height_max = element.height_max;
             for (int i = 0; i < 4; ++i) {
                 out.padding[i] = element.padding[i];
                 out.background[i] = element.background[i];

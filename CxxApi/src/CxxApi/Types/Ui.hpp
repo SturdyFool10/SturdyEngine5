@@ -36,6 +36,11 @@ namespace SFT::CxxApi {
         float width_value = 0.0f;
         UiSizing height_kind = UiSizing::Fit;
         float height_value = 0.0f;
+        /// Limits of a `Fit` or `Grow` axis in pixels; 0 (min) and 0 (max) mean none. Ignored for `Fixed` and `Percent`.
+        float width_min = 0.0f;
+        float width_max = 0.0f;
+        float height_min = 0.0f;
+        float height_max = 0.0f;
         /// Left, right, top, bottom, in logical UI units.
         float padding[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         float child_gap = 0.0f;

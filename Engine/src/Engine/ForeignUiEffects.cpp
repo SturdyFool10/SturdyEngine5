@@ -213,13 +213,20 @@ namespace SFT::Engine {
             in.mip_count = input.mip_count;
             out.inputs.push_back(in);
         }
-        if (pass.address > static_cast<u32>(UI::UiEffectAddress::Border)) {
+        if (pass.address > static_cast<u32>(UI::UiEffectAddress::Border) ||
+            (pass.separate_address_v && pass.address_v > static_cast<u32>(UI::UiEffectAddress::Border))) {
             return invalid("unknown address mode");
         }
         const auto filter = [](bool linear) { return linear ? UI::UiEffectFilter::Linear : UI::UiEffectFilter::Nearest; };
         out.sampler.min_filter = out.sampler.mag_filter = filter(pass.linear_filter);
+        if (pass.separate_mag_filter) {
+            out.sampler.mag_filter = filter(pass.linear_mag_filter);
+        }
         out.sampler.mip_filter = filter(pass.linear_mips);
         out.sampler.address_u = out.sampler.address_v = static_cast<UI::UiEffectAddress>(pass.address);
+        if (pass.separate_address_v) {
+            out.sampler.address_v = static_cast<UI::UiEffectAddress>(pass.address_v);
+        }
         out.sampler.lod_bias = pass.lod_bias;
         out.sampler.min_lod = pass.min_lod;
         out.sampler.max_lod = pass.max_lod;

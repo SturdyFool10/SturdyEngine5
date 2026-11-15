@@ -41,12 +41,28 @@ namespace SFT::Engine {
     /// How one axis of an element is sized. Values match the C ABI.
     enum class ForeignUiSizing : u32 { Fit = 0, Grow = 1, Fixed = 2, Percent = 3 };
 
+    /// `axis` with the size limits applied when it is a `Fit` or `Grow` axis (see `ForeignUiElement::width_min`); other kinds come back as
+    /// they are. A maximum of 0 or less is no maximum.
+    [[nodiscard]] inline UI::SizingAxis with_size_limits(UI::SizingAxis axis, f32 min_size, f32 max_size) noexcept {
+        if (axis.kind == UI::SizingKind::Fit || axis.kind == UI::SizingKind::Grow) {
+            axis.min = min_size > 0.0f ? min_size : 0.0f;
+            axis.max = max_size > 0.0f ? max_size : 3.4028235e38f;
+        }
+        return axis;
+    }
+
     /// One layout element. Padding and gap are in logical UI units.
     struct ForeignUiElement {
         ForeignUiSizing width_kind = ForeignUiSizing::Fit;
         f32 width_value = 0.0f;
         ForeignUiSizing height_kind = ForeignUiSizing::Fit;
         f32 height_value = 0.0f;
+        /// Smallest and largest size of a `Fit` or `Grow` axis (CSS `min-width` / `max-width` and the height pair). A minimum of 0 and a
+        /// maximum of 0 or less mean "no limit"; both are ignored for `Fixed` and `Percent`.
+        f32 width_min = 0.0f;
+        f32 width_max = 0.0f;
+        f32 height_min = 0.0f;
+        f32 height_max = 0.0f;
         /// Left, right, top, bottom.
         f32 padding[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         f32 child_gap = 0.0f;

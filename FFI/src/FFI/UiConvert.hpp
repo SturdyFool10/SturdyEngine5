@@ -12,6 +12,10 @@ namespace SFT::Ffi {
         out.width_value = element.width_value;
         out.height_kind = static_cast<SFT::Engine::ForeignUiSizing>(element.height_kind);
         out.height_value = element.height_value;
+        out.width_min = element.width_min;
+        out.width_max = element.width_max;
+        out.height_min = element.height_min;
+        out.height_max = element.height_max;
         out.padding[0] = element.padding_left;
         out.padding[1] = element.padding_right;
         out.padding[2] = element.padding_top;

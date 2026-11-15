@@ -182,6 +182,11 @@ pub mod ffi {
         width_value: f32,
         height_kind: UiSizing,
         height_value: f32,
+        /// Limits of a `Fit` or `Grow` axis in pixels; a minimum of 0 and a maximum of 0 or less mean no limit.
+        width_min: f32,
+        width_max: f32,
+        height_min: f32,
+        height_max: f32,
         padding_left: u16,
         padding_right: u16,
         padding_top: u16,
@@ -285,7 +290,11 @@ pub mod ffi {
         inputs: Vec<UiEffectInput>,
         linear_filter: bool,
         linear_mips: bool,
+        separate_mag_filter: bool,
+        linear_mag_filter: bool,
         address: u32,
+        separate_address_v: bool,
+        address_v: u32,
         lod_bias: f32,
         min_lod: f32,
         max_lod: f32,
@@ -307,6 +316,68 @@ pub mod ffi {
         visible: bool,
         parent_index: u32,
         parent_generation: u32,
+    }
+
+    /// A UI tree's description (`SFT::Engine::UiTreeDesc` without the builder). `target_kind`: 0 a window (`window` 0 = the primary
+    /// one), 1 an off-screen render target (`offscreen_target`), 2 headless (laid out at `headless_width` x `headless_height`).
+    /// `rebuild`: 0 every update, 1 only when dirty, 2 at `rebuild_hz`.
+    #[derive(Debug, Clone, Default)]
+    struct UiTreeDescInfo {
+        name: String,
+        target_kind: u32,
+        window: u64,
+        offscreen_target: u64,
+        headless_width: u32,
+        headless_height: u32,
+        rebuild: u32,
+        rebuild_hz: f32,
+        layer: i32,
+        raw_pixels: bool,
+        content_scale: f32,
+        hdr_reference_white_scale: f32,
+        window_input: bool,
+        clear_color: [f32; 4],
+        build_budget_ms: f32,
+        hit_test_fixed: bool,
+        parallel_build: bool,
+    }
+
+    /// What a tree's builder is told about the layout it is building.
+    #[derive(Debug, Clone, Default)]
+    struct UiTreeFrameInfo {
+        entity_index: u32,
+        entity_generation: u32,
+        width: f32,
+        height: f32,
+        delta_seconds: f32,
+        build_index: u64,
+    }
+
+    /// Result of a tree call. `flag` carries the yes/no answer of the query calls.
+    #[derive(Debug, Clone, Default)]
+    struct UiTreeOutcome {
+        ok: bool,
+        index: u32,
+        generation: u32,
+        flag: bool,
+        value: u64,
+        message: String,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct UiTreeStatsInfo {
+        ok: bool,
+        builds: u64,
+        skipped: u64,
+        over_budget: u64,
+        failed_builds: u64,
+        target_renders: u64,
+        last_build_ms: f64,
+        max_build_ms: f64,
+        last_width: f32,
+        last_height: f32,
+        last_error: String,
+        message: String,
     }
 
     /// Result of a node call. `index`/`generation` name the node for spawn.
@@ -654,6 +725,17 @@ pub mod ffi {
     }
 
     extern "Rust" {
+        type UiTreeBuilderHandle;
+        type UiTreeDirtyHandle;
+
+        /// Builds one layout of a UI tree. Runs inside the tree's own layout (on the update thread, or a worker for a parallel tree), with
+        /// the element/text primitives below bound to it; the returned flag asks for another rebuild next update.
+        fn ui_invoke_tree_builder(handle: &mut UiTreeBuilderHandle, engine: Pin<&mut EngineView>, frame: &UiTreeFrameInfo) -> bool;
+        /// A tree's dirty check: true marks it dirty for this update.
+        fn ui_invoke_tree_dirty(handle: &mut UiTreeDirtyHandle) -> bool;
+    }
+
+    extern "Rust" {
         type UiDrawHandle;
 
         /// Builds one frame of UI by calling the element/text primitives below. Invoked from inside
@@ -736,6 +818,44 @@ pub mod ffi {
         fn ui_node_destroy(engine: Pin<&mut EngineView>, index: u32, generation: u32, recursive: bool) -> UiNodeOutcome;
         fn ui_node_state(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiNodeOutcome;
         fn ui_node_touch();
+        /// UI trees (`SFT::Engine::UiTree`): layouts drawn over a window, into an off-screen render target (in-world panels, UI as a texture)
+        /// or nowhere (headless). The builder runs once per layout with the primitives below bound to the tree.
+        fn ui_tree_spawn(
+            engine: Pin<&mut EngineView>,
+            desc: &UiTreeDescInfo,
+            builder: Box<UiTreeBuilderHandle>,
+            dirty: Box<UiTreeDirtyHandle>,
+            has_dirty: bool,
+        ) -> UiTreeOutcome;
+        fn ui_tree_set_builder(engine: Pin<&mut EngineView>, index: u32, generation: u32, builder: Box<UiTreeBuilderHandle>) -> UiTreeOutcome;
+        fn ui_tree_set_target(
+            engine: Pin<&mut EngineView>,
+            index: u32,
+            generation: u32,
+            target_kind: u32,
+            window: u64,
+            offscreen_target: u64,
+            headless_width: u32,
+            headless_height: u32,
+        ) -> UiTreeOutcome;
+        fn ui_tree_set_rebuild_policy(engine: Pin<&mut EngineView>, index: u32, generation: u32, policy: u32, rebuild_hz: f32) -> UiTreeOutcome;
+        fn ui_tree_set_layer(engine: Pin<&mut EngineView>, index: u32, generation: u32, layer: i32) -> UiTreeOutcome;
+        /// `value` of the outcome is the layer.
+        fn ui_tree_layer(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiTreeOutcome;
+        fn ui_tree_request_rebuild(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiTreeOutcome;
+        /// Feeds an off-screen tree's pointer: `u`/`v` are 0..1 across the target; `has_uv` false means the pointer left it.
+        fn ui_tree_point_at(engine: Pin<&mut EngineView>, index: u32, generation: u32, has_uv: bool, u: f32, v: f32, down: bool) -> UiTreeOutcome;
+        fn ui_tree_scroll(engine: Pin<&mut EngineView>, index: u32, generation: u32, dx: f32, dy: f32) -> UiTreeOutcome;
+        fn ui_tree_add_text(engine: Pin<&mut EngineView>, index: u32, generation: u32, text: &str) -> UiTreeOutcome;
+        /// `flag` of the outcome: whether the tree's elements took the pointer this frame.
+        fn ui_tree_pointer_consumed(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiTreeOutcome;
+        fn ui_tree_stats(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiTreeStatsInfo;
+        /// `value` of the outcome: how many trees the engine laid out at its last build.
+        fn ui_tree_count(engine: Pin<&mut EngineView>) -> UiTreeOutcome;
+        /// Renders every off-screen tree that has a new frame; `value` of the outcome: how many were rendered.
+        fn ui_tree_render_targets(engine: Pin<&mut EngineView>) -> UiTreeOutcome;
+        /// Removes a tree (its builder is dropped once any layout in flight is done).
+        fn ui_tree_destroy(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiTreeOutcome;
         /// Spawns a headless-or-window UI tree that lays out the nodes under `root` when one changes. `window_target`: 0 = the primary
         /// window; `offscreen_target` non-zero targets that off-screen render target instead.
         fn ui_node_tree_spawn(
@@ -846,6 +966,8 @@ pub mod ffi {
         fn ui_set_raw_pixel_layout(raw: bool);
         /// Chooses what decides where elements react to the pointer: `false` CSS-like (the default), `true` fixed to the layout.
         fn ui_set_hit_test_fixed(fixed: bool);
+        /// Shows or hides the layout engine's inspector over the UI (element tree, sizes, configs). Takes effect at the next frame.
+        fn ui_set_debug_view(enabled: bool);
         /// Bounds (position and size, in layout pixels) of the element with this id as of the last
         /// finished layout; `found == false` if no such element was laid out.
         fn ui_element_bounds(id: &str) -> UiBounds;
@@ -994,6 +1116,28 @@ pub type UiDrawFn = Box<dyn FnMut(Pin<&mut EngineView>) + Send>;
 
 pub struct UiDrawHandle {
     pub draw: UiDrawFn,
+}
+
+/// A UI tree's builder: called once per layout with the frame's description; returns whether another rebuild is wanted.
+pub type UiTreeBuilderFn = Box<dyn FnMut(Pin<&mut EngineView>, &ffi::UiTreeFrameInfo) -> bool + Send>;
+
+pub struct UiTreeBuilderHandle {
+    pub build: UiTreeBuilderFn,
+}
+
+/// A UI tree's dirty check.
+pub type UiTreeDirtyFn = Box<dyn FnMut() -> bool + Send>;
+
+pub struct UiTreeDirtyHandle {
+    pub check: UiTreeDirtyFn,
+}
+
+fn ui_invoke_tree_builder(handle: &mut UiTreeBuilderHandle, engine: Pin<&mut EngineView>, frame: &ffi::UiTreeFrameInfo) -> bool {
+    guard("ui tree builder", move || (handle.build)(engine, frame))
+}
+
+fn ui_invoke_tree_dirty(handle: &mut UiTreeDirtyHandle) -> bool {
+    guard("ui tree dirty check", move || (handle.check)())
 }
 
 /// A panic must never unwind into the C++ frame that invoked this callback (undefined behavior),

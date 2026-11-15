@@ -124,8 +124,14 @@ namespace SFT::Engine {
         /// Sampling for every input.
         bool linear_filter = true;
         bool linear_mips = true;
-        /// 0 clamp, 1 repeat, 2 mirror, 3 border.
+        /// With `separate_mag_filter`, `linear_filter` is the minification filter and this the magnification filter (nearest up, linear down,
+        /// say); without it `linear_filter` is both.
+        bool separate_mag_filter = false;
+        bool linear_mag_filter = true;
+        /// 0 clamp, 1 repeat, 2 mirror, 3 border: the horizontal mode, and the vertical one too unless `separate_address_v` is set.
         u32 address = 0;
+        bool separate_address_v = false;
+        u32 address_v = 0;
         f32 lod_bias = 0.0f;
         f32 min_lod = 0.0f;
         f32 max_lod = 1000.0f;

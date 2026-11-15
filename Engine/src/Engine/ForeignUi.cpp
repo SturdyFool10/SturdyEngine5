@@ -211,7 +211,8 @@ namespace SFT::Engine {
             return error(ForeignUiErrorKind::InvalidArgument, "unrecognized sizing mode");
         }
         UI::ElementDecl decl{};
-        decl.sizing = UI::Sizing{*width, *height};
+        decl.sizing = UI::Sizing{with_size_limits(*width, element.width_min, element.width_max),
+                                 with_size_limits(*height, element.height_min, element.height_max)};
         decl.padding = UI::Padding{static_cast<u16>(element.padding[0]), static_cast<u16>(element.padding[1]),
                                    static_cast<u16>(element.padding[2]), static_cast<u16>(element.padding[3])};
         decl.child_gap = static_cast<u16>(element.child_gap);

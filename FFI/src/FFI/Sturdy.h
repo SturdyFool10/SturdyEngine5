@@ -3251,6 +3251,13 @@ typedef struct SturdyUiElement {
     /// Stable identifier, or null for an unnamed element. Needed for `sturdy_ui_hovered` and
     /// `sturdy_ui_clicked`, which address elements by id.
     const char *id;
+
+    /// Smallest and largest size of a `Fit` or `Grow` axis, in pixels (CSS `min-width`, `max-width`, `min-height`, `max-height`). A
+    /// minimum of 0 and a maximum of 0 (the initialized state) mean no limit; both are ignored for `Fixed` and `Percent`.
+    float width_min;
+    float width_max;
+    float height_min;
+    float height_max;
 } SturdyUiElement;
 
 /// How text is drawn.
@@ -3548,8 +3555,13 @@ typedef struct SturdyUiEffectPass {
     /// How every input is sampled: non-zero bilinear (the default) or nearest; trilinear between mips or nearest mip.
     SturdyBool linear_filter;
     SturdyBool linear_mips;
-    /// 0 clamp, 1 repeat, 2 mirror, 3 border.
+    /// Non-zero: `linear_filter` is the minification filter only and `linear_mag_filter` the magnification filter; zero: `linear_filter` is both.
+    SturdyBool separate_mag_filter;
+    SturdyBool linear_mag_filter;
+    /// 0 clamp, 1 repeat, 2 mirror, 3 border: the horizontal mode, and the vertical one too unless `separate_address_v` is non-zero.
     uint32_t address;
+    SturdyBool separate_address_v;
+    uint32_t address_v;
     float lod_bias;
     float min_lod;
     float max_lod;
@@ -11004,6 +11016,11 @@ typedef struct SturdyUiTreeFrame {
 
 typedef void(STURDY_ABI_CALL *SturdyUiTreeBuilder)(SturdyEngine engine, SturdyUiTreeFrame *frame, void *user);
 
+/// Asked once per update, on the update thread, before the tree's rebuild decision, with the tree's `user` pointer: returning true marks the
+/// tree dirty so an on-dirty or fixed-rate tree is laid out this update. For trees that mirror other state. Must be cheap and must not call
+/// back into the tree.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyUiTreeDirtyCheck)(void *user);
+
 /// What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets).
 typedef enum SturdyUiHitTestMode {
     /// Like CSS: transforms move the reactive area with the drawing, `clip-path` cuts it, an element drawn above that draws something covers the
@@ -11043,6 +11060,11 @@ typedef struct SturdyUiTreeDesc {
     SturdyUiHitTestMode hit_test_mode;
     SturdyUiTreeBuilder builder;
     void *user;
+    /// Lay this tree out on the engine's worker threads together with the other parallel trees, instead of one at a time on the update
+    /// thread. Set it only when the builder (and everything it touches through `user`) is safe to run on another thread. Off by default.
+    SturdyBool parallel_build;
+    /// Marks the tree dirty each update it returns true for; null for none.
+    SturdyUiTreeDirtyCheck dirty_check;
     /// Called once with `user` when the tree is gone and its builder can never run again. May be null.
     void(STURDY_ABI_CALL *release_user)(void *user);
 } SturdyUiTreeDesc;

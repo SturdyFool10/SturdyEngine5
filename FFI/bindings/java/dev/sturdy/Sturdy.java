@@ -6111,7 +6111,7 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiEffectOptions_content_mip_levels = 36L;
     public static final long SIZE_SturdyUiEffectOptions = 40L;
 
-    /** One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`. (size 112, alignment 8) */
+    /** One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`. (size 120, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiEffectPass = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             MemoryLayout.paddingLayout(4),
@@ -6123,8 +6123,12 @@ public final class Sturdy {
             ValueLayout.JAVA_INT.withName("input_count"),
             ValueLayout.JAVA_BYTE.withName("linear_filter"),
             ValueLayout.JAVA_BYTE.withName("linear_mips"),
-            MemoryLayout.paddingLayout(2),
+            ValueLayout.JAVA_BYTE.withName("separate_mag_filter"),
+            ValueLayout.JAVA_BYTE.withName("linear_mag_filter"),
             ValueLayout.JAVA_INT.withName("address"),
+            ValueLayout.JAVA_BYTE.withName("separate_address_v"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("address_v"),
             ValueLayout.JAVA_FLOAT.withName("lod_bias"),
             ValueLayout.JAVA_FLOAT.withName("min_lod"),
             ValueLayout.JAVA_FLOAT.withName("max_lod"),
@@ -6146,20 +6150,24 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiEffectPass_input_count = 48L;
     public static final long OFFSET_SturdyUiEffectPass_linear_filter = 52L;
     public static final long OFFSET_SturdyUiEffectPass_linear_mips = 53L;
+    public static final long OFFSET_SturdyUiEffectPass_separate_mag_filter = 54L;
+    public static final long OFFSET_SturdyUiEffectPass_linear_mag_filter = 55L;
     public static final long OFFSET_SturdyUiEffectPass_address = 56L;
-    public static final long OFFSET_SturdyUiEffectPass_lod_bias = 60L;
-    public static final long OFFSET_SturdyUiEffectPass_min_lod = 64L;
-    public static final long OFFSET_SturdyUiEffectPass_max_lod = 68L;
-    public static final long OFFSET_SturdyUiEffectPass_max_anisotropy = 72L;
-    public static final long OFFSET_SturdyUiEffectPass_output_format = 76L;
-    public static final long OFFSET_SturdyUiEffectPass_output_scale = 80L;
-    public static final long OFFSET_SturdyUiEffectPass_output_mip_levels = 84L;
-    public static final long OFFSET_SturdyUiEffectPass_output_mip_filter = 88L;
-    public static final long OFFSET_SturdyUiEffectPass_parameters = 96L;
-    public static final long OFFSET_SturdyUiEffectPass_parameter_size = 104L;
-    public static final long SIZE_SturdyUiEffectPass = 112L;
+    public static final long OFFSET_SturdyUiEffectPass_separate_address_v = 60L;
+    public static final long OFFSET_SturdyUiEffectPass_address_v = 64L;
+    public static final long OFFSET_SturdyUiEffectPass_lod_bias = 68L;
+    public static final long OFFSET_SturdyUiEffectPass_min_lod = 72L;
+    public static final long OFFSET_SturdyUiEffectPass_max_lod = 76L;
+    public static final long OFFSET_SturdyUiEffectPass_max_anisotropy = 80L;
+    public static final long OFFSET_SturdyUiEffectPass_output_format = 84L;
+    public static final long OFFSET_SturdyUiEffectPass_output_scale = 88L;
+    public static final long OFFSET_SturdyUiEffectPass_output_mip_levels = 92L;
+    public static final long OFFSET_SturdyUiEffectPass_output_mip_filter = 96L;
+    public static final long OFFSET_SturdyUiEffectPass_parameters = 104L;
+    public static final long OFFSET_SturdyUiEffectPass_parameter_size = 112L;
+    public static final long SIZE_SturdyUiEffectPass = 120L;
 
-    /** One element in the layout tree. (size 88, alignment 8) */
+    /** One element in the layout tree. (size 104, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiElement = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             ValueLayout.JAVA_INT.withName("width_kind"),
@@ -6175,7 +6183,11 @@ public final class Sturdy {
             MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("background"),
             MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("corner_radius"),
             MemoryLayout.paddingLayout(4),
-            ValueLayout.ADDRESS.withName("id")).withName("SturdyUiElement");
+            ValueLayout.ADDRESS.withName("id"),
+            ValueLayout.JAVA_FLOAT.withName("width_min"),
+            ValueLayout.JAVA_FLOAT.withName("width_max"),
+            ValueLayout.JAVA_FLOAT.withName("height_min"),
+            ValueLayout.JAVA_FLOAT.withName("height_max")).withName("SturdyUiElement");
     public static final long OFFSET_SturdyUiElement_struct_size = 0L;
     public static final long OFFSET_SturdyUiElement_width_kind = 4L;
     public static final long OFFSET_SturdyUiElement_width_value = 8L;
@@ -6190,7 +6202,11 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiElement_background = 44L;
     public static final long OFFSET_SturdyUiElement_corner_radius = 60L;
     public static final long OFFSET_SturdyUiElement_id = 80L;
-    public static final long SIZE_SturdyUiElement = 88L;
+    public static final long OFFSET_SturdyUiElement_width_min = 88L;
+    public static final long OFFSET_SturdyUiElement_width_max = 92L;
+    public static final long OFFSET_SturdyUiElement_height_min = 96L;
+    public static final long OFFSET_SturdyUiElement_height_max = 100L;
+    public static final long SIZE_SturdyUiElement = 104L;
 
     /** Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`. (size 144, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiElementExtras = MemoryLayout.structLayout(
@@ -6413,7 +6429,7 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiTextStyle_shadow_color = 76L;
     public static final long SIZE_SturdyUiTextStyle = 92L;
 
-    /** One node. Initialize with `sturdy_ui_node_desc_init`. (size 360, alignment 8) */
+    /** One node. Initialize with `sturdy_ui_node_desc_init`. (size 376, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiNodeDesc = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             MemoryLayout.paddingLayout(4),
@@ -6428,13 +6444,13 @@ public final class Sturdy {
             MemoryLayout.paddingLayout(4)).withName("SturdyUiNodeDesc");
     public static final long OFFSET_SturdyUiNodeDesc_struct_size = 0L;
     public static final long OFFSET_SturdyUiNodeDesc_element = 8L;
-    public static final long OFFSET_SturdyUiNodeDesc_extras = 96L;
-    public static final long OFFSET_SturdyUiNodeDesc_text = 240L;
-    public static final long OFFSET_SturdyUiNodeDesc_text_style = 248L;
-    public static final long OFFSET_SturdyUiNodeDesc_order = 340L;
-    public static final long OFFSET_SturdyUiNodeDesc_visible = 344L;
-    public static final long OFFSET_SturdyUiNodeDesc_parent = 348L;
-    public static final long SIZE_SturdyUiNodeDesc = 360L;
+    public static final long OFFSET_SturdyUiNodeDesc_extras = 112L;
+    public static final long OFFSET_SturdyUiNodeDesc_text = 256L;
+    public static final long OFFSET_SturdyUiNodeDesc_text_style = 264L;
+    public static final long OFFSET_SturdyUiNodeDesc_order = 356L;
+    public static final long OFFSET_SturdyUiNodeDesc_visible = 360L;
+    public static final long OFFSET_SturdyUiNodeDesc_parent = 364L;
+    public static final long SIZE_SturdyUiNodeDesc = 376L;
 
     /** What the last layout found for a node that has an `id`. (size 2, alignment 1) */
     public static final MemoryLayout LAYOUT_SturdyUiNodeState = MemoryLayout.structLayout(
@@ -6459,7 +6475,7 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiTreeTarget_headless_height = 28L;
     public static final long SIZE_SturdyUiTreeTarget = 32L;
 
-    /** SturdyUiTreeDesc (size 128, alignment 8) */
+    /** SturdyUiTreeDesc (size 144, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiTreeDesc = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             MemoryLayout.paddingLayout(4),
@@ -6479,6 +6495,9 @@ public final class Sturdy {
             MemoryLayout.paddingLayout(4),
             ValueLayout.ADDRESS.withName("builder"),
             ValueLayout.ADDRESS.withName("user"),
+            ValueLayout.JAVA_BYTE.withName("parallel_build"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("dirty_check"),
             ValueLayout.ADDRESS.withName("release_user")).withName("SturdyUiTreeDesc");
     public static final long OFFSET_SturdyUiTreeDesc_struct_size = 0L;
     public static final long OFFSET_SturdyUiTreeDesc_name = 8L;
@@ -6495,8 +6514,10 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiTreeDesc_hit_test_mode = 96L;
     public static final long OFFSET_SturdyUiTreeDesc_builder = 104L;
     public static final long OFFSET_SturdyUiTreeDesc_user = 112L;
-    public static final long OFFSET_SturdyUiTreeDesc_release_user = 120L;
-    public static final long SIZE_SturdyUiTreeDesc = 128L;
+    public static final long OFFSET_SturdyUiTreeDesc_parallel_build = 120L;
+    public static final long OFFSET_SturdyUiTreeDesc_dirty_check = 128L;
+    public static final long OFFSET_SturdyUiTreeDesc_release_user = 136L;
+    public static final long SIZE_SturdyUiTreeDesc = 144L;
 
     /** What a builder is handed each time its tree is laid out. Valid only inside the builder. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiTreeFrame = MemoryLayout.structLayout(
@@ -7020,6 +7041,7 @@ public final class Sturdy {
     public static final FunctionDescriptor DESCRIPTOR_SturdyTaskWorkFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyTrayCallback = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT);
     public static final FunctionDescriptor DESCRIPTOR_SturdyUiTreeBuilder = FunctionDescriptor.ofVoid(LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyUiTreeDirtyCheck = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyUpdateHook = FunctionDescriptor.ofVoid(LAYOUT_SturdyEngine, ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyViewCallback = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, LAYOUT_SturdyFrame, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyWebSocketFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);

@@ -150,4 +150,10 @@ impl<'e, 'a> UiNodes<'e, 'a> {
     pub fn spawn_tree(&mut self, root: Entity, name: &str, layer: i32) -> Result<Entity, String> {
         checked(ffi::ui_node_tree_spawn(self.engine.view_mut(), root.index, root.generation, name, layer, 0)).map(|o| entity_of(&o))
     }
+
+    /// [`UiNodes::spawn_tree`] drawn into an off-screen render target (an in-world panel, UI as a texture) instead of over the window.
+    /// For the rest of a tree's settings (rebuild policy, scale, input) use [`crate::ui_trees`] on the returned entity.
+    pub fn spawn_tree_offscreen(&mut self, root: Entity, name: &str, layer: i32, target: crate::render::OffscreenTargetHandle) -> Result<Entity, String> {
+        checked(ffi::ui_node_tree_spawn(self.engine.view_mut(), root.index, root.generation, name, layer, target.value)).map(|o| entity_of(&o))
+    }
 }

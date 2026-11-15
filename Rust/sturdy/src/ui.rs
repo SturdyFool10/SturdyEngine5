@@ -172,6 +172,15 @@ pub struct ElementDesc {
     pub id: String,
     pub width: Sizing,
     pub height: Sizing,
+    /// Smallest width of a [`Sizing::Fit`] or [`Sizing::Grow`] element (CSS `min-width`), in pixels; 0 for no minimum. Ignored for
+    /// `Fixed` and `Percent`.
+    pub width_min: f32,
+    /// Largest width of a `Fit` or `Grow` element (CSS `max-width`); 0 for no maximum.
+    pub width_max: f32,
+    /// Smallest height of a `Fit` or `Grow` element (CSS `min-height`); 0 for no minimum.
+    pub height_min: f32,
+    /// Largest height of a `Fit` or `Grow` element (CSS `max-height`); 0 for no maximum.
+    pub height_max: f32,
     pub padding: Padding,
     /// Gap between children along `direction`.
     pub child_gap: u16,
@@ -342,6 +351,10 @@ impl ElementDesc {
         id: String,
         width: Sizing,
         height: Sizing,
+        width_min: f32,
+        width_max: f32,
+        height_min: f32,
+        height_max: f32,
         padding: Padding,
         child_gap: u16,
         direction: Direction,
@@ -363,6 +376,10 @@ impl ElementDesc {
             width_value: self.width.value(),
             height_kind: self.height.kind(),
             height_value: self.height.value(),
+            width_min: self.width_min,
+            width_max: self.width_max,
+            height_min: self.height_min,
+            height_max: self.height_max,
             padding_left: self.padding.left,
             padding_right: self.padding.right,
             padding_top: self.padding.top,
@@ -1600,6 +1617,13 @@ pub enum HitTestMode {
 /// Chooses the hit-test mode of the on-screen UI. Takes effect at the next frame.
 pub fn set_hit_test_mode(mode: HitTestMode) {
     ffi::ui_set_hit_test_fixed(mode == HitTestMode::Fixed);
+}
+
+/// Shows or hides the layout engine's inspector: a panel on the right listing the element tree with each element's id, size and
+/// configuration, which highlights the element under the pointer. The UI lays out narrower by the panel's width while it is on.
+/// Off by default; takes effect at the next frame.
+pub fn set_debug_view(enabled: bool) {
+    ffi::ui_set_debug_view(enabled);
 }
 
 /// Installs (or replaces) the process-wide per-frame UI draw closure. Called once per frame once

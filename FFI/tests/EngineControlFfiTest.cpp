@@ -229,6 +229,45 @@ int main() {
     check(sturdy_ui_tree_stats(engine, SturdyEntity{12345, 7}, &tree_stats) == STURDY_ERROR_COMPONENT_MISSING, "an entity with no tree is reported");
     check(sturdy_ui_tree_render_targets(engine, nullptr) == STURDY_OK, "rendering off-screen trees with none is fine");
 
+    // A dirty check marks an on-dirty tree for rebuilding, and size limits reach the layout through the ordinary element call.
+    struct DirtyState {
+        int builds = 0;
+        bool dirty = false;
+        SturdyResult limited_result = STURDY_OK;
+    } dirty_state;
+    SturdyUiTreeDesc dirty_desc{};
+    check(sturdy_ui_tree_desc_init(&dirty_desc) == STURDY_OK, "a second tree description initialises");
+    dirty_desc.name = "dirty";
+    dirty_desc.target.kind = STURDY_UI_TREE_TARGET_HEADLESS;
+    dirty_desc.target.headless_width = 200;
+    dirty_desc.target.headless_height = 100;
+    dirty_desc.rebuild = STURDY_UI_REBUILD_ON_DIRTY;
+    dirty_desc.user = &dirty_state;
+    dirty_desc.builder = [](SturdyEngine e, SturdyUiTreeFrame *, void *user) {
+        auto *state = static_cast<DirtyState *>(user);
+        ++state->builds;
+        SturdyUiElement element{};
+        element.struct_size = sizeof(element);
+        element.width_kind = STURDY_UI_SIZING_GROW;
+        element.width_max = 90.0f;
+        element.height_kind = STURDY_UI_SIZING_FIT;
+        element.height_min = 10.0f;
+        state->limited_result = sturdy_ui_begin_element(e, &element);
+        if (state->limited_result == STURDY_OK) {
+            (void)sturdy_ui_end_element(e);
+        }
+    };
+    dirty_desc.dirty_check = [](void *user) -> SturdyBool { return static_cast<DirtyState *>(user)->dirty ? STURDY_TRUE : STURDY_FALSE; };
+    SturdyEntity dirty_tree{};
+    check(sturdy_ui_tree_spawn(engine, &dirty_desc, &dirty_tree) == STURDY_OK, "a tree with a dirty check is spawned");
+    engine_object.update(1.0 / 60.0);
+    check(dirty_state.builds == 1 && dirty_state.limited_result == STURDY_OK, "it is built once, with limits on its element");
+    engine_object.update(1.0 / 60.0);
+    check(dirty_state.builds == 1, "clean and on-dirty: not built again");
+    dirty_state.dirty = true;
+    engine_object.update(1.0 / 60.0);
+    check(dirty_state.builds == 2, "the dirty check asked for a rebuild");
+
     // Without a graphics device: render targets and settings report cleanly rather than crash.
     SturdyRenderTargetDesc target_desc{};
     check(sturdy_render_target_desc_init(&target_desc) == STURDY_OK && target_desc.struct_size == sizeof(target_desc) && target_desc.mip_levels == STURDY_RENDER_TARGET_AUTO_MIPS,

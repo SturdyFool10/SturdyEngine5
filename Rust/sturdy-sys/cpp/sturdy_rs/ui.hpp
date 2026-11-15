@@ -30,6 +30,12 @@ namespace sturdy_rs::ui {
     using EngineView = sturdy_rs::EngineView;
 
     struct UiDrawHandle;
+    struct UiTreeBuilderHandle;
+    struct UiTreeDirtyHandle;
+    struct UiTreeDescInfo;
+    struct UiTreeFrameInfo;
+    struct UiTreeOutcome;
+    struct UiTreeStatsInfo;
     struct UiElementDesc;
     struct UiBounds;
     struct UiTextStyle;
@@ -101,6 +107,7 @@ namespace sturdy_rs::ui {
     void ui_set_hdr_paper_white_nits(float nits) noexcept;
     void ui_set_raw_pixel_layout(bool raw) noexcept;
     void ui_set_hit_test_fixed(bool fixed) noexcept;
+    void ui_set_debug_view(bool enabled) noexcept;
 
     bool ui_begin_element(const UiElementDesc &desc);
     UiEffectOutcome ui_effect_create(const UiEffectSpec &spec, const UiEffectOptions &options);
@@ -115,6 +122,27 @@ namespace sturdy_rs::ui {
     void ui_node_touch() noexcept;
     UiNodeOutcome ui_node_tree_spawn(EngineView &engine, std::uint32_t root_index, std::uint32_t root_generation, rust::Str name,
                                      std::int32_t layer, std::uint64_t offscreen_target);
+    UiTreeOutcome ui_tree_spawn(EngineView &engine, const UiTreeDescInfo &desc, rust::Box<UiTreeBuilderHandle> builder,
+                                rust::Box<UiTreeDirtyHandle> dirty, bool has_dirty);
+    UiTreeOutcome ui_tree_set_builder(EngineView &engine, std::uint32_t index, std::uint32_t generation,
+                                      rust::Box<UiTreeBuilderHandle> builder);
+    UiTreeOutcome ui_tree_set_target(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::uint32_t target_kind,
+                                     std::uint64_t window, std::uint64_t offscreen_target, std::uint32_t headless_width,
+                                     std::uint32_t headless_height);
+    UiTreeOutcome ui_tree_set_rebuild_policy(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::uint32_t policy,
+                                             float rebuild_hz);
+    UiTreeOutcome ui_tree_set_layer(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::int32_t layer);
+    UiTreeOutcome ui_tree_layer(EngineView &engine, std::uint32_t index, std::uint32_t generation);
+    UiTreeOutcome ui_tree_request_rebuild(EngineView &engine, std::uint32_t index, std::uint32_t generation);
+    UiTreeOutcome ui_tree_point_at(EngineView &engine, std::uint32_t index, std::uint32_t generation, bool has_uv, float u, float v,
+                                   bool down);
+    UiTreeOutcome ui_tree_scroll(EngineView &engine, std::uint32_t index, std::uint32_t generation, float dx, float dy);
+    UiTreeOutcome ui_tree_add_text(EngineView &engine, std::uint32_t index, std::uint32_t generation, rust::Str text);
+    UiTreeOutcome ui_tree_pointer_consumed(EngineView &engine, std::uint32_t index, std::uint32_t generation);
+    UiTreeStatsInfo ui_tree_stats(EngineView &engine, std::uint32_t index, std::uint32_t generation);
+    UiTreeOutcome ui_tree_count(EngineView &engine);
+    UiTreeOutcome ui_tree_render_targets(EngineView &engine);
+    UiTreeOutcome ui_tree_destroy(EngineView &engine, std::uint32_t index, std::uint32_t generation);
     bool ui_end_element();
     bool ui_text(rust::Str text, const UiTextStyle &style);
 

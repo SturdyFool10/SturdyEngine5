@@ -1,6 +1,8 @@
 #include "sturdy_rs/ui.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <stdexcept>
 #include <atomic>
 #include <cstring>
 #include <exception>
@@ -23,10 +25,12 @@
 
 #include <Engine/EcsEvents.hpp>
 #include <Engine/EcsUi.hpp>
+#include <Engine/ForeignUi.hpp>
 #include <Engine/ForeignUiEffects.hpp>
 #include <Engine/ForeignUiNodes.hpp>
 #include <type_traits>
 #include <Engine/Engine.hpp>
+#include <Engine/UiTree.hpp>
 #include <Renderer/Text/EmbeddedFont.hpp>
 #include "sturdy_rs/text.hpp"
 #include <Renderer/Text/Font.hpp>
@@ -88,6 +92,7 @@ namespace sturdy_rs::ui {
         std::atomic<float> g_hdr_paper_white_nits{0.0f};
         std::atomic<bool> g_raw_pixel_layout{false};
         std::atomic<bool> g_hit_test_fixed{false};
+        std::atomic<bool> g_debug_view{false};
 
         /// A font loaded through `ui_register_font`, kept alongside the id it was registered under.
         /// See `FFI/src/FFI/Ui.cpp`'s `FontRegistration` -- same rationale: `Context::register_font`
@@ -278,8 +283,9 @@ namespace sturdy_rs::ui {
 
         SFT::UI::ElementDecl to_element_decl(const UiElementDesc &desc, bool dedupe_ids = true) {
             SFT::UI::ElementDecl decl{};
-            decl.sizing = SFT::UI::Sizing{to_engine_axis(desc.width_kind, desc.width_value),
-                                          to_engine_axis(desc.height_kind, desc.height_value)};
+            decl.sizing = SFT::UI::Sizing{
+                SFT::Engine::with_size_limits(to_engine_axis(desc.width_kind, desc.width_value), desc.width_min, desc.width_max),
+                SFT::Engine::with_size_limits(to_engine_axis(desc.height_kind, desc.height_value), desc.height_min, desc.height_max)};
             decl.padding = SFT::UI::Padding{desc.padding_left, desc.padding_right, desc.padding_top,
                                             desc.padding_bottom};
             decl.child_gap = desc.child_gap;
@@ -559,6 +565,7 @@ namespace sturdy_rs::ui {
             }
             ui.set_scale_mode(g_raw_pixel_layout.load() ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale);
             ui.context().set_hit_test_mode(g_hit_test_fixed.load() ? SFT::UI::HitTestMode::Fixed : SFT::UI::HitTestMode::Css);
+            ui.context().set_debug_view_enabled(g_debug_view.load());
             ui.begin_frame(viewport, static_cast<float>(delta_seconds));
 
             g_session.declared_ids.clear();
@@ -661,6 +668,7 @@ namespace sturdy_rs::ui {
     void ui_set_hdr_paper_white_nits(float nits) noexcept { g_hdr_paper_white_nits.store(nits > 0.0f ? nits : 0.0f); }
     void ui_set_raw_pixel_layout(bool raw) noexcept { g_raw_pixel_layout.store(raw); }
     void ui_set_hit_test_fixed(bool fixed) noexcept { g_hit_test_fixed.store(fixed); }
+    void ui_set_debug_view(bool enabled) noexcept { g_debug_view.store(enabled); }
 
     std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content) {
         if (!g_session.open) {
@@ -771,7 +779,11 @@ namespace sturdy_rs::ui {
             }
             out.linear_filter = pass.linear_filter;
             out.linear_mips = pass.linear_mips;
+            out.separate_mag_filter = pass.separate_mag_filter;
+            out.linear_mag_filter = pass.linear_mag_filter;
             out.address = pass.address;
+            out.separate_address_v = pass.separate_address_v;
+            out.address_v = pass.address_v;
             out.lod_bias = pass.lod_bias;
             out.min_lod = pass.min_lod;
             out.max_lod = pass.max_lod;
@@ -940,6 +952,310 @@ namespace sturdy_rs::ui {
             log_swallowed_exception();
             return node_failure("an exception escaped while spawning the node tree (see the engine log)");
         }
+    }
+
+
+    namespace {
+        UiTreeOutcome tree_failure(const std::string &message) {
+            UiTreeOutcome out{};
+            out.ok = false;
+            out.message = rust::String::lossy(message.data(), message.size());
+            return out;
+        }
+
+        UiTreeOutcome tree_ok() {
+            UiTreeOutcome out{};
+            out.ok = true;
+            return out;
+        }
+
+        /// The tree on `entity`, as a cheap shared handle (no component borrow stays held while it is used).
+        std::optional<SFT::Engine::UiTree> find_tree(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+            auto borrow = engine.ecs_world().get_component<SFT::Engine::UiTree>(entity_of(index, generation));
+            if (!borrow || !borrow->valid()) {
+                return std::nullopt;
+            }
+            return *borrow;
+        }
+
+        std::optional<SFT::Engine::UiTreeTarget> tree_target(std::uint32_t kind, std::uint64_t window, std::uint64_t offscreen_target,
+                                                             std::uint32_t headless_width, std::uint32_t headless_height) {
+            switch (kind) {
+            case 0: {
+                SFT::Engine::UiWindowTarget target;
+                if (window != 0) {
+                    target.window = static_cast<SFT::WindowManager::WindowId>(window);
+                }
+                return target;
+            }
+            case 1:
+                if (offscreen_target == 0) {
+                    return std::nullopt;
+                }
+                return SFT::Engine::UiOffscreenTarget{SFT::Engine::RenderTargetHandle{offscreen_target}};
+            case 2:
+                return SFT::Engine::UiHeadlessTarget{glm::uvec2{headless_width, headless_height}};
+            default:
+                return std::nullopt;
+            }
+        }
+
+        std::optional<SFT::Engine::UiRebuildPolicy> tree_policy(std::uint32_t policy) {
+            switch (policy) {
+            case 0: return SFT::Engine::UiRebuildPolicy::EveryUpdate;
+            case 1: return SFT::Engine::UiRebuildPolicy::OnDirty;
+            case 2: return SFT::Engine::UiRebuildPolicy::FixedRate;
+            default: return std::nullopt;
+            }
+        }
+
+        /// A tree builder that calls the Rust closure with the tree's layout context bound as this thread's open UI frame, so the closure
+        /// builds with the same `Ui` calls a window frame does. The closure is dropped when the last copy of the builder goes.
+        SFT::Engine::UiTreeBuilder make_tree_builder(rust::Box<UiTreeBuilderHandle> handle) {
+            auto shared = std::make_shared<rust::Box<UiTreeBuilderHandle>>(std::move(handle));
+            return [shared](SFT::Engine::UiTreeFrame &frame) {
+                if (g_session.open) {
+                    throw std::runtime_error("a UI frame is already open on this thread; a UI tree cannot be built inside it");
+                }
+                g_session.declared_ids.clear();
+                g_session.open = true;
+                g_session.context = &frame.ui;
+                g_session.viewport = frame.extent;
+                struct Unbind {
+                    ~Unbind() { reset_session(); }
+                } unbind;
+                UiTreeFrameInfo info{};
+                info.entity_index = frame.entity.index;
+                info.entity_generation = frame.entity.generation;
+                info.width = frame.extent.x;
+                info.height = frame.extent.y;
+                info.delta_seconds = frame.delta_seconds;
+                info.build_index = frame.build_index;
+                const bool again = ui_invoke_tree_builder(**shared, frame.engine, info);
+                if (!g_session.open_elements.empty()) {
+                    throw std::runtime_error("the UI tree builder returned with an element still open");
+                }
+                if (again) {
+                    frame.request_rebuild();
+                }
+            };
+        }
+
+        template <class Body>
+        UiTreeOutcome with_tree(EngineView &engine, std::uint32_t index, std::uint32_t generation, Body &&body) {
+            try {
+                auto tree = find_tree(engine, index, generation);
+                if (!tree) {
+                    return tree_failure("the entity has no UI tree");
+                }
+                return body(*tree);
+            } catch (const std::exception &error) {
+                log_swallowed_exception();
+                return tree_failure(error.what());
+            } catch (...) {
+                log_swallowed_exception();
+                return tree_failure("an exception escaped a UI tree call (see the engine log)");
+            }
+        }
+    } // namespace
+
+    UiTreeOutcome ui_tree_spawn(EngineView &engine, const UiTreeDescInfo &desc, rust::Box<UiTreeBuilderHandle> builder,
+                                rust::Box<UiTreeDirtyHandle> dirty, bool has_dirty) {
+        try {
+            SFT::Engine::UiTreeDesc native;
+            native.name = std::string{desc.name.data(), desc.name.size()};
+            const auto target = tree_target(desc.target_kind, desc.window, desc.offscreen_target, desc.headless_width, desc.headless_height);
+            if (!target) {
+                return tree_failure("the UI tree target is not valid (an off-screen tree needs a render target)");
+            }
+            native.target = *target;
+            const auto policy = tree_policy(desc.rebuild);
+            if (!policy) {
+                return tree_failure("unrecognized rebuild policy");
+            }
+            native.rebuild = *policy;
+            if (!std::isfinite(desc.rebuild_hz) || !std::isfinite(desc.content_scale) || !std::isfinite(desc.hdr_reference_white_scale) ||
+                !std::isfinite(desc.build_budget_ms) || desc.rebuild_hz < 0.0f || desc.content_scale <= 0.0f) {
+                return tree_failure("rebuild_hz, content_scale, hdr_reference_white_scale and build_budget_ms must be finite (and the first two positive)");
+            }
+            native.rebuild_hz = desc.rebuild_hz;
+            native.layer = desc.layer;
+            native.scale_mode = desc.raw_pixels ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale;
+            native.content_scale = desc.content_scale;
+            native.hdr_reference_white_scale = desc.hdr_reference_white_scale;
+            native.window_input = desc.window_input;
+            native.clear_color = {desc.clear_color[0], desc.clear_color[1], desc.clear_color[2], desc.clear_color[3]};
+            native.build_budget_ms = desc.build_budget_ms;
+            native.hit_test_mode = desc.hit_test_fixed ? SFT::UI::HitTestMode::Fixed : SFT::UI::HitTestMode::Css;
+            native.parallel_build = desc.parallel_build;
+            native.builder = make_tree_builder(std::move(builder));
+            if (has_dirty) {
+                auto shared = std::make_shared<rust::Box<UiTreeDirtyHandle>>(std::move(dirty));
+                native.dirty_check = [shared]() { return ui_invoke_tree_dirty(**shared); };
+            }
+            const SFT::Ecs::Entity tree = engine.spawn_ui_tree(std::move(native));
+            UiTreeOutcome out = tree_ok();
+            out.index = tree.index;
+            out.generation = tree.generation;
+            return out;
+        } catch (...) {
+            log_swallowed_exception();
+            return tree_failure("an exception escaped while spawning the UI tree (see the engine log)");
+        }
+    }
+
+    UiTreeOutcome ui_tree_set_builder(EngineView &engine, std::uint32_t index, std::uint32_t generation,
+                                      rust::Box<UiTreeBuilderHandle> builder) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            tree.set_builder(make_tree_builder(std::move(builder)));
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_set_target(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::uint32_t target_kind,
+                                     std::uint64_t window, std::uint64_t offscreen_target, std::uint32_t headless_width,
+                                     std::uint32_t headless_height) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            const auto target = tree_target(target_kind, window, offscreen_target, headless_width, headless_height);
+            if (!target) {
+                return tree_failure("the UI tree target is not valid (an off-screen tree needs a render target)");
+            }
+            tree.set_target(*target);
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_set_rebuild_policy(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::uint32_t policy,
+                                             float rebuild_hz) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            const auto native = tree_policy(policy);
+            if (!native || !std::isfinite(rebuild_hz) || rebuild_hz < 0.0f) {
+                return tree_failure("unrecognized rebuild policy, or a rebuild rate that is not a finite non-negative number");
+            }
+            tree.set_rebuild_policy(*native, rebuild_hz);
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_set_layer(EngineView &engine, std::uint32_t index, std::uint32_t generation, std::int32_t layer) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            tree.set_layer(layer);
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_layer(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            UiTreeOutcome out = tree_ok();
+            out.value = static_cast<std::uint64_t>(static_cast<std::int64_t>(tree.layer()));
+            return out;
+        });
+    }
+
+    UiTreeOutcome ui_tree_request_rebuild(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            tree.request_rebuild();
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_point_at(EngineView &engine, std::uint32_t index, std::uint32_t generation, bool has_uv, float u, float v,
+                                   bool down) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            if (has_uv) {
+                if (!std::isfinite(u) || !std::isfinite(v)) {
+                    return tree_failure("the pointer position must be finite");
+                }
+                tree.point_at(glm::vec2{u, v}, down);
+            } else {
+                tree.point_at(std::nullopt, down);
+            }
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_scroll(EngineView &engine, std::uint32_t index, std::uint32_t generation, float dx, float dy) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            if (!std::isfinite(dx) || !std::isfinite(dy)) {
+                return tree_failure("the scroll amount must be finite");
+            }
+            tree.with_input([&](SFT::UI::UiInput &input) { input.add_scroll(glm::vec2{dx, dy}); });
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_add_text(EngineView &engine, std::uint32_t index, std::uint32_t generation, rust::Str text) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            const SFT::UString typed{std::string_view{text.data(), text.size()}};
+            tree.with_input([&](SFT::UI::UiInput &input) { input.add_text(typed); });
+            return tree_ok();
+        });
+    }
+
+    UiTreeOutcome ui_tree_pointer_consumed(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &tree) {
+            UiTreeOutcome out = tree_ok();
+            out.flag = tree.pointer_consumed();
+            return out;
+        });
+    }
+
+    UiTreeStatsInfo ui_tree_stats(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        UiTreeStatsInfo out{};
+        try {
+            const auto tree = find_tree(engine, index, generation);
+            if (!tree) {
+                out.message = "the entity has no UI tree";
+                return out;
+            }
+            const SFT::Engine::UiTreeStats stats = tree->stats();
+            const glm::vec2 extent = tree->last_extent();
+            out.ok = true;
+            out.builds = stats.builds;
+            out.skipped = stats.skipped;
+            out.over_budget = stats.over_budget;
+            out.failed_builds = stats.failed_builds;
+            out.target_renders = stats.target_renders;
+            out.last_build_ms = stats.last_build_ms;
+            out.max_build_ms = stats.max_build_ms;
+            out.last_width = extent.x;
+            out.last_height = extent.y;
+            out.last_error = rust::String::lossy(stats.last_error.data(), stats.last_error.size());
+        } catch (...) {
+            log_swallowed_exception();
+            out.ok = false;
+            out.message = "an exception escaped a UI tree call (see the engine log)";
+        }
+        return out;
+    }
+
+    UiTreeOutcome ui_tree_count(EngineView &engine) {
+        try {
+            UiTreeOutcome out = tree_ok();
+            out.value = engine.ui_trees().tree_count();
+            return out;
+        } catch (...) {
+            log_swallowed_exception();
+            return tree_failure("an exception escaped a UI tree call (see the engine log)");
+        }
+    }
+
+    UiTreeOutcome ui_tree_render_targets(EngineView &engine) {
+        try {
+            UiTreeOutcome out = tree_ok();
+            out.value = engine.render_ui_tree_targets();
+            return out;
+        } catch (...) {
+            log_swallowed_exception();
+            return tree_failure("an exception escaped a UI tree call (see the engine log)");
+        }
+    }
+
+    UiTreeOutcome ui_tree_destroy(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        return with_tree(engine, index, generation, [&](SFT::Engine::UiTree &) {
+            engine.ecs_world().destroy(entity_of(index, generation));
+            return tree_ok();
+        });
     }
 
     bool ui_begin_element(const UiElementDesc &desc) {

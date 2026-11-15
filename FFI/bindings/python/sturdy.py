@@ -1979,6 +1979,7 @@ SturdyTaskThenFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ct
 SturdyTaskWorkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskOutput))
 SturdyTrayCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint32)
 SturdyUiTreeBuilder = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.POINTER(SturdyUiTreeFrame), ctypes.c_void_p)
+SturdyUiTreeDirtyCheck = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p)
 SturdyUpdateHook = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.c_double, ctypes.c_void_p)
 SturdyViewCallback = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.POINTER(SturdyFrameInput), SturdyFrame, ctypes.c_void_p)
 SturdyWebSocketFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyHttpRequest))
@@ -4173,7 +4174,11 @@ SturdyUiEffectPass._fields_ = [
     ('input_count', ctypes.c_uint32),
     ('linear_filter', ctypes.c_uint8),
     ('linear_mips', ctypes.c_uint8),
+    ('separate_mag_filter', ctypes.c_uint8),
+    ('linear_mag_filter', ctypes.c_uint8),
     ('address', ctypes.c_uint32),
+    ('separate_address_v', ctypes.c_uint8),
+    ('address_v', ctypes.c_uint32),
     ('lod_bias', ctypes.c_float),
     ('min_lod', ctypes.c_float),
     ('max_lod', ctypes.c_float),
@@ -4200,6 +4205,10 @@ SturdyUiElement._fields_ = [
     ('background', (ctypes.c_float * 4)),
     ('corner_radius', (ctypes.c_float * 4)),
     ('id', ctypes.c_char_p),
+    ('width_min', ctypes.c_float),
+    ('width_max', ctypes.c_float),
+    ('height_min', ctypes.c_float),
+    ('height_max', ctypes.c_float),
 ]
 SturdyUiElementExtras._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -4341,6 +4350,8 @@ SturdyUiTreeDesc._fields_ = [
     ('hit_test_mode', ctypes.c_int32),
     ('builder', SturdyUiTreeBuilder),
     ('user', ctypes.c_void_p),
+    ('parallel_build', ctypes.c_uint8),
+    ('dirty_check', SturdyUiTreeDirtyCheck),
     ('release_user', SturdyUiTreeDesc_release_user_fn),
 ]
 SturdyUiTreeFrame._fields_ = [
