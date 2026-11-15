@@ -564,6 +564,77 @@ namespace SFT::Renderer {
         return {};
     }
 
+    optional<RHI::Format> Renderer::offscreen_target_draw_format(OffscreenRenderTargetHandle handle) const noexcept {
+        const optional<ResolvedOffscreenRenderTarget> resolved = resolve_offscreen_render_target(handle);
+        if (!resolved) {
+            return std::nullopt;
+        }
+        return offscreen_render_target_format_needs_shader_encode(resolved->format) ? RHI::Format::RGBA16Float : resolved->format;
+    }
+
+    Core::RendererResult Renderer::add_offscreen_target_draw(RenderGraph &graph, OffscreenRenderTargetHandle handle,
+                                                             std::vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                             OffscreenTargetDraw draw) {
+        ZoneScopedN("Renderer::add_offscreen_target_draw");
+        const optional<ResolvedOffscreenRenderTarget> resolved = resolve_offscreen_render_target(handle);
+        if (!resolved) {
+            return unexpected(offscreen_target_error("Cannot draw into an unknown or destroyed off-screen render target."));
+        }
+        if (!draw.draw) {
+            return unexpected(offscreen_target_error("An off-screen target draw needs a draw function."));
+        }
+        const bool shader_encoded = offscreen_render_target_format_needs_shader_encode(resolved->format);
+        const RenderGraphTextureHandle target = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = resolved->texture,
+            .default_view = resolved->view,
+            .format = resolved->format,
+            .extent = RHI::Extent3D{.width = resolved->extent.x, .height = resolved->extent.y, .depth_or_layers = 1},
+            .mip_levels = static_cast<u32>(resolved->mip_views.size()),
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferSrc,
+            // The target is cleared, so what it held before never matters.
+            .initial_layout = RHI::TextureLayout::Undefined,
+            .initial_stage = RHI::PipelineStage::None,
+            .initial_access = RHI::AccessFlags::None,
+            .final_layout = RHI::TextureLayout::ShaderReadOnly,
+            .final_stage = RHI::PipelineStage::AllGraphics | RHI::PipelineStage::ComputeShader,
+            .final_access = RHI::AccessFlags::ShaderRead,
+            .label = "off-screen target (ui draw)",
+        });
+        graph.mark_output(target);
+        // What the draw renders into: the target, or for a shader-encoded one a linear half-float image the finishing passes encode from.
+        const RenderGraphTextureHandle drawn = shader_encoded
+            ? graph.create_texture(RenderGraphTextureDesc{
+                  .format = RHI::Format::RGBA16Float,
+                  .extent = RHI::Extent3D{.width = resolved->extent.x, .height = resolved->extent.y, .depth_or_layers = 1},
+                  .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                  .label = "off-screen linear color (before encode)",
+              })
+            : target;
+        auto &builder = graph.add_render_pass(draw.label);
+        builder.add_color_attachment(RenderGraphColorAttachmentDesc{
+            .texture = drawn,
+            .view = shader_encoded ? RHI::TextureViewHandle{} : resolved->view,
+            .subresources = RHI::TextureSubresourceRange{.base_mip_level = 0, .mip_level_count = 1},
+            .load_op = RHI::LoadOp::Clear,
+            .store_op = RHI::StoreOp::Store,
+            .clear_color = draw.clear,
+        });
+        for (const RenderGraphTextureHandle read : draw.sampled) {
+            builder.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = read});
+        }
+        const Core::Extent2D extent = resolved->extent;
+        builder.set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = extent.x, .height = extent.y})
+            .set_execute([extent, fn = std::move(draw.draw)](RenderGraphContext &context) -> Core::RendererResult {
+                RHI::RenderPassEncoder &pass = context.render_pass();
+                pass.set_viewport(RHI::Viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<f32>(extent.x), .height = static_cast<f32>(extent.y),
+                                                .min_depth = 0.0f, .max_depth = 1.0f});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.x, .height = extent.y});
+                return fn(pass, extent);
+            });
+        return add_offscreen_target_finalize_passes(graph, target, shader_encoded ? drawn : RenderGraphTextureHandle{}, *resolved,
+                                                    transient_bind_groups);
+    }
+
     Core::RendererResult Renderer::dispatch_into_offscreen_render_target(OffscreenRenderTargetHandle handle, ComputeKernelId kernel,
                                                                          std::string_view target_binding, glm::uvec3 groups,
                                                                          std::span<const ComputeBinding> bindings,

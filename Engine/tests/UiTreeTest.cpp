@@ -5,7 +5,12 @@
 #include <Engine/EngineModule.hpp>
 #include <Engine/UiTree.hpp>
 
+#include <atomic>
+#include <chrono>
 #include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
 #include <string_view>
 
 namespace {
@@ -133,6 +138,67 @@ int main() {
     engine.ecs_world().destroy(flaky_entity);
     engine.update(1.0 / 60.0);
     check(engine.ui_trees().tree_count() == 3, "a destroyed tree entity must stop being laid out");
+
+    // A tree with a layered element yields one overlay per layer, lowest first.
+    {
+        const auto marker = UI::Effects::layer(1);
+        const Ecs::Entity layered = engine.spawn_ui_tree({.name = "layered", .builder = [&](Engine::UiTreeFrame &frame) {
+                                                              auto root = frame.ui.element(UI::ElementDecl{});
+                                                              auto plain = frame.ui.element(UI::ElementDecl{
+                                                                  .sizing = {UI::SizingAxis::fixed(40.0f), UI::SizingAxis::fixed(40.0f)},
+                                                                  .background_color = UI::Color{1.0, 0.0, 0.0, 1.0}});
+                                                              auto lifted = frame.ui.element(UI::ElementDecl{
+                                                                  .sizing = {UI::SizingAxis::fixed(40.0f), UI::SizingAxis::fixed(40.0f)},
+                                                                  .background_color = UI::Color{0.0, 1.0, 0.0, 1.0},
+                                                                  .effect = marker});
+                                                          },
+                                                          .layer = 5});
+        engine.update(1.0 / 60.0);
+        std::vector<Renderer::OverlayPass> layered_overlays;
+        engine.ui_trees().append_window_overlays(engine, Core::RenderSurfaceHandle{window}, glm::uvec2{800u, 600u}, layered_overlays);
+        usize found = 0;
+        for (const auto &overlay : layered_overlays) {
+            found += overlay.name == "layered" || overlay.name == "layered layer 1";
+        }
+        check(found == 2, "a tree with a layered element is attached as one overlay per layer");
+        engine.ecs_world().destroy(layered);
+        engine.update(1.0 / 60.0);
+    }
+
+    // Trees that allow it are laid out at the same time on the engine's workers; each still gets exactly one build per update.
+    {
+        std::atomic<int> active{0};
+        std::atomic<int> max_active{0};
+        std::atomic<int> parallel_builds{0};
+        std::vector<Ecs::Entity> parallel_trees;
+        for (int i = 0; i < 4; ++i) {
+            parallel_trees.push_back(engine.spawn_ui_tree({.name = "parallel" + std::to_string(i),
+                                                           .target = Engine::UiHeadlessTarget{{64u, 64u}},
+                                                           .builder = [&](Engine::UiTreeFrame &frame) {
+                                                               const int now = ++active;
+                                                               int seen = max_active.load();
+                                                               while (now > seen && !max_active.compare_exchange_weak(seen, now)) {
+                                                               }
+                                                               // Reading the world from a worker is allowed (builders may not write it).
+                                                               check(frame.engine.ecs_world().get_component<Engine::UiTree>(frame.entity) != nullptr,
+                                                                     "a parallel builder can read the ECS world");
+                                                               draw_box(frame.ui, "p", 16.0f);
+                                                               std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                                                               ++parallel_builds;
+                                                               --active;
+                                                           },
+                                                           .parallel_build = true}));
+        }
+        engine.update(1.0 / 60.0);
+        check(parallel_builds.load() == 4, "every parallel tree must be laid out exactly once per update");
+        if (std::thread::hardware_concurrency() > 1) {
+            check(max_active.load() >= 2, "trees that allow it must be laid out concurrently");
+        }
+        for (const Ecs::Entity entity : parallel_trees) {
+            engine.ecs_world().destroy(entity);
+        }
+        engine.update(1.0 / 60.0);
+    }
 
     Async::Scheduler::shutdown();
     if (failures != 0) {

@@ -30,16 +30,20 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    Color blend_color(const Color &current, const Color &target, f64 t,
-                                           ColorBlendSpace space) noexcept {
-        switch (space) {
-            case ColorBlendSpace::Oklch: return Detail::blend_in_space<Foundation::Color::Oklch>(current, target, t);
-            case ColorBlendSpace::Linear: return Detail::blend_in_space<Foundation::Color::Linear>(current, target, t);
-            case ColorBlendSpace::Srgb: return Detail::blend_in_space<Foundation::Color::Srgb>(current, target, t);
-            case ColorBlendSpace::Hsl: return Detail::blend_in_space<Foundation::Color::Hsl>(current, target, t);
-            case ColorBlendSpace::Oklab:
-            default: return Detail::blend_in_space<Foundation::Color::Oklab>(current, target, t);
-        }
+    Color blend_color(const Color &current, const Color &target, f64 t, ColorBlendSpace space) noexcept {
+        return blend_color(current, target, t, ColorInterpolation{.space = space});
+    }
+
+    Color blend_color(const Color &current, const Color &target, f64 t, ColorInterpolation method) noexcept {
+        return Color{mix(current.vec4(), target.vec4(), static_cast<f32>(t), method)};
+    }
+
+    glm::vec4 blend_color(glm::vec4 current, glm::vec4 target, f32 t, ColorInterpolation method, ColorSpace source) noexcept {
+        return mix(current, target, t, method, source, source);
+    }
+
+    glm::vec3 blend_color(glm::vec3 current, glm::vec3 target, f32 t, ColorInterpolation method, ColorSpace source) noexcept {
+        return mix(current, target, t, method, source, source);
     }
 
     /// Updates the `UI` state from the supplied values.

@@ -23,6 +23,7 @@
 #include <Renderer/UI/ScrollArea.hpp>
 #include <Renderer/UI/Slider.hpp>
 #include <Renderer/UI/Style.hpp>
+#include <Renderer/UI/UiEffectLibrary.hpp>
 #include <Renderer/UI/Svg/SvgIcon.hpp>
 #include <Renderer/UI/TextArea.hpp>
 #include <Renderer/UI/TextEdit.hpp>

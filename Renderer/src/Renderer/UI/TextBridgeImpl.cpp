@@ -216,7 +216,7 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    Clay_Dimensions TextBridge::measure(Clay_StringSlice text, const Clay_TextElementConfig &config) {
+    SEClay_Dimensions TextBridge::measure(SEClay_StringSlice text, const SEClay_TextElementConfig &config) {
         TextStyle style{
             .font_id = config.fontId,
             .font_size = config.fontSize,
@@ -225,9 +225,9 @@ namespace SFT::UI {
         };
         const CachedShape *shape = shape_and_cache(style, string_view{text.chars, static_cast<usize>(text.length)});
         if (shape == nullptr) {
-            return Clay_Dimensions{.width = 0.0f, .height = static_cast<f32>(config.fontSize)};
+            return SEClay_Dimensions{.width = 0.0f, .height = static_cast<f32>(config.fontSize)};
         }
-        return Clay_Dimensions{.width = shape->width_px, .height = shape->height_px};
+        return SEClay_Dimensions{.width = shape->width_px, .height = shape->height_px};
     }
 
     /// Handles the measure callback callback and updates the associated platform state.
@@ -238,9 +238,9 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    Clay_Dimensions TextBridge::measure_callback(Clay_StringSlice text, Clay_TextElementConfig *config, void *user_data) {
+    SEClay_Dimensions TextBridge::measure_callback(SEClay_StringSlice text, SEClay_TextElementConfig *config, void *user_data) {
         if (config == nullptr || user_data == nullptr) {
-            return Clay_Dimensions{};
+            return SEClay_Dimensions{};
         }
         return static_cast<TextBridge *>(user_data)->measure(text, *config);
     }

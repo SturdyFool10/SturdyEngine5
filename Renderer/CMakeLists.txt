@@ -27,7 +27,6 @@ sturdy_add_package(Renderer
         Sturdy::FreeType
         Sturdy::MsdfGen
         Sturdy::StbImage
-        Sturdy::clay
 
     PRIVATE_DEPS
         Sturdy::Tracy

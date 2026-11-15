@@ -51,6 +51,16 @@ namespace SFT::UI {
     [[nodiscard]] Color blend_color(const Color &current, const Color &target, f64 t,
                                            ColorBlendSpace space) noexcept;
 
+    /// Blends in any CSS colour space (`UI/UiColor.hpp`), with the hue method for polar ones. Premultiplied-alpha interpolation, so a
+    /// transparent colour does not drag the result towards black. The default interpolation is Oklab.
+    [[nodiscard]] Color blend_color(const Color &current, const Color &target, f64 t, ColorInterpolation method = {}) noexcept;
+
+    /// The same blend on vectors: `source` names the space `current` and `target` are in (sRGB unless stated) and is the space returned.
+    [[nodiscard]] glm::vec4 blend_color(glm::vec4 current, glm::vec4 target, f32 t, ColorInterpolation method = {},
+                                        ColorSpace source = ColorSpace::Srgb) noexcept;
+    [[nodiscard]] glm::vec3 blend_color(glm::vec3 current, glm::vec3 target, f32 t, ColorInterpolation method = {},
+                                        ColorSpace source = ColorSpace::Srgb) noexcept;
+
 
     class ColorTransition {
       public:

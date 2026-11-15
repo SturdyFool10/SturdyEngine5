@@ -82,6 +82,10 @@ namespace SFT::Renderer {
         /// Frame-transient GPU objects a feature creates for this frame only; the renderer frees them when the
         /// frame has finished on the GPU (with `transient_bind_groups`).
         std::vector<RHI::BufferHandle> *transient_buffers = nullptr;
+        /// Finished command buffers a feature may add (uploads recorded on an encoder of its own, so several features can record at the same
+        /// time on worker threads). They are submitted before any pass of the graph, so what they upload is there when the passes run.
+        /// The renderer owns them from the moment they are added.
+        std::vector<RHI::CommandBufferHandle> *extra_command_buffers = nullptr;
         /// Formats of the deferred targets (G-buffer, scene colour, depth) this frame.
         DeferredTargetFormats deferred_formats{};
         /// The frame's camera (view, projection, position, clip planes) and the lighting exposure the lighting pass

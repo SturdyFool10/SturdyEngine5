@@ -260,6 +260,11 @@ namespace SFT::Renderer {
         /// @note This function does not throw exceptions.
         void wait_idle() noexcept;
 
+        /// What the render graph made of the last frame drawn to `surface`: every pass in execution order with its level. Passes sharing a
+        /// level were found independent and are recorded in parallel. Call when no frame is being built for the surface (after
+        /// `wait_idle`); meant for tests and diagnostics.
+        [[nodiscard]] vector<RenderGraph::PassExecutionInfo> last_frame_execution_plan(Core::RenderSurfaceHandle surface) const;
+
         /// Returns the current or globally available capabilities value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -558,6 +563,29 @@ namespace SFT::Renderer {
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] TextureHandle offscreen_render_target_texture(OffscreenRenderTargetHandle handle) const noexcept;
+
+        /// A draw into an off-screen target declared on a render graph you own (a UI tree's passes, any overlay `prepare`): see
+        /// `add_offscreen_target_draw`.
+        struct OffscreenTargetDraw {
+            UString label;
+            /// The target is cleared to this before `draw` runs.
+            RHI::ClearColor clear{};
+            /// Graph textures `draw` samples, declared as reads of the pass.
+            std::vector<RenderGraphTextureHandle> sampled;
+            /// Records the drawing into the pass's render pass; `extent` is the target's size in pixels. It runs when the graph executes.
+            std::function<Core::RendererResult(RHI::RenderPassEncoder &pass, Core::Extent2D extent)> draw;
+        };
+        /// The format `OffscreenTargetDraw::draw` renders into for this target: the target's own format when frames draw straight into it,
+        /// half-float for a target that is shader-encoded afterwards (10-bit, plain 8-bit). Pipelines `draw` uses must match it. Empty for
+        /// an unknown target.
+        [[nodiscard]] optional<RHI::Format> offscreen_target_draw_format(OffscreenRenderTargetHandle handle) const noexcept;
+        /// Declares, on `graph`, a pass that clears the target and runs `draw`, plus the passes that finish it (the shader encode for the
+        /// formats that need one, then the mip chain), exactly as a frame aimed at the target would. The passes are independent of every
+        /// other target's, so a graph holding several of these has them recorded in parallel. `transient_bind_groups` must outlive the
+        /// graph's execution (it receives the finishing passes' bind groups).
+        [[nodiscard]] Core::RendererResult add_offscreen_target_draw(RenderGraph &graph, OffscreenRenderTargetHandle handle,
+                                                                     std::vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                                     OffscreenTargetDraw draw);
 
 
         /// Performs the adopt texture operation for `Renderer` using the supplied arguments.
@@ -1861,6 +1889,7 @@ namespace SFT::Renderer {
             std::string fragment_entry_point;
             RHI::Format color_format = RHI::Format::Undefined;
             FullscreenBlend blend = FullscreenBlend::None;
+            FullscreenSampler sampler_desc{};
             Core::Slang::Shader shader;
             RHI::ShaderModuleHandle vertex_module{};
             RHI::ShaderModuleHandle fragment_module{};

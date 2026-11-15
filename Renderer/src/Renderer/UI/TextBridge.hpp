@@ -3,7 +3,7 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
-#include <clay.h>
+#include <Renderer/UI/SEClay/SEClay.h>
 #include <memory>
 #include <set>
 #include <span>
@@ -93,7 +93,7 @@ namespace SFT::UI {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] static Clay_Dimensions measure_callback(Clay_StringSlice text, Clay_TextElementConfig *config,
+        [[nodiscard]] static SEClay_Dimensions measure_callback(SEClay_StringSlice text, SEClay_TextElementConfig *config,
                                                                void *user_data);
 
         /// Controls whether an unregistered font id 0 falls back to the embedded default font.
@@ -107,7 +107,7 @@ namespace SFT::UI {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Clay_Dimensions measure(Clay_StringSlice text, const Clay_TextElementConfig &config);
+        [[nodiscard]] SEClay_Dimensions measure(SEClay_StringSlice text, const SEClay_TextElementConfig &config);
 
         struct FontEntry {
             FontId id = 0;

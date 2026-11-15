@@ -144,6 +144,19 @@ float4 fullscreenTrianglePosition(float2 uv) {
     return float4(uvToNdc(uv), 0.0, 1.0);
 }
 
+// The fixed first 48 bytes of every UI effect pass's push-constant block (UI::UiEffectConstants in UI/UiEffect.hpp, written by the
+// renderer; the pass's own parameters follow). Declare it as the first member of the shader's `[[push_constant]]` struct, then
+// pad the parameters to whole 16-byte registers so the reflected size is exactly 48 + the parameter bytes the effect supplies.
+struct UiEffectConstants {
+    float2 targetSize;  // the pass's own render target, in pixels
+    float2 contentSize; // the group's content image, in pixels (what a GroupContent input is)
+    float2 groupOrigin; // where the group's element sits on the UI surface, in surface pixels
+    float2 groupSize;   // the element's size, in surface pixels
+    uint passIndex;     // this pass's index within the effect
+    uint frameIndex;    // frames the effect has been drawn, for animation
+    float2 _pad;
+};
+
 // -------------------------------------------------------------------------------------------------
 // Pixel-space UI quad helpers
 // -------------------------------------------------------------------------------------------------
@@ -214,6 +227,70 @@ float roundedBoxSDF(float2 centerPos, float2 halfSize, float4 cornerRadius) {
     radius = min(radius, min(halfSize.x, halfSize.y));
     float2 q = abs(centerPos) - halfSize + radius;
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+}
+
+// The CSS `corner-shape` parameter k of one corner, from the byte UI::encode_corner_shape (UI/Style.hpp) writes: the corner
+// profile is the superellipse |x|^n + |y|^n = 1 with n = 2^k. 0 and 190 are round (k = 1); 253 and above is "square"
+// (k -> +inf, returned as +1000) and 1 and below is "notch" (k -> -inf, -1000); everything between is 2/pi * atan(k) in 126 steps
+// around bevel (k = 0) at 127. Keep in step with decode_corner_shape_k in UI/Style.hpp.
+float uiCornerShapeK(uint code) {
+    if (code == 0u || code == 190u) {
+        return 1.0;
+    }
+    if (code >= 253u) {
+        return 1000.0;
+    }
+    if (code <= 1u) {
+        return -1000.0;
+    }
+    float t = (float(code) - 127.0) / 126.0;
+    return tan(t * 1.57079632679);
+}
+
+// Approximate signed distance (in the units of the corner square, so multiply by the radius) from a point p >= 0 to the
+// convex superellipse |x|^n + |y|^n = 1: first-order, (f - 1) / |grad f| with f the n-norm of p. It is exact for the circle
+// (n = 2) and the bevel (n = 1) and well behaved in between and beyond, which is all an antialiased edge needs. `n` at or above
+// 16 is treated as a square corner (Chebyshev distance): the shape is indistinguishable and 2^n would overflow.
+float superellipseCornerSDF(float2 p, float n) {
+    if (n >= 16.0) {
+        return max(p.x, p.y) - 1.0;
+    }
+    float2 safeP = clamp(p, 1.0e-4, 4.0);
+    float2 pn = pow(safeP, float2(n, n));
+    float f = pow(pn.x + pn.y, 1.0 / n);
+    float2 grad = (pn / safeP) * pow(f, 1.0 - n);
+    return (f - 1.0) / max(length(grad), 1.0e-4);
+}
+
+// roundedBoxSDF with a per-corner profile (CSS `corner-shape`): `cornerK` holds uiCornerShapeK() for the corners in the same
+// order as `cornerRadius` (top left, top right, bottom left, bottom right). With every k = 1 this is exactly roundedBoxSDF.
+//
+// In corner-square coordinates a = (|p| - halfSize + r) / r the box corner is at (1,1) and the square spans [0,1]^2.
+//   k >= 0  convex: the corner is cut by the superellipse of exponent n = 2^k, centred on a = 0 (n = 2 round, 1 bevel, big square).
+//   k <  0  concave: the corner square is carved out by the superellipse of exponent 2^-k centred on the box corner (a = (1,1)),
+//           i.e. the convex profile mirrored through the square: k = -1 is a circular scoop, k -> -inf a square notch.
+float shapedBoxSDF(float2 centerPos, float2 halfSize, float4 cornerRadius, float4 cornerK) {
+    bool left = centerPos.x <= 0.0;
+    bool top = centerPos.y <= 0.0;
+    float radius = left ? (top ? cornerRadius.x : cornerRadius.z) : (top ? cornerRadius.y : cornerRadius.w);
+    float k = left ? (top ? cornerK.x : cornerK.z) : (top ? cornerK.y : cornerK.w);
+    radius = min(radius, min(halfSize.x, halfSize.y));
+
+    float2 edge = abs(centerPos) - halfSize;
+    float boxDist = min(max(edge.x, edge.y), 0.0) + length(max(edge, 0.0));
+    if (radius <= 0.0) {
+        return boxDist;
+    }
+    float2 q = edge + radius;
+    if (k >= 0.0) {
+        if (q.x > 0.0 && q.y > 0.0) {
+            return superellipseCornerSDF(q / radius, exp2(min(k, 4.0))) * radius;
+        }
+        return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+    }
+    float2 mirrored = abs(float2(1.0, 1.0) - q / radius);
+    float cutDist = -superellipseCornerSDF(mirrored, exp2(min(-k, 4.0))) * radius;
+    return max(boxDist, cutDist);
 }
 
 // Signed distance to a capsule (the line segment `a`-`b` thickened by `radius`, with round ends) —

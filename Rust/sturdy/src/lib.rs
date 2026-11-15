@@ -59,6 +59,8 @@ pub mod text_render;
 pub mod time;
 pub mod trace;
 pub mod ui;
+pub mod ui_effects;
+pub mod ui_nodes;
 pub mod ui_kit;
 pub mod markdown;
 /// Async networking, files, processes and data-parallel loops (the `sturdy-net` crate): TCP/UDP/TLS, HTTP/1-3, WebSocket, QUIC, peers, NAT

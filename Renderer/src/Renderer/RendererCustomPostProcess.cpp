@@ -55,7 +55,7 @@ namespace SFT::Renderer {
         for (const CustomPostProcessResources &resource : *resources) {
             if (resource.shader_path == effect.shader_path && resource.module_name == effect.module_name &&
                 resource.fragment_entry_point == effect.fragment_entry_point && resource.color_format == color_format &&
-                resource.blend == effect.blend) {
+                resource.blend == effect.blend && resource.sampler_desc == effect.sampler) {
                 if (effect.push_constants.size() != resource.push_constant_size) {
                     return unexpected(custom_effect_error(
                         "Custom post-process push-constant payload size does not match the shader's reflected range."));
@@ -77,6 +77,7 @@ namespace SFT::Renderer {
             .fragment_entry_point = effect.fragment_entry_point,
             .color_format = color_format,
             .blend = effect.blend,
+            .sampler_desc = effect.sampler,
         };
         auto cleanup = [&]() noexcept {
             if (resource.pipeline) device->destroy_render_pipeline(resource.pipeline);
@@ -214,10 +215,12 @@ namespace SFT::Renderer {
         resource.pipeline_layout = *pipeline_layout;
 
         auto sampler = device->create_sampler(RHI::SamplerDesc{
-            .min_filter = RHI::Filter::Linear, .mag_filter = RHI::Filter::Linear,
-            .mipmap_mode = RHI::MipmapMode::Nearest,
-            .address_u = RHI::AddressMode::ClampToEdge, .address_v = RHI::AddressMode::ClampToEdge,
-            .address_w = RHI::AddressMode::ClampToEdge, .max_lod = 0.0f,
+            .min_filter = effect.sampler.min_filter, .mag_filter = effect.sampler.mag_filter,
+            .mipmap_mode = effect.sampler.mipmap_mode,
+            .address_u = effect.sampler.address_u, .address_v = effect.sampler.address_v,
+            .address_w = RHI::AddressMode::ClampToEdge, .mip_lod_bias = effect.sampler.mip_lod_bias,
+            .min_lod = effect.sampler.min_lod, .max_lod = effect.sampler.max_lod,
+            .max_anisotropy = effect.sampler.max_anisotropy,
             .label = "custom post-process sampler",
         });
         if (!sampler) { cleanup(); return unexpected(graphics_error_from_rhi(sampler.error(), "create custom post-process sampler")); }
@@ -297,7 +300,7 @@ namespace SFT::Renderer {
             for (const CustomPostProcessResources &candidate : *resources) {
                 if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
                     candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format &&
-                    candidate.blend == effect.blend) {
+                    candidate.blend == effect.blend && candidate.sampler_desc == effect.sampler) {
                     resource = &candidate;
                     break;
                 }

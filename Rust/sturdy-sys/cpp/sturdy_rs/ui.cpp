@@ -23,6 +23,9 @@
 
 #include <Engine/EcsEvents.hpp>
 #include <Engine/EcsUi.hpp>
+#include <Engine/ForeignUiEffects.hpp>
+#include <Engine/ForeignUiNodes.hpp>
+#include <type_traits>
 #include <Engine/Engine.hpp>
 #include <Renderer/Text/EmbeddedFont.hpp>
 #include "sturdy_rs/text.hpp"
@@ -84,6 +87,7 @@ namespace sturdy_rs::ui {
         std::atomic<float> g_hdr_reference_white{1.0f};
         std::atomic<float> g_hdr_paper_white_nits{0.0f};
         std::atomic<bool> g_raw_pixel_layout{false};
+        std::atomic<bool> g_hit_test_fixed{false};
 
         /// A font loaded through `ui_register_font`, kept alongside the id it was registered under.
         /// See `FFI/src/FFI/Ui.cpp`'s `FontRegistration` -- same rationale: `Context::register_font`
@@ -229,9 +233,10 @@ namespace sturdy_rs::ui {
             return font;
         }
 
-        /// The most recently finished frame's overlay, awaiting `ui_take_pending_overlay`.
+        /// The most recently finished frame's overlay, awaiting `ui_take_pending_overlays`.
         std::mutex g_pending_mutex;
-        std::optional<SFT::Renderer::OverlayPass> g_pending_overlay;
+        /// One overlay per UI layer (see `UI::UiEffect::layer`), lowest first; a UI with no layered element makes one.
+        std::vector<SFT::Renderer::OverlayPass> g_pending_overlays;
         /// A pointer position injected from Rust, applied once more just before the next layout (guarded by `g_pending_mutex`).
         std::optional<glm::vec2> g_injected_pointer;
 
@@ -271,7 +276,7 @@ namespace sturdy_rs::ui {
                       static_cast<int>(UiAttachPoint::RightBottom));
         static_assert(static_cast<int>(SFT::UI::Docking::DockDropZone::Bottom) == static_cast<int>(UiDockZone::Bottom));
 
-        SFT::UI::ElementDecl to_element_decl(const UiElementDesc &desc) {
+        SFT::UI::ElementDecl to_element_decl(const UiElementDesc &desc, bool dedupe_ids = true) {
             SFT::UI::ElementDecl decl{};
             decl.sizing = SFT::UI::Sizing{to_engine_axis(desc.width_kind, desc.width_value),
                                           to_engine_axis(desc.height_kind, desc.height_value)};
@@ -284,11 +289,15 @@ namespace sturdy_rs::ui {
             decl.corner_radius = SFT::UI::CornerRadius{desc.corner_radius[0], desc.corner_radius[1],
                                                         desc.corner_radius[2], desc.corner_radius[3]};
             decl.clip = SFT::UI::ClipConfig{desc.clip_horizontal, desc.clip_vertical};
+            decl.clip.follow_corners = desc.clip_follow_corners;
+            if (desc.clip_path != 0) {
+                decl.clip.path = SFT::Engine::find_foreign_ui_effect(desc.clip_path);
+            }
             if (!desc.id.empty()) {
                 std::string id{desc.id.data(), desc.id.size()};
                 // A second element with an id already used in this layout gets "#2", "#3", ...: ids that share a
                 // hash share bounds and hover, and the layout can only follow one of them. The first keeps its name.
-                if (const auto repeats = g_session.declared_ids[id]++; repeats > 0) {
+                if (dedupe_ids) if (const auto repeats = g_session.declared_ids[id]++; repeats > 0) {
                     id += "#" + std::to_string(repeats + 1);
                 }
                 decl.id = SFT::UString{std::string_view{id.data(), id.size()}};
@@ -301,6 +310,25 @@ namespace sturdy_rs::ui {
             decl.border.width.top = desc.border_width[2];
             decl.border.width.bottom = desc.border_width[3];
             decl.border.width.between_children = desc.border_width[4];
+            decl.corner_shapes = SFT::UI::CornerShapes{
+                SFT::UI::CornerShape{desc.corner_shape[0]}, SFT::UI::CornerShape{desc.corner_shape[1]},
+                SFT::UI::CornerShape{desc.corner_shape[2]}, SFT::UI::CornerShape{desc.corner_shape[3]}};
+            if (desc.has_border_edges) {
+                auto edges = std::make_shared<SFT::UI::BorderEdges>();
+                SFT::UI::BorderEdge *targets[4] = {&edges->left, &edges->right, &edges->top, &edges->bottom};
+                for (int i = 0; i < 4; ++i) {
+                    targets[i]->color = SFT::UI::Color{desc.border_edge_colors[i * 4], desc.border_edge_colors[i * 4 + 1],
+                                                       desc.border_edge_colors[i * 4 + 2], desc.border_edge_colors[i * 4 + 3]};
+                    targets[i]->style = desc.border_edge_styles[i] <= static_cast<std::uint32_t>(SFT::UI::BorderLineStyle::Double)
+                                            ? static_cast<SFT::UI::BorderLineStyle>(desc.border_edge_styles[i])
+                                            : SFT::UI::BorderLineStyle::Solid;
+                }
+                decl.border_edges = std::move(edges);
+            }
+            if (desc.effect != 0) {
+                // An id that was released (or never existed) leaves the element plain rather than failing the frame.
+                decl.effect = SFT::Engine::find_foreign_ui_effect(desc.effect);
+            }
             decl.z = desc.z;
             decl.cursor = static_cast<SFT::UI::CursorIcon>(static_cast<std::uint8_t>(desc.cursor));
             if (!desc.debug_label.empty()) {
@@ -530,6 +558,7 @@ namespace sturdy_rs::ui {
                 }
             }
             ui.set_scale_mode(g_raw_pixel_layout.load() ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale);
+            ui.context().set_hit_test_mode(g_hit_test_fixed.load() ? SFT::UI::HitTestMode::Fixed : SFT::UI::HitTestMode::Css);
             ui.begin_frame(viewport, static_cast<float>(delta_seconds));
 
             g_session.declared_ids.clear();
@@ -542,13 +571,14 @@ namespace sturdy_rs::ui {
             reset_session();
 
             auto snapshot = std::make_shared<SFT::UI::FrameSnapshot>(ui.context().finish_frame(viewport));
-            SFT::Renderer::OverlayPass overlay =
-                ui.surface().overlay_for_snapshot(std::move(snapshot), engine.renderer(),
-                                                  SFT::UI::UiOverlayOptions{.hdr_reference_white_scale = g_hdr_reference_white.load(),
-                                                                            .hdr_paper_white_nits = g_hdr_paper_white_nits.load()});
+            ui.surface().input().end_text_frame();
+            std::vector<SFT::Renderer::OverlayPass> overlays = ui.surface().make_layer_overlays(
+                SFT::UI::FrameSnapshot::split_layers(std::move(snapshot)), engine.renderer(),
+                SFT::UI::UiOverlayOptions{.hdr_reference_white_scale = g_hdr_reference_white.load(),
+                                          .hdr_paper_white_nits = g_hdr_paper_white_nits.load()});
             {
                 const std::lock_guard<std::mutex> lock{g_pending_mutex};
-                g_pending_overlay = std::move(overlay);
+                g_pending_overlays = std::move(overlays);
             }
             return true;
         } catch (...) {
@@ -630,6 +660,7 @@ namespace sturdy_rs::ui {
     void ui_set_hdr_reference_white(float scale) noexcept { g_hdr_reference_white.store(scale > 0.0f ? scale : 1.0f); }
     void ui_set_hdr_paper_white_nits(float nits) noexcept { g_hdr_paper_white_nits.store(nits > 0.0f ? nits : 0.0f); }
     void ui_set_raw_pixel_layout(bool raw) noexcept { g_raw_pixel_layout.store(raw); }
+    void ui_set_hit_test_fixed(bool fixed) noexcept { g_hit_test_fixed.store(fixed); }
 
     std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content) {
         if (!g_session.open) {
@@ -643,6 +674,272 @@ namespace sturdy_rs::ui {
         const glm::vec2 size =
             g_session.context->measure_text(engine_style, std::string_view{content.data(), content.size()});
         return {size.x, size.y};
+    }
+
+    namespace {
+        template <class Value>
+        UiEffectOutcome to_effect_outcome(const SFT::Engine::ForeignUiResult<Value> &result) {
+            UiEffectOutcome out{};
+            if (result) {
+                out.ok = true;
+                if constexpr (std::is_same_v<Value, SFT::Engine::ForeignUiEffectId>) {
+                    out.id = *result;
+                }
+            } else {
+                out.ok = false;
+                out.message = rust::String::lossy(result.error().message.data(), result.error().message.size());
+            }
+            return out;
+        }
+
+        SFT::Engine::ForeignUiEffectOptions to_effect_options(const UiEffectOptions &options) {
+            SFT::Engine::ForeignUiEffectOptions out;
+            out.composite = options.composite;
+            out.opacity = options.opacity;
+            for (int i = 0; i < 4; ++i) {
+                out.outset[i] = options.outset[i];
+            }
+            out.clip_to_bounds = options.clip_to_bounds;
+            out.layer = options.layer;
+            out.content_mip_levels = options.content_mip_levels;
+            return out;
+        }
+
+        UiEffectOutcome effect_failure(const char *what) {
+            UiEffectOutcome out{};
+            out.ok = false;
+            out.message = rust::String{what};
+            return out;
+        }
+    } // namespace
+
+    UiEffectOutcome ui_effect_create(const UiEffectSpec &spec, const UiEffectOptions &options) {
+        try {
+            SFT::Engine::ForeignUiEffectSpec out;
+            out.kind = static_cast<SFT::Engine::ForeignUiEffectKind>(spec.kind);
+            for (int i = 0; i < 16; ++i) {
+                out.values[i] = spec.values[i];
+            }
+            out.value_count = spec.value_count;
+            out.texture = spec.texture;
+            for (int i = 0; i < 4; ++i) {
+                out.color[i] = spec.color[i];
+            }
+            out.color_space = spec.color_space;
+            out.interpolation_space = spec.interpolation_space;
+            out.interpolation_hue = spec.interpolation_hue;
+            for (const UiEffectStop &stop : spec.stops) {
+                SFT::Engine::ForeignUiGradientStop s;
+                for (int i = 0; i < 4; ++i) {
+                    s.color[i] = stop.color[i];
+                }
+                s.position = stop.position;
+                s.space = stop.space;
+                s.has_toward_next = stop.has_toward_next;
+                s.toward_space = stop.toward_space;
+                s.toward_hue_method = stop.toward_hue;
+                out.stops.push_back(s);
+            }
+            return to_effect_outcome(SFT::Engine::create_foreign_ui_effect(out, to_effect_options(options)));
+        } catch (...) {
+            log_swallowed_exception();
+            return effect_failure("an exception escaped while creating the UI effect (see the engine log)");
+        }
+    }
+
+    UiEffectOutcome ui_effect_create_custom(rust::Str name, const UiEffectOptions &options) {
+        try {
+            return to_effect_outcome(SFT::Engine::create_custom_foreign_ui_effect(std::string_view{name.data(), name.size()},
+                                                                                   to_effect_options(options)));
+        } catch (...) {
+            log_swallowed_exception();
+            return effect_failure("an exception escaped while creating the UI effect (see the engine log)");
+        }
+    }
+
+    UiEffectOutcome ui_effect_add_pass(std::uint64_t effect, const UiEffectPassDesc &pass) {
+        try {
+            SFT::Engine::ForeignUiEffectPass out;
+            out.label = std::string{pass.label.data(), pass.label.size()};
+            out.shader_path = std::string{pass.shader_path.data(), pass.shader_path.size()};
+            out.module_name = std::string{pass.module_name.data(), pass.module_name.size()};
+            if (!pass.fragment_entry_point.empty()) {
+                out.fragment_entry_point = std::string{pass.fragment_entry_point.data(), pass.fragment_entry_point.size()};
+            }
+            for (const UiEffectInput &input : pass.inputs) {
+                out.inputs.push_back(SFT::Engine::ForeignUiEffectInput{input.kind, input.pass, input.texture, input.base_mip, input.mip_count});
+            }
+            out.linear_filter = pass.linear_filter;
+            out.linear_mips = pass.linear_mips;
+            out.address = pass.address;
+            out.lod_bias = pass.lod_bias;
+            out.min_lod = pass.min_lod;
+            out.max_lod = pass.max_lod;
+            out.max_anisotropy = pass.max_anisotropy;
+            out.output_format = pass.output_format;
+            out.output_scale = pass.output_scale;
+            out.output_mip_levels = pass.output_mip_levels;
+            out.output_mip_filter = pass.output_mip_filter;
+            const auto *bytes = reinterpret_cast<const std::byte *>(pass.parameters.data());
+            out.parameters.assign(bytes, bytes + pass.parameters.size());
+            return to_effect_outcome(SFT::Engine::add_foreign_ui_effect_pass(effect, out));
+        } catch (...) {
+            log_swallowed_exception();
+            return effect_failure("an exception escaped while adding the effect pass (see the engine log)");
+        }
+    }
+
+    UiEffectOutcome ui_effect_set_options(std::uint64_t effect, const UiEffectOptions &options) {
+        try {
+            return to_effect_outcome(SFT::Engine::set_foreign_ui_effect_options(effect, to_effect_options(options)));
+        } catch (...) {
+            log_swallowed_exception();
+            return effect_failure("an exception escaped while setting effect options (see the engine log)");
+        }
+    }
+
+    UiEffectOutcome ui_effect_release(std::uint64_t effect) {
+        try {
+            return to_effect_outcome(SFT::Engine::release_foreign_ui_effect(effect));
+        } catch (...) {
+            log_swallowed_exception();
+            return effect_failure("an exception escaped while releasing the effect (see the engine log)");
+        }
+    }
+
+    namespace {
+        UiNodeOutcome node_failure(const std::string &message) {
+            UiNodeOutcome out{};
+            out.ok = false;
+            out.message = rust::String::lossy(message.data(), message.size());
+            return out;
+        }
+
+        SFT::UI::TextStyle to_engine_text_style(const UiTextStyle &style) {
+            SFT::UI::TextStyle engine_style{};
+            engine_style.color = to_engine_color(style.color);
+            engine_style.font_id = static_cast<SFT::UI::FontId>(style.font_id);
+            engine_style.font_size = style.font_size;
+            engine_style.letter_spacing = style.letter_spacing;
+            engine_style.line_height = style.line_height;
+            engine_style.wrap_mode = style.wrap_mode == 1   ? SFT::UI::TextWrapMode::Newlines
+                                     : style.wrap_mode == 2 ? SFT::UI::TextWrapMode::None
+                                                            : SFT::UI::TextWrapMode::Words;
+            engine_style.alignment = style.alignment == 1   ? SFT::UI::TextAlign::Center
+                                     : style.alignment == 2 ? SFT::UI::TextAlign::Right
+                                                            : SFT::UI::TextAlign::Left;
+            engine_style.decoration.lines = static_cast<SFT::UI::TextDecorationLine>(style.decoration_lines & 7u);
+            engine_style.decoration.style = style.decoration_style <= static_cast<std::uint32_t>(SFT::UI::BorderLineStyle::Double)
+                                                ? static_cast<SFT::UI::BorderLineStyle>(style.decoration_style)
+                                                : SFT::UI::BorderLineStyle::Solid;
+            engine_style.decoration.thickness = style.decoration_thickness;
+            if (style.has_decoration_color) {
+                engine_style.decoration.color = to_engine_color(style.decoration_color);
+            }
+            engine_style.shadow.enabled = style.shadow_enabled;
+            engine_style.shadow.offset = glm::vec2{style.shadow_offset[0], style.shadow_offset[1]};
+            engine_style.shadow.color = to_engine_color(style.shadow_color);
+            return engine_style;
+        }
+
+        /// A retained node from the Rust description: the same element conversion the draw hook uses, but a node's id is its own for as
+        /// long as the node lives (no per-layout "#2" renaming).
+        SFT::Engine::UiNode to_ui_node(const UiNodeDesc &node) {
+            SFT::Engine::UiNode out;
+            out.decl = to_element_decl(node.element, false);
+            out.text = SFT::UString{std::string_view{node.text.data(), node.text.size()}};
+            out.text_style = to_engine_text_style(node.text_style);
+            out.order = node.order;
+            out.visible = node.visible;
+            return out;
+        }
+
+        SFT::Ecs::Entity entity_of(std::uint32_t index, std::uint32_t generation) noexcept {
+            return SFT::Ecs::Entity{.index = index, .generation = generation};
+        }
+
+        template <class T>
+        UiNodeOutcome node_result(const SFT::Engine::ForeignUiResult<T> &result) {
+            UiNodeOutcome out{};
+            if (!result) {
+                return node_failure(result.error().message);
+            }
+            out.ok = true;
+            if constexpr (std::is_same_v<T, SFT::Ecs::Entity>) {
+                out.index = result->index;
+                out.generation = result->generation;
+            }
+            return out;
+        }
+    } // namespace
+
+    UiNodeOutcome ui_node_spawn(EngineView &engine, const UiNodeDesc &node) {
+        try {
+            return node_result(SFT::Engine::spawn_ui_node(engine, to_ui_node(node), entity_of(node.parent_index, node.parent_generation)));
+        } catch (...) {
+            log_swallowed_exception();
+            return node_failure("an exception escaped while creating the UI node (see the engine log)");
+        }
+    }
+
+    UiNodeOutcome ui_node_update(EngineView &engine, std::uint32_t index, std::uint32_t generation, const UiNodeDesc &node) {
+        try {
+            return node_result(SFT::Engine::update_ui_node(engine, entity_of(index, generation), to_ui_node(node),
+                                                           entity_of(node.parent_index, node.parent_generation)));
+        } catch (...) {
+            log_swallowed_exception();
+            return node_failure("an exception escaped while updating the UI node (see the engine log)");
+        }
+    }
+
+    UiNodeOutcome ui_node_destroy(EngineView &engine, std::uint32_t index, std::uint32_t generation, bool recursive) {
+        try {
+            return node_result(SFT::Engine::destroy_foreign_ui_node(engine, entity_of(index, generation), recursive));
+        } catch (...) {
+            log_swallowed_exception();
+            return node_failure("an exception escaped while destroying the UI node (see the engine log)");
+        }
+    }
+
+    UiNodeOutcome ui_node_state(EngineView &engine, std::uint32_t index, std::uint32_t generation) {
+        try {
+            const auto state = SFT::Engine::foreign_ui_node_state(engine, entity_of(index, generation));
+            UiNodeOutcome out = node_result(state);
+            if (state) {
+                out.hovered = state->hovered;
+                out.clicked = state->clicked;
+            }
+            return out;
+        } catch (...) {
+            log_swallowed_exception();
+            return node_failure("an exception escaped while reading the UI node (see the engine log)");
+        }
+    }
+
+    void ui_node_touch() noexcept { SFT::Engine::touch_ui_nodes(); }
+
+    UiNodeOutcome ui_node_tree_spawn(EngineView &engine, std::uint32_t root_index, std::uint32_t root_generation, rust::Str name,
+                                     std::int32_t layer, std::uint64_t offscreen_target) {
+        try {
+            const SFT::Ecs::Entity root = entity_of(root_index, root_generation);
+            if (!engine.ecs_world().is_alive(root)) {
+                return node_failure("the root node does not exist");
+            }
+            SFT::Engine::UiTreeDesc desc = SFT::Engine::ui_node_tree_desc(engine, root, std::string{name.data(), name.size()});
+            desc.layer = layer;
+            if (offscreen_target != 0) {
+                desc.target = SFT::Engine::UiOffscreenTarget{SFT::Engine::RenderTargetHandle{offscreen_target}};
+            }
+            const SFT::Ecs::Entity tree = engine.spawn_ui_tree(std::move(desc));
+            UiNodeOutcome out{};
+            out.ok = true;
+            out.index = tree.index;
+            out.generation = tree.generation;
+            return out;
+        } catch (...) {
+            log_swallowed_exception();
+            return node_failure("an exception escaped while spawning the node tree (see the engine log)");
+        }
     }
 
     bool ui_begin_element(const UiElementDesc &desc) {
@@ -673,18 +970,7 @@ namespace sturdy_rs::ui {
             return false;
         }
         try {
-            SFT::UI::TextStyle engine_style{};
-            engine_style.color = to_engine_color(style.color);
-            engine_style.font_id = static_cast<SFT::UI::FontId>(style.font_id);
-            engine_style.font_size = style.font_size;
-            engine_style.letter_spacing = style.letter_spacing;
-            engine_style.line_height = style.line_height;
-            engine_style.wrap_mode = style.wrap_mode == 1   ? SFT::UI::TextWrapMode::Newlines
-                                     : style.wrap_mode == 2 ? SFT::UI::TextWrapMode::None
-                                                            : SFT::UI::TextWrapMode::Words;
-            engine_style.alignment = style.alignment == 1   ? SFT::UI::TextAlign::Center
-                                     : style.alignment == 2 ? SFT::UI::TextAlign::Right
-                                                            : SFT::UI::TextAlign::Left;
+            const SFT::UI::TextStyle engine_style = to_engine_text_style(style);
             g_session.context->text(SFT::ustr{std::string_view{text.data(), text.size()}}, engine_style);
             return true;
         } catch (...) {
@@ -699,6 +985,26 @@ namespace sturdy_rs::ui {
         }
         try {
             g_session.context->image(to_element_decl(desc), to_texture_handle(texture));
+            return true;
+        } catch (...) {
+            log_swallowed_exception();
+            return false;
+        }
+    }
+
+    bool ui_image_fitted(const UiElementDesc &desc, UiTexture texture, bool nearest, std::uint8_t fit, std::array<float, 2> position,
+                         std::array<float, 2> intrinsic_size) {
+        if (!g_session.open) {
+            return false;
+        }
+        try {
+            SFT::UI::ImageFitOptions options;
+            options.fit = fit <= static_cast<std::uint8_t>(SFT::UI::ImageFit::ScaleDown) ? static_cast<SFT::UI::ImageFit>(fit)
+                                                                                         : SFT::UI::ImageFit::Fill;
+            options.position = glm::vec2{position[0], position[1]};
+            options.intrinsic_size = glm::vec2{intrinsic_size[0], intrinsic_size[1]};
+            g_session.context->image(to_element_decl(desc), to_texture_handle(texture), options,
+                                     nearest ? SFT::UI::ImageSampling::Nearest : SFT::UI::ImageSampling::Linear);
             return true;
         } catch (...) {
             log_swallowed_exception();
@@ -958,10 +1264,10 @@ namespace sturdy_rs::ui {
             glm::vec2{offset[0], offset[1]});
     }
 
-    std::optional<SFT::Renderer::OverlayPass> ui_take_pending_overlay() noexcept {
+    std::vector<SFT::Renderer::OverlayPass> ui_take_pending_overlays() noexcept {
         const std::lock_guard<std::mutex> lock{g_pending_mutex};
-        std::optional<SFT::Renderer::OverlayPass> taken = std::move(g_pending_overlay);
-        g_pending_overlay.reset();
+        std::vector<SFT::Renderer::OverlayPass> taken = std::move(g_pending_overlays);
+        g_pending_overlays.clear();
         return taken;
     }
 

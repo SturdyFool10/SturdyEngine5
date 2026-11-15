@@ -1928,7 +1928,7 @@ fn install_ui_draw_demo() -> Arc<UiDemoResults> {
                 .width(Sizing::Fixed(80.0))
                 .height(Sizing::Fixed(30.0))
                 .background(glam::vec4(0.1, 0.1, 0.1, 0.9))
-                .clip(Clip { horizontal: false, vertical: true })
+                .clip(Clip::vertical())
                 .floating(Some(Floating {
                     element_attach_point: AttachPoint::RightBottom,
                     parent_attach_point: AttachPoint::RightTop,
@@ -1997,7 +1997,7 @@ fn install_ui_draw_demo() -> Arc<UiDemoResults> {
                         .id("ui-ext-dock-probe".to_string())
                         .width(Sizing::Fixed(50.0))
                         .height(Sizing::Fixed(20.0))
-                        .clip(Clip { horizontal: false, vertical: true });
+                        .clip(Clip::vertical());
                     let _probe = ui.element(&probe);
                 }
             }

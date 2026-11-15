@@ -1,3 +1,14 @@
+SEClay (Sturdy Engine Clay) is a derivative work of Clay and is distributed under Clay's license.
+
+SEClay is NOT the original Clay. It is an altered source version, forked from Clay v0.14
+(https://github.com/nicbarker/clay) and modified by the Sturdy Engine project; see the notice at the top of
+SEClay.h for what was changed and why. Per clause 2 below it must not be misrepresented as the original, and
+problems in it should be reported to Sturdy Engine, not to Clay's author.
+
+The original license text follows unaltered (clause 3).
+
+----------------------------------------------------------------------------------------------------
+
 zlib/libpng license
 
 Copyright (c) 2024 Nic Barker

@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 44;
+pub const ABI_VERSION_MINOR: u32 = 46;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -790,6 +790,9 @@ pub const STURDY_RENDER_TARGET_FORMAT_BGRA8_SRGB: SturdyRenderTargetFormat = 1;
 pub const STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB: SturdyRenderTargetFormat = 2;
 pub const STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT: SturdyRenderTargetFormat = 3;
 pub const STURDY_RENDER_TARGET_FORMAT_RGB10A2: SturdyRenderTargetFormat = 4;
+pub const STURDY_RENDER_TARGET_FORMAT_BGRA8: SturdyRenderTargetFormat = 5;
+pub const STURDY_RENDER_TARGET_FORMAT_RGBA8: SturdyRenderTargetFormat = 6;
+pub const STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT: SturdyRenderTargetFormat = 7;
 
 pub type SturdyRenderTargetUse = i32;
 pub const STURDY_RENDER_TARGET_USE_SCREEN: SturdyRenderTargetUse = 0;
@@ -1011,10 +1014,65 @@ pub const STURDY_TRY_OK: SturdyTryStatus = 0;
 pub const STURDY_TRY_WOULD_BLOCK: SturdyTryStatus = 1;
 pub const STURDY_TRY_CLOSED: SturdyTryStatus = 2;
 
+/// CSS colour spaces (CSS Color Module 4). Colours are straight-alpha with components in the space's own reference ranges: sRGB-style spaces 0..1, HSL/HWB saturation, lightness, whiteness and blackness 0..100, hue in degrees, Lab L 0..100, Oklab L 0..1.
+pub type SturdyUiColorSpace = i32;
+pub const STURDY_UI_COLOR_SPACE_SRGB: SturdyUiColorSpace = 0;
+pub const STURDY_UI_COLOR_SPACE_SRGB_LINEAR: SturdyUiColorSpace = 1;
+pub const STURDY_UI_COLOR_SPACE_DISPLAY_P3: SturdyUiColorSpace = 2;
+pub const STURDY_UI_COLOR_SPACE_DISPLAY_P3_LINEAR: SturdyUiColorSpace = 3;
+pub const STURDY_UI_COLOR_SPACE_A98_RGB: SturdyUiColorSpace = 4;
+pub const STURDY_UI_COLOR_SPACE_PROPHOTO_RGB: SturdyUiColorSpace = 5;
+pub const STURDY_UI_COLOR_SPACE_REC2020: SturdyUiColorSpace = 6;
+pub const STURDY_UI_COLOR_SPACE_XYZ_D50: SturdyUiColorSpace = 7;
+pub const STURDY_UI_COLOR_SPACE_XYZ_D65: SturdyUiColorSpace = 8;
+pub const STURDY_UI_COLOR_SPACE_LAB: SturdyUiColorSpace = 9;
+pub const STURDY_UI_COLOR_SPACE_OKLAB: SturdyUiColorSpace = 10;
+pub const STURDY_UI_COLOR_SPACE_HSL: SturdyUiColorSpace = 11;
+pub const STURDY_UI_COLOR_SPACE_HWB: SturdyUiColorSpace = 12;
+pub const STURDY_UI_COLOR_SPACE_LCH: SturdyUiColorSpace = 13;
+pub const STURDY_UI_COLOR_SPACE_OKLCH: SturdyUiColorSpace = 14;
+
 /// Which way an element stacks its children.
 pub type SturdyUiDirection = i32;
 pub const STURDY_UI_DIRECTION_LEFT_TO_RIGHT: SturdyUiDirection = 0;
 pub const STURDY_UI_DIRECTION_TOP_TO_BOTTOM: SturdyUiDirection = 1;
+
+/// How an effect's finished image is laid over what is already drawn.
+pub type SturdyUiEffectComposite = i32;
+pub const STURDY_UI_EFFECT_COMPOSITE_NORMAL: SturdyUiEffectComposite = 0;
+pub const STURDY_UI_EFFECT_COMPOSITE_ADDITIVE: SturdyUiEffectComposite = 1;
+pub const STURDY_UI_EFFECT_COMPOSITE_MULTIPLY: SturdyUiEffectComposite = 2;
+pub const STURDY_UI_EFFECT_COMPOSITE_REPLACE: SturdyUiEffectComposite = 3;
+
+/// What one input of an effect pass is.
+pub type SturdyUiEffectInputKind = i32;
+pub const STURDY_UI_EFFECT_INPUT_GROUP_CONTENT: SturdyUiEffectInputKind = 0;
+pub const STURDY_UI_EFFECT_INPUT_PASS_OUTPUT: SturdyUiEffectInputKind = 1;
+pub const STURDY_UI_EFFECT_INPUT_TEXTURE: SturdyUiEffectInputKind = 2;
+pub const STURDY_UI_EFFECT_INPUT_BACKDROP: SturdyUiEffectInputKind = 3;
+
+/// Which ready-made effect `sturdy_ui_effect_create` builds, and what `values` / `color` mean for it.
+pub type SturdyUiEffectKind = i32;
+pub const STURDY_UI_EFFECT_COLOR_ADJUST: SturdyUiEffectKind = 0;
+pub const STURDY_UI_EFFECT_TINT: SturdyUiEffectKind = 1;
+pub const STURDY_UI_EFFECT_BLUR: SturdyUiEffectKind = 2;
+pub const STURDY_UI_EFFECT_FAST_BLUR: SturdyUiEffectKind = 3;
+pub const STURDY_UI_EFFECT_DROP_SHADOW: SturdyUiEffectKind = 4;
+pub const STURDY_UI_EFFECT_GLOW: SturdyUiEffectKind = 5;
+pub const STURDY_UI_EFFECT_OUTLINE: SturdyUiEffectKind = 6;
+pub const STURDY_UI_EFFECT_INSET_SHADOW: SturdyUiEffectKind = 7;
+pub const STURDY_UI_EFFECT_FROSTED_GLASS: SturdyUiEffectKind = 8;
+pub const STURDY_UI_EFFECT_LAYER: SturdyUiEffectKind = 9;
+pub const STURDY_UI_EFFECT_LINEAR_GRADIENT: SturdyUiEffectKind = 10;
+pub const STURDY_UI_EFFECT_RADIAL_GRADIENT: SturdyUiEffectKind = 11;
+pub const STURDY_UI_EFFECT_CONIC_GRADIENT: SturdyUiEffectKind = 12;
+pub const STURDY_UI_EFFECT_TRANSFORM: SturdyUiEffectKind = 13;
+pub const STURDY_UI_EFFECT_CLIP_INSET: SturdyUiEffectKind = 14;
+pub const STURDY_UI_EFFECT_CLIP_CIRCLE: SturdyUiEffectKind = 15;
+pub const STURDY_UI_EFFECT_CLIP_ELLIPSE: SturdyUiEffectKind = 16;
+pub const STURDY_UI_EFFECT_CLIP_POLYGON: SturdyUiEffectKind = 17;
+pub const STURDY_UI_EFFECT_MASK_LINEAR: SturdyUiEffectKind = 18;
+pub const STURDY_UI_EFFECT_MASK_IMAGE: SturdyUiEffectKind = 19;
 
 pub type SturdyUiGraphBarStackMode = i32;
 pub const STURDY_UI_GRAPH_BAR_GROUPED: SturdyUiGraphBarStackMode = 0;
@@ -1033,6 +1091,18 @@ pub const STURDY_UI_GRAPH_TYPE_AREA: SturdyUiGraphType = 1;
 pub const STURDY_UI_GRAPH_TYPE_BAR: SturdyUiGraphType = 2;
 pub const STURDY_UI_GRAPH_TYPE_SCATTER: SturdyUiGraphType = 3;
 pub const STURDY_UI_GRAPH_TYPE_PIE: SturdyUiGraphType = 4;
+
+/// What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets).
+pub type SturdyUiHitTestMode = i32;
+pub const STURDY_UI_HIT_TEST_CSS: SturdyUiHitTestMode = 0;
+pub const STURDY_UI_HIT_TEST_FIXED: SturdyUiHitTestMode = 1;
+
+/// How the hue travels between two colours in a polar space (HSL, HWB, LCH, OKLCH).
+pub type SturdyUiHueMethod = i32;
+pub const STURDY_UI_HUE_SHORTER: SturdyUiHueMethod = 0;
+pub const STURDY_UI_HUE_LONGER: SturdyUiHueMethod = 1;
+pub const STURDY_UI_HUE_INCREASING: SturdyUiHueMethod = 2;
+pub const STURDY_UI_HUE_DECREASING: SturdyUiHueMethod = 3;
 
 pub type SturdyUiRebuildPolicy = i32;
 pub const STURDY_UI_REBUILD_EVERY_UPDATE: SturdyUiRebuildPolicy = 0;
@@ -7981,6 +8051,159 @@ const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, broadcast) == 1);
 const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, receive_buffer) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, send_buffer) == 16);
 
+/// Handle to a UI effect. 0 is "no effect".
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiEffect {
+    pub id: u64,
+}
+impl Default for SturdyUiEffect {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiEffect>() == 8 && core::mem::align_of::<SturdyUiEffect>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffect, id) == 0);
+
+/// Describes a ready-made effect.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiEffectDesc {
+    pub struct_size: u32,
+    pub kind: i32,
+    pub values: [f32; 16],
+    pub value_count: u32,
+    pub texture: u64,
+    pub color: [f32; 4],
+    pub color_space: i32,
+    pub interpolation_space: i32,
+    pub interpolation_hue: i32,
+    pub stops: *const SturdyUiGradientStop,
+    pub stop_count: u32,
+}
+impl Default for SturdyUiEffectDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiEffectDesc>() == 136 && core::mem::align_of::<SturdyUiEffectDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, kind) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, values) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, value_count) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, texture) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, color) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, color_space) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, interpolation_space) == 108);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, interpolation_hue) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, stops) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectDesc, stop_count) == 128);
+
+/// One texture a pass samples: the first is `Texture2D sourceTexture` in the pass's Slang shader, the rest `extraTexture0`, ...
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiEffectInput {
+    pub kind: i32,
+    pub pass: u32,
+    pub texture: u64,
+    pub base_mip: u32,
+    pub mip_count: u32,
+}
+impl Default for SturdyUiEffectInput {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiEffectInput>() == 24 && core::mem::align_of::<SturdyUiEffectInput>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectInput, kind) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectInput, pass) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectInput, texture) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectInput, base_mip) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectInput, mip_count) == 20);
+
+/// Applied on top of any effect, library or custom. Initialize with `sturdy_ui_effect_options_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiEffectOptions {
+    pub struct_size: u32,
+    pub composite: i32,
+    pub opacity: f32,
+    pub outset: [f32; 4],
+    pub clip_to_bounds: u8,
+    pub layer: u32,
+    pub content_mip_levels: u32,
+}
+impl Default for SturdyUiEffectOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiEffectOptions>() == 40 && core::mem::align_of::<SturdyUiEffectOptions>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, composite) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, opacity) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, outset) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, clip_to_bounds) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, layer) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectOptions, content_mip_levels) == 36);
+
+/// One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiEffectPass {
+    pub struct_size: u32,
+    pub label: *const c_char,
+    pub shader_path: *const c_char,
+    pub module_name: *const c_char,
+    pub fragment_entry_point: *const c_char,
+    pub inputs: *const SturdyUiEffectInput,
+    pub input_count: u32,
+    pub linear_filter: u8,
+    pub linear_mips: u8,
+    pub address: u32,
+    pub lod_bias: f32,
+    pub min_lod: f32,
+    pub max_lod: f32,
+    pub max_anisotropy: f32,
+    pub output_format: u32,
+    pub output_scale: f32,
+    pub output_mip_levels: u32,
+    pub output_mip_filter: u32,
+    pub parameters: *const c_void,
+    pub parameter_size: u32,
+}
+impl Default for SturdyUiEffectPass {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiEffectPass>() == 112 && core::mem::align_of::<SturdyUiEffectPass>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, label) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, shader_path) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, module_name) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, fragment_entry_point) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, inputs) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, input_count) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, linear_filter) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, linear_mips) == 53);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, address) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, lod_bias) == 60);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, min_lod) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_lod) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, max_anisotropy) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_format) == 76);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_scale) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_levels) == 84);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, output_mip_filter) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameters) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiEffectPass, parameter_size) == 104);
+
 /// One element in the layout tree.
 ///
 /// A deliberately small slice of what the engine's C++ `ElementDecl` can express — enough for panels, rows, columns and spacing. Borders, clipping, floating elements and per-element cursors are not exposed yet.
@@ -8025,6 +8248,68 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiElement, direction) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, background) == 44);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, corner_radius) == 60);
 const _: () = assert!(core::mem::offset_of!(SturdyUiElement, id) == 80);
+
+/// Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiElementExtras {
+    pub struct_size: u32,
+    pub effect: SturdyUiEffect,
+    pub corner_shape: [f32; 4],
+    pub has_border_edges: u8,
+    pub border_edge_color: [f32; 16],
+    pub border_edge_style: [u32; 4],
+    pub border_edge_width: [f32; 4],
+    pub inset_for_corners: u8,
+    pub clip_horizontal: u8,
+    pub clip_vertical: u8,
+    pub clip_follow_corners: u8,
+    pub clip_path: SturdyUiEffect,
+}
+impl Default for SturdyUiElementExtras {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiElementExtras>() == 144 && core::mem::align_of::<SturdyUiElementExtras>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, effect) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, corner_shape) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, has_border_edges) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, border_edge_color) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, border_edge_style) == 100);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, border_edge_width) == 116);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, inset_for_corners) == 132);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, clip_horizontal) == 133);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, clip_vertical) == 134);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, clip_follow_corners) == 135);
+const _: () = assert!(core::mem::offset_of!(SturdyUiElementExtras, clip_path) == 136);
+
+/// One colour stop of a gradient. A gradient takes up to three stops, in ascending position.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiGradientStop {
+    pub color: [f32; 4],
+    pub position: f32,
+    pub space: i32,
+    pub has_toward_next: u8,
+    pub toward_space: i32,
+    pub toward_hue: i32,
+}
+impl Default for SturdyUiGradientStop {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiGradientStop>() == 36 && core::mem::align_of::<SturdyUiGradientStop>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, color) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, position) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, space) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, has_toward_next) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, toward_space) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyUiGradientStop, toward_hue) == 32);
 
 /// One axis's configuration for `sturdy_ui_graph_draw`.
 #[repr(C)]
@@ -8202,6 +8487,14 @@ pub struct SturdyUiTextStyle {
     pub font_size: u32,
     pub reserved: u32,
     pub color: [f32; 4],
+    pub decoration_lines: u32,
+    pub decoration_style: u32,
+    pub decoration_thickness: f32,
+    pub has_decoration_color: u8,
+    pub decoration_color: [f32; 4],
+    pub shadow_enabled: u8,
+    pub shadow_offset: [f32; 2],
+    pub shadow_color: [f32; 4],
 }
 impl Default for SturdyUiTextStyle {
     /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
@@ -8209,12 +8502,66 @@ impl Default for SturdyUiTextStyle {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiTextStyle>() == 32 && core::mem::align_of::<SturdyUiTextStyle>() == 4);
+const _: () = assert!(core::mem::size_of::<SturdyUiTextStyle>() == 92 && core::mem::align_of::<SturdyUiTextStyle>() == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, font_id) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, font_size) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, reserved) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, color) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, decoration_lines) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, decoration_style) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, decoration_thickness) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, has_decoration_color) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, decoration_color) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, shadow_enabled) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, shadow_offset) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTextStyle, shadow_color) == 76);
+
+/// One node. Initialize with `sturdy_ui_node_desc_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiNodeDesc {
+    pub struct_size: u32,
+    pub element: SturdyUiElement,
+    pub extras: SturdyUiElementExtras,
+    pub text: *const c_char,
+    pub text_style: SturdyUiTextStyle,
+    pub order: i32,
+    pub visible: u8,
+    pub parent: SturdyEntity,
+}
+impl Default for SturdyUiNodeDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiNodeDesc>() == 360 && core::mem::align_of::<SturdyUiNodeDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, element) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, extras) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text) == 240);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, text_style) == 248);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, order) == 340);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, visible) == 344);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeDesc, parent) == 348);
+
+/// What the last layout found for a node that has an `id`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUiNodeState {
+    pub hovered: u8,
+    pub clicked: u8,
+}
+impl Default for SturdyUiNodeState {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUiNodeState>() == 2 && core::mem::align_of::<SturdyUiNodeState>() == 1);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeState, hovered) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUiNodeState, clicked) == 1);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -8253,6 +8600,7 @@ pub struct SturdyUiTreeDesc {
     pub window_input: u8,
     pub clear_color: [f32; 4],
     pub build_budget_ms: f32,
+    pub hit_test_mode: i32,
     pub builder: Option<SturdyUiTreeBuilder>,
     pub user: *mut c_void,
     pub release_user: Option<unsafe extern "C" fn(*mut c_void)>,
@@ -8263,7 +8611,7 @@ impl Default for SturdyUiTreeDesc {
         unsafe { core::mem::zeroed() }
     }
 }
-const _: () = assert!(core::mem::size_of::<SturdyUiTreeDesc>() == 120 && core::mem::align_of::<SturdyUiTreeDesc>() == 8);
+const _: () = assert!(core::mem::size_of::<SturdyUiTreeDesc>() == 128 && core::mem::align_of::<SturdyUiTreeDesc>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, struct_size) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, name) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, target) == 16);
@@ -8276,9 +8624,10 @@ const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, hdr_reference_whit
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, window_input) == 72);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, clear_color) == 76);
 const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, build_budget_ms) == 92);
-const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, builder) == 96);
-const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, user) == 104);
-const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, release_user) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, hit_test_mode) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, builder) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, user) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyUiTreeDesc, release_user) == 120);
 
 /// What a builder is handed each time its tree is laid out. Valid only inside the builder.
 #[repr(C)]
@@ -10858,8 +11207,24 @@ unsafe extern "C" {
     pub fn sturdy_ui_begin(engine: SturdyEngine, input: *const SturdyFrameInput) -> i32;
     /// Opens an element. Children declared until the matching `sturdy_ui_end_element` go inside it.
     pub fn sturdy_ui_begin_element(engine: SturdyEngine, element: *const SturdyUiElement) -> i32;
+    /// Opens an element like `sturdy_ui_begin_element`, with an effect and per-corner shapes. `extras` may be null.
+    pub fn sturdy_ui_begin_element_ex(engine: SturdyEngine, element: *const SturdyUiElement, extras: *const SturdyUiElementExtras) -> i32;
     /// Reports whether the element with this id was clicked this frame.
     pub fn sturdy_ui_clicked(engine: SturdyEngine, id: *const c_char, out_clicked: *mut u8) -> i32;
+    /// Appends a pass to a custom effect. A pass that cannot be valid (a missing shader path, an input naming a pass that has not run yet, parameters that are not whole 4-byte words) is refused and the reason reported; a shader that fails to compile is reported when the effect is first drawn, in the engine log, and the element is drawn without the effect.
+    pub fn sturdy_ui_effect_add_pass(effect: SturdyUiEffect, pass: *const SturdyUiEffectPass) -> i32;
+    /// Builds a ready-made effect. `options` may be null for the defaults.
+    pub fn sturdy_ui_effect_create(desc: *const SturdyUiEffectDesc, options: *const SturdyUiEffectOptions, out_effect: *mut SturdyUiEffect) -> i32;
+    /// Starts a custom effect with no passes; add them with `sturdy_ui_effect_add_pass`, in order. The last pass's output is what is composited. `options` may be null.
+    pub fn sturdy_ui_effect_create_custom(name: *const c_char, options: *const SturdyUiEffectOptions, out_effect: *mut SturdyUiEffect) -> i32;
+    pub fn sturdy_ui_effect_desc_init(desc: *mut SturdyUiEffectDesc) -> i32;
+    pub fn sturdy_ui_effect_options_init(options: *mut SturdyUiEffectOptions) -> i32;
+    pub fn sturdy_ui_effect_pass_init(pass: *mut SturdyUiEffectPass) -> i32;
+    /// Releases an effect. Frames already built keep drawing with it; building a new element with the id fails.
+    pub fn sturdy_ui_effect_release(effect: SturdyUiEffect) -> i32;
+    /// Changes an effect's options. Only before a frame has used the effect.
+    pub fn sturdy_ui_effect_set_options(effect: SturdyUiEffect, options: *const SturdyUiEffectOptions) -> i32;
+    pub fn sturdy_ui_element_extras_init(extras: *mut SturdyUiElementExtras) -> i32;
     /// Fills an element declaration with defaults: fit sizing, no padding, transparent, left-to-right.
     pub fn sturdy_ui_element_init(element: *mut SturdyUiElement) -> i32;
     /// Closes the UI frame and attaches the result to `frame` as an overlay.
@@ -10890,6 +11255,18 @@ unsafe extern "C" {
     ///
     /// Reflects the previous frame's layout, which is how immediate-mode UI works: an element's bounds are not known until it has been laid out once.
     pub fn sturdy_ui_hovered(engine: SturdyEngine, id: *const c_char, out_hovered: *mut u8) -> i32;
+    pub fn sturdy_ui_node_desc_init(desc: *mut SturdyUiNodeDesc) -> i32;
+    /// Destroys a node. With `recursive` non-zero everything under it goes too; otherwise its children become roots.
+    pub fn sturdy_ui_node_destroy(engine: SturdyEngine, node: SturdyEntity, recursive: u8) -> i32;
+    /// Creates a node entity.
+    pub fn sturdy_ui_node_spawn(engine: SturdyEngine, desc: *const SturdyUiNodeDesc, out_node: *mut SturdyEntity) -> i32;
+    pub fn sturdy_ui_node_state(engine: SturdyEngine, node: SturdyEntity, out_state: *mut SturdyUiNodeState) -> i32;
+    /// Tells every node tree that something changed which the engine cannot see on its own. Edits made through `sturdy_ui_node_update` need no call; this is for code that changes node components some other way.
+    pub fn sturdy_ui_node_touch() -> i32;
+    /// Spawns a UI tree that lays out the nodes under `root`, only when one of them changes. `desc` is read like `sturdy_ui_tree_spawn`'s (target, layer, scale, ...), except that `builder` must be null and `rebuild` is forced to on-dirty.
+    pub fn sturdy_ui_node_tree_spawn(engine: SturdyEngine, root: SturdyEntity, desc: *const SturdyUiTreeDesc, out_tree: *mut SturdyEntity) -> i32;
+    /// Replaces a node's data and parent (a zeroed `parent` makes it a root). Refuses a parent that would make a loop.
+    pub fn sturdy_ui_node_update(engine: SturdyEngine, node: SturdyEntity, desc: *const SturdyUiNodeDesc) -> i32;
     /// Reports whether the pointer is currently held down.
     pub fn sturdy_ui_pointer_down(engine: SturdyEngine, out_down: *mut u8) -> i32;
     /// Reads the pointer position in UI coordinates: the same units as element sizes and positions, which are framebuffer pixels divided by the content scale unless `STURDY_UI_SCALE_MODE_RAW_PIXELS` is set.
@@ -10898,6 +11275,8 @@ unsafe extern "C" {
     ///
     /// Text draws nothing until a font is registered, so do this once during `on_engine_initialized`. `font_id` 0 is the default the text style starts with.
     pub fn sturdy_ui_register_font(engine: SturdyEngine, source: *const c_char, font_id: u32) -> i32;
+    /// Chooses the hit-test mode of the window UI (the `sturdy_ui_begin` frames). Takes effect at the next `sturdy_ui_begin`. UI trees choose theirs in `SturdyUiTreeDesc::hit_test_mode`.
+    pub fn sturdy_ui_set_hit_test_mode(engine: SturdyEngine, mode: i32) -> i32;
     /// Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.
     pub fn sturdy_ui_set_scale_mode(engine: SturdyEngine, mode: i32) -> i32;
     /// Draws text inside the current element.

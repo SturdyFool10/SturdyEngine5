@@ -15,7 +15,7 @@
 #include "sturdy_rs/camera.hpp"
 #include "sturdy_rs/render.hpp"
 
-// For ui_run_frame()/ui_take_pending_overlay_hooks(), which build this frame's UI overlay from
+// For ui_run_frame()/ui_take_pending_overlays(), which build this frame's UI overlay from
 // whatever draw hook `sturdy_rs::ui::ui_set_draw_hook` registered and attach it below.
 #include "sturdy_rs/ui.hpp"
 
@@ -160,8 +160,8 @@ namespace sturdy_rs {
                                           (request.overlay_only && static_cast<bool>(presentation.transparent_composition));
                 if (sturdy_rs::ui::ui_run_frame(engine, frame.framebuffer_width, frame.framebuffer_height,
                                                 frame.delta_seconds, linear_layer)) {
-                    if (auto overlay = sturdy_rs::ui::ui_take_pending_overlay()) {
-                        params.overlay_passes.push_back(std::move(*overlay));
+                    for (auto &overlay : sturdy_rs::ui::ui_take_pending_overlays()) {
+                        params.overlay_passes.push_back(std::move(overlay));
                     }
                 }
                 return params;

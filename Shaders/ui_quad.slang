@@ -28,7 +28,8 @@ struct UiQuadInstance {
     float2 uvMin;
     float2 uvMax;
     uint kindAndTexture; // kind: 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced), 2 = image sampled nearest-neighbour
-    uint reserved;       // keeps the record a multiple of 8 bytes, the stride a structured buffer of float2/uint2 members has
+    uint cornerShapeCodes; // one CSS corner-shape byte per corner (top left in the low byte, then top right, bottom left, bottom right);
+                           // 0 = round. Also keeps the record a multiple of 8 bytes, the stride a structured buffer of float2/uint2 members has
 };
 
 // Half to float by hand: f16tof32 makes the compiler declare the Float16/Int16 SPIR-V capabilities, which a device
@@ -93,6 +94,7 @@ struct VertexOutput {
     float2 localPixelPos : TEXCOORD1; // pixel offset from the quad's top-left, for the SDF test
     float2 halfSize : TEXCOORD2;
     float4 cornerRadius : TEXCOORD3;
+    nointerpolation float4 cornerShapeK : TEXCOORD7; // uiCornerShapeK() per corner, same order as cornerRadius
     float4 borderWidth : TEXCOORD4;
     float4 fillColor : COLOR0;
     float4 borderColor : COLOR1;
@@ -114,6 +116,8 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     output.localPixelPos = localPixelPos;
     output.halfSize = inst.size * 0.5;
     output.cornerRadius = unpackHalf4(inst.cornerRadiusHalf);
+    output.cornerShapeK = float4(uiCornerShapeK(inst.cornerShapeCodes & 0xFFu), uiCornerShapeK((inst.cornerShapeCodes >> 8u) & 0xFFu),
+                                 uiCornerShapeK((inst.cornerShapeCodes >> 16u) & 0xFFu), uiCornerShapeK(inst.cornerShapeCodes >> 24u));
     output.borderWidth = unpackHalf4(inst.borderWidthHalf);
     output.fillColor = unpackHalf4(inst.fillColorHalf);
     output.borderColor = unpackHalf4(inst.borderColorHalf);
@@ -128,7 +132,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float2 centerPos = input.localPixelPos - input.halfSize;
-    float outerDist = roundedBoxSDF(centerPos, input.halfSize, input.cornerRadius);
+    float outerDist = shapedBoxSDF(centerPos, input.halfSize, input.cornerRadius, input.cornerShapeK);
     float edgeSoftness = max(fwidth(outerDist), SFT_EPSILON);
     float outerAlpha = clamp01(0.5 - outerDist / edgeSoftness);
 
@@ -144,7 +148,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 #endif
     float4 sampledLinear = quadTexture.Sample(quadSampler, input.uv);
     float4 sampledNearest = quadTexture.Sample(quadSamplerNearest, input.uv);
-    float4 sampled = input.kind > 1.5 ? sampledNearest : sampledLinear;
+    float4 sampled = (input.kind > 1.5 && input.kind < 2.5) ? sampledNearest : sampledLinear;
 
     float4 color = input.fillColor;
     if (input.kind > 0.5) {
@@ -155,7 +159,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         // comment) — only multiply-tint when the caller actually set a tint color. The tint's alpha scales the
         // image's opacity (fade a thumbnail in, dim a disabled icon).
         float4 tint = input.fillColor.a > 0.0 ? input.fillColor : float4(1.0, 1.0, 1.0, 1.0);
-        color = float4(sampled.rgb * tint.rgb, sampled.a * tint.a);
+        // Kind 3 (a UI effect group's result) is premultiplied: the pipeline blends straight alpha, so un-premultiply here.
+        // Kind 4 is the same image written out premultiplied (additive and multiply blends want that), so it is left as it is and the
+        // opacity scales the colour with the alpha.
+        bool premultipliedOut = input.kind > 3.5;
+        float3 sampledRgb = (input.kind > 2.5 && !premultipliedOut) ? sampled.rgb / max(sampled.a, 1.0e-5) : sampled.rgb;
+        color = float4(sampledRgb * tint.rgb * (premultipliedOut ? tint.a : 1.0), sampled.a * tint.a);
     } else if (dot(input.borderWidth, input.borderWidth) > 0.0) {
         float2 innerHalfSize = input.halfSize - float2(
             (input.borderWidth.x + input.borderWidth.y) * 0.5,
@@ -166,10 +175,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         float maxBorder = max(max(input.borderWidth.x, input.borderWidth.y),
                               max(input.borderWidth.z, input.borderWidth.w));
         float4 innerRadius = max(input.cornerRadius - maxBorder, 0.0);
-        float innerDist = roundedBoxSDF(innerCenter, max(innerHalfSize, 0.0), innerRadius);
+        float innerDist = shapedBoxSDF(innerCenter, max(innerHalfSize, 0.0), innerRadius, input.cornerShapeK);
         float borderWeight = clamp01(0.5 + innerDist / edgeSoftness);
         color = lerp(input.fillColor, input.borderColor, borderWeight);
     }
 
-    return float4(color.rgb, color.a * outerAlpha);
+    return float4(color.rgb * (input.kind > 3.5 ? outerAlpha : 1.0), color.a * outerAlpha);
 }

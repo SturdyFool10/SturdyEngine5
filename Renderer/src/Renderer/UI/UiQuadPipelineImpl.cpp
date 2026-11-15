@@ -367,6 +367,44 @@ namespace SFT::UI {
         }
         pipeline.additive_pipeline_ = *rhi_additive_pipeline;
 
+        // Multiply and replace, for effect groups composited with those blends (UI/UiEffect.hpp). Multiply takes a premultiplied source:
+        // dst * (1 - a) + dst * src = dst * (1 - a + a * colour). Replace writes straight over the destination, alpha included.
+        const auto make_variant = [&](const RHI::ColorTargetState &target, const char *label, RHI::RenderPipelineHandle &out) -> Core::RendererResult {
+            const RHI::RenderPipelineDesc variant{
+                .layout = pipeline.pipeline_layout_,
+                .vertex = RHI::ShaderEntry{.module = pipeline.vertex_module_, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
+                .fragment = RHI::ShaderEntry{.module = pipeline.fragment_module_, .entry_point = "fragmentMain", .stage = RHI::ShaderStage::Fragment},
+                .vertex_buffers = {},
+                .topology = RHI::PrimitiveTopology::TriangleList,
+                .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
+                .depth_stencil = RHI::DepthStencilState{},
+                .color_targets = span<const RHI::ColorTargetState>{&target, 1},
+                .label = label,
+            };
+            auto created = device.create_render_pipeline(variant);
+            if (!created) {
+                return unexpected(Renderer::graphics_error_from_rhi(created.error(), label));
+            }
+            out = *created;
+            return {};
+        };
+        const RHI::ColorTargetState multiply_target{
+            .format = color_format,
+            .blend_enable = true,
+            .color = RHI::BlendComponent{.src_factor = RHI::BlendFactor::DstColor, .dst_factor = RHI::BlendFactor::OneMinusSrcAlpha, .op = RHI::BlendOp::Add},
+            .alpha = RHI::BlendComponent{.src_factor = RHI::BlendFactor::Zero, .dst_factor = RHI::BlendFactor::One, .op = RHI::BlendOp::Add},
+            .write_mask = RHI::ColorWriteMask::All,
+        };
+        if (Core::RendererResult made = make_variant(multiply_target, "ui quad multiply pipeline", pipeline.multiply_pipeline_); !made) {
+            pipeline.destroy(device);
+            return unexpected(made.error());
+        }
+        const RHI::ColorTargetState replace_target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
+        if (Core::RendererResult made = make_variant(replace_target, "ui quad replace pipeline", pipeline.replace_pipeline_); !made) {
+            pipeline.destroy(device);
+            return unexpected(made.error());
+        }
+
         return pipeline;
     }
 
@@ -388,7 +426,8 @@ namespace SFT::UI {
                                                  span<const u64> instance_texture_revisions,
                                                  span<const RHI::Rect2D> instance_scissors,
                                                  span<const u32> instance_paint_groups,
-                                                 UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches) {
+                                                 UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches,
+                                                 span<const UiQuadBlend> instance_blends) {
         out_batches.clear();
         resources.stats = {};
         if (instances.size() != instance_texture_views.size() || instances.size() != instance_texture_revisions.size() ||
@@ -587,9 +626,11 @@ namespace SFT::UI {
                     texture_index = found->second;
                 }
             }
+            const UiQuadBlend blend = instance_blends.empty() ? UiQuadBlend::Normal : instance_blends[i];
             const bool extends = !out_batches.empty() &&
                 same_rect(out_batches.back().scissor, instance_scissors[i]) &&
                 out_batches.back().paint_group == instance_paint_groups[i] &&
+                out_batches.back().blend == blend &&
                 (bindless_ || (out_batches.back().texture_view == view &&
                                out_batches.back().texture_revision == instance_texture_revisions[i]));
             if (extends) {
@@ -602,6 +643,7 @@ namespace SFT::UI {
                     .first_instance = static_cast<u32>(staged.size()),
                     .instance_count = 1,
                     .paint_group = instance_paint_groups[i],
+                    .blend = blend,
                 });
             }
             staged.push_back(pack_quad_instance(instances[i], texture_index));
@@ -700,7 +742,7 @@ namespace SFT::UI {
         if (batches.empty()) {
             return {};
         }
-        if (!pipeline_ || !additive_pipeline_) {
+        if (!pipeline_ || !additive_pipeline_ || !multiply_pipeline_ || !replace_pipeline_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UI quad pipeline was not created.");
         }
         UiQuadDrawState local;
@@ -711,7 +753,14 @@ namespace SFT::UI {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "UI quad draw batch has no prepared instance buffer.");
             }
-            const RHI::RenderPipelineHandle wanted = batch.additive ? additive_pipeline_ : pipeline_;
+            RHI::RenderPipelineHandle wanted = pipeline_;
+            if (batch.additive || batch.blend == UiQuadBlend::Additive) {
+                wanted = additive_pipeline_;
+            } else if (batch.blend == UiQuadBlend::Multiply) {
+                wanted = multiply_pipeline_;
+            } else if (batch.blend == UiQuadBlend::Replace) {
+                wanted = replace_pipeline_;
+            }
             if (bound.pipeline != wanted) {
                 pass.set_pipeline(wanted);
                 bound.pipeline = wanted;
@@ -774,6 +823,12 @@ namespace SFT::UI {
         }
         if (additive_pipeline_) {
             device.destroy_render_pipeline(additive_pipeline_);
+        }
+        if (multiply_pipeline_) {
+            device.destroy_render_pipeline(multiply_pipeline_);
+        }
+        if (replace_pipeline_) {
+            device.destroy_render_pipeline(replace_pipeline_);
         }
         if (nearest_sampler_) {
             device.destroy_sampler(nearest_sampler_);

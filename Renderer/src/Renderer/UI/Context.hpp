@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <source_location>
 #include <glm/vec2.hpp>
@@ -23,6 +24,7 @@
 #include <Renderer/Text/Text.hpp>
 
 #include <Renderer/UI/CustomElement.hpp>
+#include <Renderer/UI/UiEffect.hpp>
 #include <Renderer/UI/Style.hpp>
 #include <Renderer/UI/UiDiagnostics.hpp>
 #include <Renderer/UI/TextBridge.hpp>
@@ -38,7 +40,7 @@ using std::unordered_map;
 using std::vector;
 
 
-struct Clay_Context;
+struct SEClay_Context;
 
 namespace SFT::UI {
 
@@ -51,9 +53,33 @@ namespace SFT::UI {
         Nearest,
     };
 
+    /// How an image sits in its element's box (CSS `object-fit`). Needs the image's own size (`ImageFitOptions::intrinsic_size`).
+    enum class ImageFit : u8 {
+        /// Stretched to the box, whatever the aspect ratio. The default, and what every image did before this existed.
+        Fill,
+        /// Scaled to fit entirely inside the box, keeping its aspect ratio (letterboxed).
+        Contain,
+        /// Scaled to cover the box, keeping its aspect ratio; what does not fit is cropped.
+        Cover,
+        /// Its own size, cropped to the box.
+        None,
+        /// Whichever of `None` and `Contain` is smaller.
+        ScaleDown,
+    };
+
+    /// `object-fit` and `object-position` for an image.
+    struct ImageFitOptions {
+        ImageFit fit = ImageFit::Fill;
+        /// Where the image sits in the box when it does not fill it, 0..1 on each axis from the top-left (0.5, 0.5 = centred, the CSS default).
+        glm::vec2 position{0.5f, 0.5f};
+        /// The image's size in layout units (its texel size at 1x). Zero (unknown) means `Fill`.
+        glm::vec2 intrinsic_size{0.0f};
+    };
+
     struct ImageRef {
         Renderer::TextureHandle texture{};
         ImageSampling sampling = ImageSampling::Linear;
+        ImageFitOptions fit{};
     };
 
 
@@ -77,6 +103,26 @@ namespace SFT::UI {
         glm::vec2 size{0.0f};
     };
 
+
+    /// What decides where an element reacts to the pointer (`Context::hovered`, `clicked`).
+    enum class HitTestMode : u8 {
+        /// Like CSS: transforms move the reactive area with the drawing, `clip-path` cuts it, an element drawn above that draws something
+        /// covers the ones below, and `mask-image` does not matter (a masked-out part still reacts). The default.
+        Css,
+        /// CSS's rules with the one thing CSS leaves out fixed: masks are reactive. Where a mask hides an element (its alpha is below 0.1), the
+        /// element does not react, so what you cannot see cannot be clicked. An image mask needs the texture's pixels (a texture made from data
+        /// has them; see `Context::set_mask_alpha_sampler`); without them that part stays reactive.
+        Fixed,
+    };
+
+    /// One open element on `Context`'s stack: the z its children inherit and the index of its hit record (-1 for the base frame).
+    struct ZFrame {
+        i32 z = 0;
+        i32 record = -1;
+        constexpr ZFrame() noexcept = default;
+        constexpr ZFrame(i32 value) noexcept : z(value) {} // NOLINT: a plain z converts
+        constexpr operator i32() const noexcept { return z; } // NOLINT: used where only the z matters
+    };
 
     class ElementScope {
       public:
@@ -115,12 +161,12 @@ namespace SFT::UI {
         /// @param z_stack `z_stack` value used by the operation.
         ///
         /// @note This function does not throw exceptions.
-        explicit ElementScope(Clay_Context *context, vector<i32> *z_stack) noexcept;
+        explicit ElementScope(SEClay_Context *context, vector<ZFrame> *z_stack) noexcept;
 
-        Clay_Context *context_ = nullptr;
+        SEClay_Context *context_ = nullptr;
 
 
-        vector<i32> *z_stack_ = nullptr;
+        vector<ZFrame> *z_stack_ = nullptr;
     };
 
 
@@ -150,6 +196,12 @@ namespace SFT::UI {
         const ImageRef *image_ref = nullptr;
         RHI::Rect2D scissor{};
         PaintKey paint{};
+        /// Set only by the renderer for an effect group's composite quad: sample this view instead of the quad's image. Never set by
+        /// `Context`; `view_revision` changes whenever the view does.
+        RHI::TextureViewHandle view_override{};
+        u64 view_revision = 0;
+        /// How the quad is laid over what is under it. Only an effect group's composite sets anything but `Normal`.
+        UiQuadBlend blend = UiQuadBlend::Normal;
     };
 
 
@@ -253,6 +305,18 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         [[nodiscard]] std::span<const CustomStrokeDraw> custom_strokes() const noexcept;
 
+        /// The effect groups (`ElementDecl::effect`) in this frame, in the order their START commands were met, so a group
+        /// always comes after the group it is nested in. Draws inside a group are still in the lists above, in paint order; a
+        /// group claims the ones whose `PaintKey::order` lies strictly between its `paint.order` and `last_order`.
+        [[nodiscard]] std::span<const EffectGroupDraw> effect_groups() const noexcept;
+        /// Every glyph the frame draws, in paint order of the text that produced them (a text shadow is a second run drawn first).
+        [[nodiscard]] std::span<const Renderer::GlyphPlacement> glyphs() const noexcept { return glyphs_; }
+
+        /// Splits `base` by effect layer (`UiEffect::layer`): element 0 is everything that is drawn in the lowest pass, then one
+        /// snapshot per higher layer value that occurs, ascending. Each holds the draws and groups of the top-level elements hoisted into
+        /// it, with their paint order intact. When nothing is layered the result is `{base}` itself. The pieces keep `base` alive.
+        [[nodiscard]] static std::vector<std::shared_ptr<FrameSnapshot>> split_layers(std::shared_ptr<FrameSnapshot> base);
+
       private:
         friend class Context;
         friend class UiRenderer;
@@ -270,11 +334,16 @@ namespace SFT::UI {
 
         vector<PaintKey> glyph_paint_;
         vector<CustomDraw> custom_draws_;
+        vector<EffectGroupDraw> effect_groups_;
+        /// Keeps every effect this frame points at alive for as long as the snapshot is.
+        vector<std::shared_ptr<const UiEffect>> effect_storage_;
 
 
         deque<ImageRef> image_storage_;
         deque<CustomShaderRef> custom_storage_;
         RHI::Rect2D full_viewport_scissor_{};
+        /// Set on the pieces `split_layers` makes: the snapshot whose storage (images, custom shaders, effects) they point into.
+        std::shared_ptr<const FrameSnapshot> storage_owner_;
     };
 
 
@@ -424,6 +493,14 @@ namespace SFT::UI {
         ///
         /// @note This function does not throw exceptions.
         void set_pixel_scale(f32 scale) noexcept;
+        /// Chooses what decides where elements react to the pointer: `HitTestMode::Css` (the default) follows transforms and clip-paths and lets a
+        /// drawn element cover the ones below; `Fixed` keeps every element's reactive area at its laid-out box. Takes effect immediately.
+        void set_hit_test_mode(HitTestMode mode) noexcept { hit_test_mode_ = mode; }
+        [[nodiscard]] HitTestMode hit_test_mode() const noexcept { return hit_test_mode_; }
+        /// How `HitTestMode::Fixed` reads an image mask: the mask value (alpha, or luminance times alpha when the flag is set) of `texture` at
+        /// `uv` (0..1 across the image), or nothing when the pixels are not known. `UiSurface` installs one from its renderer.
+        using MaskAlphaSampler = std::function<std::optional<f32>(Renderer::TextureHandle texture, glm::vec2 uv, bool luminance)>;
+        void set_mask_alpha_sampler(MaskAlphaSampler sampler) { mask_alpha_sampler_ = std::move(sampler); }
 
         /// Returns the pixel scale set with `set_pixel_scale()`.
         ///
@@ -494,6 +571,10 @@ namespace SFT::UI {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling = ImageSampling::Linear,
                    std::source_location site = std::source_location::current());
+        /// Like `image`, with `object-fit` / `object-position`: the image is scaled and placed in the element's box as `fit` says, and
+        /// cropped to it where it overflows.
+        void image(const ElementDecl &decl, Renderer::TextureHandle texture, const ImageFitOptions &fit,
+                   ImageSampling sampling = ImageSampling::Linear, std::source_location site = std::source_location::current());
 
 
         /// Computes the hit test text byte offset required by the supplied values.
@@ -810,7 +891,7 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         void scale_snapshot_to_pixels(FrameSnapshot &snapshot) const noexcept;
 
-        Clay_Context *context_ = nullptr;
+        SEClay_Context *context_ = nullptr;
         /// Backing memory of a fixed-size context (`Config::arena_capacity_bytes != 0`); empty for a growable one, which owns its own.
         vector<std::byte> arena_memory_;
         /// Heap-allocated so the error handler registered with the layout engine keeps a stable pointer across moves of this context
@@ -863,6 +944,8 @@ namespace SFT::UI {
         deque<FillQuadListData> fill_storage_;
         deque<SectorListData> sector_storage_;
         deque<CustomStrokeElementData> custom_stroke_storage_;
+        /// Effects declared this frame: SEClay holds raw pointers to them until the layout ends, and the snapshot then takes over.
+        vector<std::shared_ptr<const UiEffect>> effect_storage_;
 
 
         unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> outline_cache_;
@@ -885,6 +968,62 @@ namespace SFT::UI {
 
 
         vector<string> current_frame_ids_;
+        /// Per-edge border descriptions of this frame's elements, by SEClay element id (a Border command is matched to its element here).
+        vector<std::shared_ptr<const BorderEdges>> border_edges_storage_;
+        /// Decoration and shadow of the text elements declared this frame; a text command finds its entry through the high bits of its user data.
+        struct TextExtras {
+            TextDecoration decoration;
+            TextShadow shadow;
+        };
+        vector<TextExtras> text_extras_;
+        /// Hit testing through transforms and clip shapes. Every element declared this frame is recorded (its place in the tree, its z, whether it
+        /// draws anything); when a frame has a transform or a clip-path, the records are laid out at the end of it and `hovered` / `clicked` use
+        /// them for the elements under such an ancestor: the pointer is mapped through each transform and tested against each clip shape on the
+        /// way down, and an element drawn above that also holds the pointer covers it.
+        struct HitRecord {
+            u32 clay_id = 0;
+            i32 parent = -1;
+            i32 z = 0;
+            /// Draws something (a background, border, image or effect): only such an element can cover another.
+            bool solid = false;
+            const UiEffect *effect = nullptr; // valid only until the frame is finished
+        };
+        struct HitLaidOut {
+            ElementBounds box;
+            i32 parent = -1;
+            i32 z = 0;
+            bool solid = false;
+            std::optional<UiTransform2D> transform;
+            std::optional<UiClipShape> clip;
+            std::optional<UiMaskShape> mask;
+            bool shaped_ancestry = false; // this element or an ancestor has a transform or a clip shape
+        };
+        vector<HitRecord> hit_records_;
+        unordered_map<string, i32> hit_record_by_id_;
+        vector<HitLaidOut> last_frame_hits_;
+        unordered_map<string, i32> last_frame_hit_by_id_;
+        /// Whether the element `index` of the last frame is under the point `point` (layout units), through its ancestors' transforms and clips.
+        [[nodiscard]] bool hit_laid_out(i32 index, glm::vec2 point) const noexcept;
+        [[nodiscard]] f32 mask_value_at(const UiMaskShape &mask, const ElementBounds &box, glm::vec2 point) const noexcept;
+        /// The full test for the element named `id`: it is under `point` and nothing drawn above it is. Returns nullopt when the element is not
+        /// under a transform or clip shape (the caller uses the ordinary test).
+        [[nodiscard]] std::optional<bool> shaped_hit(const UString &id, glm::vec2 point) const noexcept;
+        void record_hit(const ElementDecl &decl, const UiEffect *effect);
+        /// The effect an element's shaped clip (`ClipConfig::follow_corners` / `path`) amounts to, on top of its declared effect; built once per
+        /// distinct combination.
+        struct ShapedClip {
+            std::shared_ptr<const UiEffect> effect;
+            std::shared_ptr<const UiEffect> base;
+            std::shared_ptr<const UiEffect> path;
+        };
+        unordered_map<string, ShapedClip> shaped_clip_cache_;
+        [[nodiscard]] std::shared_ptr<const UiEffect> shaped_clip_effect(const ElementDecl &decl);
+        /// An element that draws something of its own and has no children (an image, a custom shader element, strokes, a chart).
+        void record_leaf(const ElementDecl &decl);
+        /// The text element just opened inside the current element.
+        void record_text_hit();
+        HitTestMode hit_test_mode_ = HitTestMode::Css;
+        MaskAlphaSampler mask_alpha_sampler_;
         unordered_map<string, ElementBounds> last_frame_bounds_;
 
 
@@ -900,7 +1039,7 @@ namespace SFT::UI {
         CursorIcon desired_cursor_ = CursorIcon::Default;
 
 
-        vector<i32> z_stack_{0};
+        vector<ZFrame> z_stack_{ZFrame{}};
     };
 
 } // namespace SFT::UI

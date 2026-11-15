@@ -80,7 +80,7 @@ namespace {
         assert(limit->value > 64 && limit->limit > 0);
         assert(limit->message.find("grow") != std::string::npos);
         // Where: the engine check, the UI call in C++, the announced foreign site, the element chain, and a native stack.
-        assert(limit->engine_source.find("clay.h") != std::string::npos);
+        assert(limit->engine_source.find("SEClay.h") != std::string::npos);
         assert(limit->api_call_site.valid() && limit->api_call_site.file.find("UiDiagnosticsTest.cpp") != std::string::npos);
         assert(limit->foreign_call_site.valid() && limit->foreign_call_site.file == "src/game/inventory.rs" && limit->foreign_call_site.line == 118);
         assert(!limit->element_path.empty() && limit->element_path.front() == "<root>");

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <Renderer/UI/Context.hpp>
 
 
@@ -21,6 +22,80 @@ namespace SFT::UI {
     /// @note This function does not throw exceptions.
     Core::Extent2D FrameSnapshot::viewport_extent() const noexcept {
         return Core::Extent2D{full_viewport_scissor_.width, full_viewport_scissor_.height};
+    }
+
+    std::vector<std::shared_ptr<FrameSnapshot>> FrameSnapshot::split_layers(std::shared_ptr<FrameSnapshot> base) {
+        if (!base) {
+            return {};
+        }
+        // Hoisted groups: top-level, with a layer. Their paint-order ranges cannot overlap, so a draw belongs to at most one.
+        std::vector<usize> hoisted;
+        std::vector<u8> layer_values;
+        for (usize i = 0; i < base->effect_groups_.size(); ++i) {
+            const EffectGroupDraw &group = base->effect_groups_[i];
+            if (group.parent < 0 && group.effect != nullptr && group.effect->layer > 0) {
+                hoisted.push_back(i);
+                if (std::ranges::find(layer_values, group.effect->layer) == layer_values.end()) {
+                    layer_values.push_back(group.effect->layer);
+                }
+            }
+        }
+        if (hoisted.empty()) {
+            return {std::move(base)};
+        }
+        std::ranges::sort(layer_values);
+        std::ranges::sort(hoisted, [&](usize a, usize b) { return base->effect_groups_[a].paint.order < base->effect_groups_[b].paint.order; });
+
+        // Index 0 is the lowest pass; index k + 1 is layer_values[k].
+        std::vector<std::shared_ptr<FrameSnapshot>> pieces;
+        for (usize k = 0; k <= layer_values.size(); ++k) {
+            auto piece = std::make_shared<FrameSnapshot>();
+            piece->full_viewport_scissor_ = base->full_viewport_scissor_;
+            piece->storage_owner_ = base;
+            pieces.push_back(std::move(piece));
+        }
+        const auto piece_for_layer = [&](u8 layer) {
+            return 1 + static_cast<usize>(std::ranges::find(layer_values, layer) - layer_values.begin());
+        };
+        const auto piece_of_order = [&](u32 order) -> usize {
+            auto it = std::upper_bound(hoisted.begin(), hoisted.end(), order,
+                                       [&](u32 value, usize group) { return value < base->effect_groups_[group].paint.order; });
+            if (it == hoisted.begin()) {
+                return 0;
+            }
+            const EffectGroupDraw &candidate = base->effect_groups_[*(it - 1)];
+            return order > candidate.paint.order && order < candidate.last_order ? piece_for_layer(candidate.effect->layer) : 0;
+        };
+        for (const QuadDraw &draw : base->quads_) pieces[piece_of_order(draw.paint.order)]->quads_.push_back(draw);
+        for (const StrokeDraw &draw : base->strokes_) pieces[piece_of_order(draw.paint.order)]->strokes_.push_back(draw);
+        for (const FillQuadDraw &draw : base->fills_) pieces[piece_of_order(draw.paint.order)]->fills_.push_back(draw);
+        for (const SectorDraw &draw : base->sectors_) pieces[piece_of_order(draw.paint.order)]->sectors_.push_back(draw);
+        for (const CustomDraw &draw : base->custom_draws_) pieces[piece_of_order(draw.paint.order)]->custom_draws_.push_back(draw);
+        for (const CustomStrokeDraw &draw : base->custom_strokes_) pieces[piece_of_order(draw.paint.order)]->custom_strokes_.push_back(draw);
+        for (usize i = 0; i < base->glyphs_.size(); ++i) {
+            FrameSnapshot &piece = *pieces[piece_of_order(base->glyph_paint_[i].order)];
+            piece.glyphs_.push_back(base->glyphs_[i]);
+            piece.glyph_scissors_.push_back(base->glyph_scissors_[i]);
+            piece.glyph_paint_.push_back(base->glyph_paint_[i]);
+        }
+        // Groups: a hoisted group and the groups inside it go to its piece, every other group stays in the lowest one. Indices are
+        // re-made per piece (a group always comes after its parent in `effect_groups_`, which keeps that true).
+        std::vector<i32> new_index(base->effect_groups_.size(), -1);
+        for (usize i = 0; i < base->effect_groups_.size(); ++i) {
+            EffectGroupDraw group = base->effect_groups_[i];
+            const bool is_hoisted = std::ranges::find(hoisted, i) != hoisted.end();
+            // A group is inside a hoisted one when its own order falls in that group's range; a hoisted group itself sits on its start.
+            const usize piece_index = is_hoisted ? piece_for_layer(group.effect->layer) : piece_of_order(group.paint.order);
+            FrameSnapshot &piece = *pieces[piece_index];
+            group.parent = is_hoisted || group.parent < 0 ? -1 : new_index[static_cast<usize>(group.parent)];
+            new_index[i] = static_cast<i32>(piece.effect_groups_.size());
+            piece.effect_groups_.push_back(group);
+        }
+        // Layer markers have done their job; a piece's remaining groups are the ones with passes to run.
+        for (auto &piece : pieces) {
+            piece->effect_groups_ = flatten_effect_groups(piece->effect_groups_);
+        }
+        return pieces;
     }
 
     /// Returns the current or globally available quads value.
@@ -52,6 +127,8 @@ namespace SFT::UI {
     /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
     /// @note This function does not throw exceptions.
     std::span<const CustomStrokeDraw> FrameSnapshot::custom_strokes() const noexcept { return custom_strokes_; }
+
+    std::span<const EffectGroupDraw> FrameSnapshot::effect_groups() const noexcept { return effect_groups_; }
 
     /// Sets the scroll settings for this `UI`.
     ///
@@ -146,7 +223,7 @@ namespace SFT::UI {
     /// @param z_stack `z_stack` value used by the operation.
     ///
     /// @note This function does not throw exceptions.
-    ElementScope::ElementScope(Clay_Context *context, vector<i32> *z_stack) noexcept
+    ElementScope::ElementScope(SEClay_Context *context, vector<ZFrame> *z_stack) noexcept
     : context_(context), z_stack_(z_stack) {}
 
 } // namespace SFT::UI

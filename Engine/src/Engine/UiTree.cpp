@@ -1,5 +1,7 @@
 #include <Engine/UiTree.hpp>
 
+#include <Async/ParIter.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <exception>
@@ -326,7 +328,9 @@ namespace SFT::Engine {
             return false;
         }
         const bool extent_changed = inner->snapshot_extent != extent;
-        const bool dirty = tree.dirty.load(std::memory_order_acquire);
+        // Always asked (not short-circuited), so a check that tracks "what changed since I last looked" sees every update.
+        const bool checked_dirty = inner->desc.dirty_check && inner->desc.dirty_check();
+        const bool dirty = tree.dirty.load(std::memory_order_acquire) || checked_dirty;
         bool due = force || extent_changed || !inner->snapshot;
         switch (inner->desc.rebuild) {
             case UiRebuildPolicy::EveryUpdate: due = true; break;
@@ -359,13 +363,19 @@ namespace SFT::Engine {
             RHI::Format format = initial_color_format(engine);
             if (const auto *offscreen = std::get_if<UiOffscreenTarget>(&inner->desc.target)) {
                 if (const auto description = engine.offscreen_render_target_description(offscreen->target)) {
-                    // A 10-bit target is drawn as half-float and encoded afterwards, so that is what the UI draws into.
-                    format = description->format == RenderTargetFormat::Rgba16Float || description->format == RenderTargetFormat::Rgb10A2
+                    // A target the frame encodes afterwards (10-bit, plain 8-bit) is drawn as half-float, so that is what the UI
+                    // draws into; the formats the frame draws into directly are drawn into as they are.
+                    format = description->format == RenderTargetFormat::Rgba16Float || description->format == RenderTargetFormat::Rgb10A2 ||
+                                     description->format == RenderTargetFormat::Bgra8 || description->format == RenderTargetFormat::Rgba8
                                  ? RHI::Format::RGBA16Float
+                             : description->format == RenderTargetFormat::Rgba32Float ? RHI::Format::RGBA32Float
                              : description->format == RenderTargetFormat::Rgba8Srgb ? RHI::Format::RGBA8UnormSrgb
                                                                                      : RHI::Format::BGRA8UnormSrgb;
                 }
             }
+            // Pipeline creation talks to the device; trees built in parallel take turns here (it is once per tree, not per frame).
+            static Async::Mutex<int> gpu_setup;
+            auto setup_guard = gpu_setup.lock();
             if (!inner->surface.ensure_ready(*device, format)) {
                 // ensure_ready logged the backend's reason once; the tree keeps laying out but draws nothing, so say that where the
                 // application looks for it (the tree's last error) instead of leaving a tree that is silently blank.
@@ -384,10 +394,12 @@ namespace SFT::Engine {
             inner->surface.set_content_scale(inner->desc.content_scale);
         }
         inner->surface.set_scale_mode(inner->desc.scale_mode);
+        inner->surface.context().set_hit_test_mode(inner->desc.hit_test_mode);
 
         tree.dirty.store(false, std::memory_order_release);
         const auto started = std::chrono::steady_clock::now();
         ++t_build_depth;
+        inner->surface.set_texture_resolver(engine.renderer());
         UI::Context &context = inner->surface.begin_frame(extent, static_cast<f32>(inner->since_build));
         tree.pointer_consumed.store(inner->surface.input().pointer_consumed(), std::memory_order_release);
         UiTreeFrame frame{
@@ -486,11 +498,21 @@ namespace SFT::Engine {
             shared->live = current;
         }
 
+        struct Due {
+            Entry entry;
+            glm::vec2 extent{0.0f};
+            bool parallel = false;
+        };
+        std::vector<Due> due;
+        due.reserve(current.size());
         for (const Entry &entry : current) {
             glm::vec2 extent{0.0f};
             UiTreeTarget target;
+            bool parallel = false;
             {
-                target = entry.state->inner.lock()->desc.target;
+                auto inner = entry.state->inner.lock();
+                target = inner->desc.target;
+                parallel = inner->desc.parallel_build;
             }
             if (const auto *window_target = std::get_if<UiWindowTarget>(&target)) {
                 if (const std::optional<WindowManager::WindowId> window = resolve_window(engine, *window_target)) {
@@ -505,7 +527,28 @@ namespace SFT::Engine {
             } else if (const auto *headless = std::get_if<UiHeadlessTarget>(&target)) {
                 extent = glm::vec2{headless->extent};
             }
-            (void)build_one(engine, entry, extent, delta_seconds, false);
+            due.push_back(Due{.entry = entry, .extent = extent, .parallel = parallel});
+        }
+        // Trees that need the update thread first, one at a time; then the ones that allow workers, all at once.
+        std::vector<usize> concurrent;
+        for (usize i = 0; i < due.size(); ++i) {
+            if (due[i].parallel) {
+                concurrent.push_back(i);
+            } else {
+                (void)build_one(engine, due[i].entry, due[i].extent, delta_seconds, false);
+            }
+        }
+        if (concurrent.size() == 1) {
+            (void)build_one(engine, due[concurrent.front()].entry, due[concurrent.front()].extent, delta_seconds, false);
+        } else if (concurrent.size() > 1) {
+            Async::par_for(concurrent.size(), [&](usize k) {
+                const Due &item = due[concurrent[k]];
+                try {
+                    (void)build_one(engine, item.entry, item.extent, delta_seconds, false);
+                } catch (...) {
+                    SFT_LOG_ERROR_THROTTLED(5000, "UI tree build threw out of a worker; the tree keeps its previous frame");
+                }
+            });
         }
     }
 
@@ -542,9 +585,12 @@ namespace SFT::Engine {
             if (!inner->snapshot || inner->snapshot_extent != frame_extent) {
                 continue;
             }
-            overlays.push_back(inner->surface.make_overlay(
-                inner->snapshot, engine.renderer(),
-                UI::UiOverlayOptions{.name = inner->desc.name, .hdr_reference_white_scale = inner->desc.hdr_reference_white_scale}));
+            // One overlay per UI layer (`UI::UiEffect::layer`); a tree with no layered element makes one.
+            for (Renderer::OverlayPass &layer_overlay : inner->surface.make_layer_overlays(
+                     UI::FrameSnapshot::split_layers(inner->snapshot), engine.renderer(),
+                     UI::UiOverlayOptions{.name = inner->desc.name, .hdr_reference_white_scale = inner->desc.hdr_reference_white_scale})) {
+                overlays.push_back(std::move(layer_overlay));
+            }
         }
     }
 
@@ -553,49 +599,112 @@ namespace SFT::Engine {
         if (engine.rhi_device() == nullptr || primary == nullptr) {
             return 0;
         }
-        usize rendered = 0;
-        for (const Entry &entry : snapshot_live()) {
-            Renderer::OverlayPass overlay;
+
+        // What each tree that has a new frame needs drawn.
+        struct Job {
+            Entry entry;
             RenderTargetHandle target{};
             glm::vec2 extent{0.0f};
             glm::vec4 clear{0.0f};
             u64 frame_index = 0;
             std::string name;
+            std::shared_ptr<UI::FrameSnapshot> snapshot;
+            f32 hdr_reference_white_scale = 1.0f;
+            /// Can be drawn as passes of a shared frame (a target the tree's renderer draws into in its own format, no layers).
+            bool batchable = false;
+        };
+        std::vector<Job> jobs;
+        for (const Entry &entry : snapshot_live()) {
+            Job job;
+            job.entry = entry;
             {
                 auto inner = entry.state->inner.lock();
                 const auto *offscreen = std::get_if<UiOffscreenTarget>(&inner->desc.target);
                 if (offscreen == nullptr || !inner->snapshot || inner->snapshot_serial == inner->rendered_serial) {
                     continue;
                 }
-                target = offscreen->target;
-                extent = inner->snapshot_extent;
-                clear = inner->desc.clear_color;
-                frame_index = inner->target_frame_index++;
-                name = inner->desc.name;
-                overlay = inner->surface.make_overlay(
-                    inner->snapshot, engine.renderer(),
-                    UI::UiOverlayOptions{.name = inner->desc.name, .hdr_reference_white_scale = inner->desc.hdr_reference_white_scale});
+                job.target = offscreen->target;
+                job.extent = inner->snapshot_extent;
+                job.clear = inner->desc.clear_color;
+                job.frame_index = inner->target_frame_index++;
+                job.name = inner->desc.name;
+                job.snapshot = inner->snapshot;
+                job.hdr_reference_white_scale = inner->desc.hdr_reference_white_scale;
                 inner->rendered_serial = inner->snapshot_serial;
+                const auto draw_format = engine.renderer()->offscreen_target_draw_format(Renderer::OffscreenRenderTargetHandle{.value = job.target.value});
+                job.batchable = draw_format && *draw_format == inner->surface.renderer_format() &&
+                                UI::FrameSnapshot::split_layers(inner->snapshot).size() == 1;
             }
-            const auto description = engine.offscreen_render_target_description(target);
-            if (!description || glm::vec2{static_cast<f32>(description->width), static_cast<f32>(description->height)} != extent) {
+            jobs.push_back(std::move(job));
+        }
+
+        usize rendered = 0;
+        // Everything that can share one frame does: the first is the frame's own target, the rest are side overlays whose passes are
+        // independent of it and of each other, so the graph records them in parallel. A lone batchable tree is just an ordinary frame.
+        const usize batchable_count = static_cast<usize>(std::ranges::count_if(jobs, [](const Job &job) { return job.batchable; }));
+        bool main_taken = false;
+        std::vector<usize> side;
+        for (usize i = 0; i < jobs.size(); ++i) {
+            if (jobs[i].batchable && batchable_count >= 2 && main_taken) {
+                side.push_back(i);
+            } else if (jobs[i].batchable && batchable_count >= 2) {
+                main_taken = true;
+            }
+        }
+        const auto is_side = [&](usize i) { return std::ranges::find(side, i) != side.end(); };
+
+        // Side overlays are made up front, for the frame that carries them.
+        std::vector<Renderer::OverlayPass> side_overlays;
+        for (const usize i : side) {
+            const Job &job = jobs[i];
+            auto inner = job.entry.state->inner.lock();
+            side_overlays.push_back(inner->surface.make_target_overlay(
+                job.snapshot, engine.renderer(), Renderer::OffscreenRenderTargetHandle{.value = job.target.value}, job.clear,
+                UI::UiOverlayOptions{.name = job.name, .hdr_reference_white_scale = job.hdr_reference_white_scale}));
+        }
+
+        bool side_attached = false;
+        for (usize i = 0; i < jobs.size(); ++i) {
+            if (is_side(i)) {
+                continue;
+            }
+            const Job &job = jobs[i];
+            std::vector<Renderer::OverlayPass> tree_overlays;
+            {
+                auto inner = job.entry.state->inner.lock();
+                tree_overlays = inner->surface.make_layer_overlays(
+                    UI::FrameSnapshot::split_layers(job.snapshot), engine.renderer(),
+                    UI::UiOverlayOptions{.name = job.name, .hdr_reference_white_scale = job.hdr_reference_white_scale});
+            }
+            const auto description = engine.offscreen_render_target_description(job.target);
+            if (!description || glm::vec2{static_cast<f32>(description->width), static_cast<f32>(description->height)} != job.extent) {
                 continue; // resized since the build: the next update lays it out at the new size
             }
 
             RenderFrameParameters params{};
             params.render_graph = RenderGraph::overlay_only();
-            params.render_graph.set_background_color(clear);
-            if (!params.render_graph.set_present_target(target)) {
-                SFT_LOG_WARN_THROTTLED(5000, "UI tree '{}': the overlay-only graph has no single Present pass to aim at its target", name);
+            params.render_graph.set_background_color(job.clear);
+            if (!params.render_graph.set_present_target(job.target)) {
+                SFT_LOG_WARN_THROTTLED(5000, "UI tree '{}': the overlay-only graph has no single Present pass to aim at its target", job.name);
                 continue;
             }
-            params.overlay_passes.push_back(std::move(overlay));
-            if (auto label = UString::try_from_utf8(name)) {
+            for (Renderer::OverlayPass &layer_overlay : tree_overlays) {
+                params.overlay_passes.push_back(std::move(layer_overlay));
+            }
+            // The first batchable tree's frame carries every side overlay.
+            const bool carries_side = !side_attached && job.batchable && batchable_count >= 2;
+            if (carries_side) {
+                for (Renderer::OverlayPass &overlay : side_overlays) {
+                    params.overlay_passes.push_back(std::move(overlay));
+                }
+                side_attached = true;
+            }
+            if (auto label = UString::try_from_utf8(job.name)) {
                 params.debug_label = std::move(*label);
             }
             const Core::FrameInput frame{
                 .delta_seconds = 0.0,
-                .frame_index = frame_index,
+                .frame_index = job.frame_index,
                 .framebuffer_width = description->width,
                 .framebuffer_height = description->height,
             };
@@ -605,11 +714,17 @@ namespace SFT::Engine {
             const Core::RendererResult result = engine.render(prepared);
             engine.record_frame_result(result);
             if (!result) {
-                SFT_LOG_WARN_THROTTLED(5000, "UI tree '{}': rendering into its target failed: {}", name, result.error().message);
+                SFT_LOG_WARN_THROTTLED(5000, "UI tree '{}': rendering into its target failed: {}", job.name, result.error().message);
                 continue;
             }
-            ++entry.state->inner.lock()->stats.target_renders;
+            ++job.entry.state->inner.lock()->stats.target_renders;
             ++rendered;
+            if (carries_side) {
+                for (const usize side_index : side) {
+                    ++jobs[side_index].entry.state->inner.lock()->stats.target_renders;
+                    ++rendered;
+                }
+            }
         }
         return rendered;
     }

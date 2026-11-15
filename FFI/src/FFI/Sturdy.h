@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 44u
+#define STURDY_ABI_VERSION_MINOR 46u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -3263,6 +3263,19 @@ typedef struct SturdyUiTextStyle {
     uint32_t reserved;
     /// Non-linear sRGB with straight alpha.
     float color[4];
+    /// Bits: 1 underline, 2 overline, 4 line-through (CSS `text-decoration-line`). 0 for none.
+    uint32_t decoration_lines;
+    /// 0 solid, 1 dashed, 2 dotted, 3 double.
+    uint32_t decoration_style;
+    /// Pixels; 0 picks one from the font size.
+    float decoration_thickness;
+    /// Non-zero: `decoration_color` (sRGB, straight alpha) instead of the text's own colour.
+    SturdyBool has_decoration_color;
+    float decoration_color[4];
+    /// Non-zero: a hard shadow (CSS `text-shadow` without the blur): the text again under itself, moved by `shadow_offset` pixels, in `shadow_color`.
+    SturdyBool shadow_enabled;
+    float shadow_offset[2];
+    float shadow_color[4];
 } SturdyUiTextStyle;
 
 /// Fills an element declaration with defaults: fit sizing, no padding, transparent, left-to-right.
@@ -3329,6 +3342,292 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_begin_element(SturdyEngine eng
 ///
 /// Reports `STURDY_ERROR_INVALID_ARGUMENT` if nothing is open, rather than unbalancing the tree.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_end_element(SturdyEngine engine);
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// UI effects, corner shapes and layers
+//
+// A UI effect is a shader effect on a whole element: everything the element draws, its children included, goes through it and is
+// composited back where the element was. Blur, shadows, glows, outlines, gradients (in any CSS colour space), frosted glass and
+// arbitrary multi-pass user shaders are all effects. Make one, name it in `SturdyUiElementExtras::effect`, release it when done.
+// An effect must be finished (all its passes added, its options set) before the first frame that uses it.
+//
+// A *layer* hoists an element into a later pass of the frame, so that effects there can read what the lower layers drew (the
+// `STURDY_UI_EFFECT_INPUT_BACKDROP` input): frosted glass is the usual case. `sturdy_ui_end` attaches one overlay per layer.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/// Handle to a UI effect. 0 is "no effect".
+typedef struct SturdyUiEffect {
+    uint64_t id;
+} SturdyUiEffect;
+
+/// Which ready-made effect `sturdy_ui_effect_create` builds, and what `values` / `color` mean for it.
+typedef enum SturdyUiEffectKind {
+    /// values: brightness, contrast, saturation, grayscale, sepia, invert, hue (radians), opacity. The defaults change nothing.
+    STURDY_UI_EFFECT_COLOR_ADJUST = 0,
+    /// color: multiplies the element's colour and alpha.
+    STURDY_UI_EFFECT_TINT = 1,
+    /// values[0]: sigma in pixels.
+    STURDY_UI_EFFECT_BLUR = 2,
+    /// values[0]: sigma in pixels. A cheap wide blur (mip chain); use for large radii.
+    STURDY_UI_EFFECT_FAST_BLUR = 3,
+    /// values: offset x, offset y, blur sigma, strength; color.
+    STURDY_UI_EFFECT_DROP_SHADOW = 4,
+    /// values: sigma, strength; color.
+    STURDY_UI_EFFECT_GLOW = 5,
+    /// values: width, offset (the gap between the element and the ring); color.
+    STURDY_UI_EFFECT_OUTLINE = 6,
+    /// values: offset x, offset y, blur sigma, strength; color.
+    STURDY_UI_EFFECT_INSET_SHADOW = 7,
+    /// values: blur radius in pixels, tint strength, saturation; color is the tint. Reads the backdrop: set `layer` to 1 or more.
+    STURDY_UI_EFFECT_FROSTED_GLASS = 8,
+    /// No shader work: only puts the element in `options.layer`.
+    STURDY_UI_EFFECT_LAYER = 9,
+    /// values[0]: angle in radians (0 runs left to right, growing clockwise). Needs stops; the element's own background is the shape.
+    STURDY_UI_EFFECT_LINEAR_GRADIENT = 10,
+    /// values: centre x, centre y (0..1), radius (fraction of the longer side). Needs stops.
+    STURDY_UI_EFFECT_RADIAL_GRADIENT = 11,
+    /// values: centre x, centre y (0..1), start angle in radians. Needs stops.
+    STURDY_UI_EFFECT_CONIC_GRADIENT = 12,
+    /// values: translate x, translate y (pixels), angle (radians, clockwise), scale x, scale y, origin x, origin y (0..1 across the box). A
+    /// visual transform: layout and hit testing are unchanged. It draws anywhere on the surface unless `options.outset` bounds it.
+    STURDY_UI_EFFECT_TRANSFORM = 13,
+    /// values: top, right, bottom, left (pixels), corner radius (pixels). CSS `clip-path: inset()`.
+    STURDY_UI_EFFECT_CLIP_INSET = 14,
+    /// values: radius (pixels), centre x, centre y (0..1 across the box). CSS `clip-path: circle()`.
+    STURDY_UI_EFFECT_CLIP_CIRCLE = 15,
+    /// values: radius x, radius y (pixels), centre x, centre y (0..1). CSS `clip-path: ellipse()`.
+    STURDY_UI_EFFECT_CLIP_ELLIPSE = 16,
+    /// values: three to six points as x, y pairs (0..1 across the box); `value_count` is how many numbers are set (6..12).
+    STURDY_UI_EFFECT_CLIP_POLYGON = 17,
+    /// values: angle (radians, clockwise from left to right), alpha at start, alpha at end, start, end (0..1 along the line), invert (0 or 1).
+    /// CSS `mask-image: linear-gradient()` in alpha.
+    STURDY_UI_EFFECT_MASK_LINEAR = 18,
+    /// values: use luminance (0 or 1), invert (0 or 1); `texture`: a renderer texture id stretched across the box. CSS `mask-image: url()`.
+    STURDY_UI_EFFECT_MASK_IMAGE = 19,
+    STURDY_UI_EFFECT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyUiEffectKind;
+
+/// CSS colour spaces (CSS Color Module 4). Colours are straight-alpha with components in the space's own reference ranges: sRGB-style
+/// spaces 0..1, HSL/HWB saturation, lightness, whiteness and blackness 0..100, hue in degrees, Lab L 0..100, Oklab L 0..1.
+typedef enum SturdyUiColorSpace {
+    STURDY_UI_COLOR_SPACE_SRGB = 0,
+    STURDY_UI_COLOR_SPACE_SRGB_LINEAR = 1,
+    STURDY_UI_COLOR_SPACE_DISPLAY_P3 = 2,
+    STURDY_UI_COLOR_SPACE_DISPLAY_P3_LINEAR = 3,
+    STURDY_UI_COLOR_SPACE_A98_RGB = 4,
+    STURDY_UI_COLOR_SPACE_PROPHOTO_RGB = 5,
+    STURDY_UI_COLOR_SPACE_REC2020 = 6,
+    STURDY_UI_COLOR_SPACE_XYZ_D50 = 7,
+    STURDY_UI_COLOR_SPACE_XYZ_D65 = 8,
+    STURDY_UI_COLOR_SPACE_LAB = 9,
+    /// The default for blending and gradients.
+    STURDY_UI_COLOR_SPACE_OKLAB = 10,
+    STURDY_UI_COLOR_SPACE_HSL = 11,
+    STURDY_UI_COLOR_SPACE_HWB = 12,
+    STURDY_UI_COLOR_SPACE_LCH = 13,
+    STURDY_UI_COLOR_SPACE_OKLCH = 14,
+    STURDY_UI_COLOR_SPACE_FORCE_U32 = 0x7fffffff
+} SturdyUiColorSpace;
+
+/// How the hue travels between two colours in a polar space (HSL, HWB, LCH, OKLCH).
+typedef enum SturdyUiHueMethod {
+    STURDY_UI_HUE_SHORTER = 0,
+    STURDY_UI_HUE_LONGER = 1,
+    STURDY_UI_HUE_INCREASING = 2,
+    STURDY_UI_HUE_DECREASING = 3,
+    STURDY_UI_HUE_FORCE_U32 = 0x7fffffff
+} SturdyUiHueMethod;
+
+/// How an effect's finished image is laid over what is already drawn.
+typedef enum SturdyUiEffectComposite {
+    /// Premultiplied source-over: the way to put a shaded widget on a background.
+    STURDY_UI_EFFECT_COMPOSITE_NORMAL = 0,
+    /// Adds the result: glow, light.
+    STURDY_UI_EFFECT_COMPOSITE_ADDITIVE = 1,
+    /// Multiplies the destination by the result: shadows, vignettes.
+    STURDY_UI_EFFECT_COMPOSITE_MULTIPLY = 2,
+    /// Overwrites the destination inside the region, so a transparent result cuts a hole.
+    STURDY_UI_EFFECT_COMPOSITE_REPLACE = 3,
+    STURDY_UI_EFFECT_COMPOSITE_FORCE_U32 = 0x7fffffff
+} SturdyUiEffectComposite;
+
+/// One colour stop of a gradient. A gradient takes up to three stops, in ascending position.
+typedef struct SturdyUiGradientStop {
+    /// Straight alpha, components in `space`.
+    float color[4];
+    /// 0..1 along the gradient.
+    float position;
+    SturdyUiColorSpace space;
+    /// Non-zero: the stretch from this stop to the next mixes in `toward_space` / `toward_hue` instead of the gradient's own space.
+    SturdyBool has_toward_next;
+    SturdyUiColorSpace toward_space;
+    SturdyUiHueMethod toward_hue;
+} SturdyUiGradientStop;
+
+/// Applied on top of any effect, library or custom. Initialize with `sturdy_ui_effect_options_init`.
+typedef struct SturdyUiEffectOptions {
+    /// Set to `sizeof(SturdyUiEffectOptions)`.
+    uint32_t struct_size;
+    SturdyUiEffectComposite composite;
+    /// Multiplies the composited result, 0..1.
+    float opacity;
+    /// Pixels the result may spread beyond the element's own box: left, right, top, bottom. All zero keeps a library effect's own
+    /// (a blur or shadow sizes itself); a custom effect that draws outside its element must set it.
+    float outset[4];
+    /// Non-zero (the default): the result is drawn only inside the element's box plus the outset.
+    SturdyBool clip_to_bounds;
+    /// 0 draws the element in place; 1 and up hoist it (top-level elements only) into a later pass of the frame.
+    uint32_t layer;
+    /// Mips made of the element's content for `GROUP_CONTENT` inputs read at several scales: 1 none, 0 the whole chain.
+    uint32_t content_mip_levels;
+} SturdyUiEffectOptions;
+
+/// Describes a ready-made effect.
+typedef struct SturdyUiEffectDesc {
+    /// Set to `sizeof(SturdyUiEffectDesc)`.
+    uint32_t struct_size;
+    SturdyUiEffectKind kind;
+    /// Numbers for the kind (see `SturdyUiEffectKind`). Unused entries are ignored.
+    float values[16];
+    /// How many of `values` are set (the clip polygon reads it); `sturdy_ui_effect_desc_init` sets 8.
+    uint32_t value_count;
+    /// A renderer texture id, for `STURDY_UI_EFFECT_MASK_IMAGE`.
+    uint64_t texture;
+    /// Straight alpha, components in `color_space`, for the kinds that take a colour.
+    float color[4];
+    SturdyUiColorSpace color_space;
+    /// Gradients only: the colour space the stops are mixed in, and how the hue travels in a polar one. Zero-initialized memory
+    /// would mean sRGB; `sturdy_ui_effect_desc_init` sets Oklab.
+    SturdyUiColorSpace interpolation_space;
+    SturdyUiHueMethod interpolation_hue;
+    /// Gradients only: `stop_count` stops (at most 3), or null.
+    const SturdyUiGradientStop *stops;
+    uint32_t stop_count;
+} SturdyUiEffectDesc;
+
+/// What one input of an effect pass is.
+typedef enum SturdyUiEffectInputKind {
+    /// What the element and everything inside it drew, as premultiplied RGBA at the element's pixel size.
+    STURDY_UI_EFFECT_INPUT_GROUP_CONTENT = 0,
+    /// The image an earlier pass of this effect wrote (`pass`).
+    STURDY_UI_EFFECT_INPUT_PASS_OUTPUT = 1,
+    /// A renderer texture the application owns (`texture`).
+    STURDY_UI_EFFECT_INPUT_TEXTURE = 2,
+    /// What is already drawn behind the element: the scene and the lower layers. Needs the element to be in a layer above the first.
+    STURDY_UI_EFFECT_INPUT_BACKDROP = 3,
+    STURDY_UI_EFFECT_INPUT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyUiEffectInputKind;
+
+/// One texture a pass samples: the first is `Texture2D sourceTexture` in the pass's Slang shader, the rest `extraTexture0`, ...
+typedef struct SturdyUiEffectInput {
+    SturdyUiEffectInputKind kind;
+    /// `PASS_OUTPUT`: index of the earlier pass.
+    uint32_t pass;
+    /// `TEXTURE`: a renderer texture id.
+    uint64_t texture;
+    /// The mip levels the shader sees: from `base_mip`, `mip_count` of them (0 = the rest). `GROUP_CONTENT` and `PASS_OUTPUT` only.
+    uint32_t base_mip;
+    uint32_t mip_count;
+} SturdyUiEffectInput;
+
+/// One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and
+/// `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the
+/// engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with
+/// `sturdy_ui_effect_pass_init`.
+typedef struct SturdyUiEffectPass {
+    /// Set to `sizeof(SturdyUiEffectPass)`.
+    uint32_t struct_size;
+    /// For diagnostics; may be null.
+    const char *label;
+    const char *shader_path;
+    const char *module_name;
+    /// Null for "fragmentMain".
+    const char *fragment_entry_point;
+    const SturdyUiEffectInput *inputs;
+    uint32_t input_count;
+    /// How every input is sampled: non-zero bilinear (the default) or nearest; trilinear between mips or nearest mip.
+    SturdyBool linear_filter;
+    SturdyBool linear_mips;
+    /// 0 clamp, 1 repeat, 2 mirror, 3 border.
+    uint32_t address;
+    float lod_bias;
+    float min_lod;
+    float max_lod;
+    float max_anisotropy;
+    /// A `SturdyFormat` value for the pass's target, or 0 for half-float RGBA.
+    uint32_t output_format;
+    /// Target size relative to the element's pixel size (0.5 = half width and height).
+    float output_scale;
+    /// Mips to allocate for the target: 1 none, 0 the whole chain.
+    uint32_t output_mip_levels;
+    /// How a lower mip is made: 0 box, 1 tent.
+    uint32_t output_mip_filter;
+    /// Pushed after the engine's 48-byte prefix: a multiple of 4 bytes, at most 80.
+    const void *parameters;
+    uint32_t parameter_size;
+} SturdyUiEffectPass;
+
+/// Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`.
+typedef struct SturdyUiElementExtras {
+    /// Set to `sizeof(SturdyUiElementExtras)`.
+    uint32_t struct_size;
+    /// 0 for none: the element and everything inside it is drawn through it.
+    SturdyUiEffect effect;
+    /// Profile of each corner, in the order of `SturdyUiElement::corner_radius`: 1 round (the default), 2 squircle, 0 bevel, -1 scoop,
+    /// +infinity square, -infinity notch, or any CSS `superellipse(k)`. The corner's size is still the radius.
+    float corner_shape[4];
+    /// Non-zero: the border has a colour and style per edge (left, right, top, bottom), drawn from `border_edge_color` / `border_edge_style`
+    /// with the widths in `border_edge_width`. Colours are 4 floats per edge (r, g, b, a: left, right, top, bottom), straight-alpha sRGB; styles are 0 solid, 1 dashed, 2 dotted, 3 double.
+    SturdyBool has_border_edges;
+    float border_edge_color[16];
+    uint32_t border_edge_style[4];
+    float border_edge_width[4];
+    /// Non-zero: edge-aware layout. The element's padding grows just enough that a child's corner stays inside its rounded, bevelled, scooped
+    /// or notched corners; the declared padding is a floor.
+    SturdyBool inset_for_corners;
+    /// Clipping. `clip_horizontal` / `clip_vertical` clip (and make scrollable) the element's overflow to its rectangle. `clip_follow_corners` cuts it
+    /// to the element's own rounded, bevelled, scooped or notched corners (CSS `overflow: hidden` with `border-radius`); `clip_path` is a clip
+    /// effect (`STURDY_UI_EFFECT_CLIP_*`) the element and everything in it is cut to, whatever its shape. Shaped clips cost an off-screen pass.
+    SturdyBool clip_horizontal;
+    SturdyBool clip_vertical;
+    SturdyBool clip_follow_corners;
+    SturdyUiEffect clip_path;
+} SturdyUiElementExtras;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_options_init(SturdyUiEffectOptions *options);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_desc_init(SturdyUiEffectDesc *desc);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_pass_init(SturdyUiEffectPass *pass);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_element_extras_init(SturdyUiElementExtras *extras);
+
+/// Builds a ready-made effect. `options` may be null for the defaults.
+///
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` (the reason is in `sturdy_last_error_message`) for an unknown kind or colour space, or a
+///         gradient with no stops.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_create(const SturdyUiEffectDesc *desc,
+                                                                const SturdyUiEffectOptions *options,
+                                                                SturdyUiEffect *out_effect);
+
+/// Starts a custom effect with no passes; add them with `sturdy_ui_effect_add_pass`, in order. The last pass's output is what is
+/// composited. `options` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_create_custom(const char *name,
+                                                                       const SturdyUiEffectOptions *options,
+                                                                       SturdyUiEffect *out_effect);
+
+/// Appends a pass to a custom effect. A pass that cannot be valid (a missing shader path, an input naming a pass that has not run yet,
+/// parameters that are not whole 4-byte words) is refused and the reason reported; a shader that fails to compile is reported when the
+/// effect is first drawn, in the engine log, and the element is drawn without the effect.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_add_pass(SturdyUiEffect effect, const SturdyUiEffectPass *pass);
+
+/// Changes an effect's options. Only before a frame has used the effect.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_set_options(SturdyUiEffect effect, const SturdyUiEffectOptions *options);
+
+/// Releases an effect. Frames already built keep drawing with it; building a new element with the id fails.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_effect_release(SturdyUiEffect effect);
+
+/// Opens an element like `sturdy_ui_begin_element`, with an effect and per-corner shapes. `extras` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_begin_element_ex(SturdyEngine engine,
+                                                                   const SturdyUiElement *element,
+                                                                   const SturdyUiElementExtras *extras);
 
 /// Draws text inside the current element.
 ///
@@ -10532,6 +10831,11 @@ typedef enum SturdyRenderTargetFormat {
     /// Linear half-float, unclamped (1.0 = paper white).
     STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3,
     STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4,
+    /// Display-encoded SDR in a plain (non-sRGB) 8-bit format: encoded by a shader, so sampling returns encoded values.
+    STURDY_RENDER_TARGET_FORMAT_BGRA8 = 5,
+    STURDY_RENDER_TARGET_FORMAT_RGBA8 = 6,
+    /// Linear single-precision float, unclamped.
+    STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT = 7,
     STURDY_RENDER_TARGET_FORMAT_FORCE_U32 = 0x7fffffff
 } SturdyRenderTargetFormat;
 
@@ -10700,6 +11004,21 @@ typedef struct SturdyUiTreeFrame {
 
 typedef void(STURDY_ABI_CALL *SturdyUiTreeBuilder)(SturdyEngine engine, SturdyUiTreeFrame *frame, void *user);
 
+/// What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets).
+typedef enum SturdyUiHitTestMode {
+    /// Like CSS: transforms move the reactive area with the drawing, `clip-path` cuts it, an element drawn above that draws something covers the
+    /// ones below, and masks do not matter (a masked-out part still reacts). The default.
+    STURDY_UI_HIT_TEST_CSS = 0,
+    /// CSS's rules with masks made reactive: where a mask hides an element (alpha below 0.1) it does not react, so what you cannot see cannot be
+    /// clicked. An image mask needs the texture's pixels (a texture made from data has them); without them that part stays reactive.
+    STURDY_UI_HIT_TEST_FIXED = 1,
+    STURDY_UI_HIT_TEST_FORCE_U32 = 0x7fffffff
+} SturdyUiHitTestMode;
+
+/// Chooses the hit-test mode of the window UI (the `sturdy_ui_begin` frames). Takes effect at the next `sturdy_ui_begin`. UI trees choose theirs in
+/// `SturdyUiTreeDesc::hit_test_mode`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_set_hit_test_mode(SturdyEngine engine, SturdyUiHitTestMode mode);
+
 typedef struct SturdyUiTreeDesc {
     uint32_t struct_size;
     /// For logs, stats and the overlay pass name; null for "ui".
@@ -10721,11 +11040,72 @@ typedef struct SturdyUiTreeDesc {
     float clear_color[4];
     /// A build longer than this is counted in the stats and logged.
     float build_budget_ms;
+    SturdyUiHitTestMode hit_test_mode;
     SturdyUiTreeBuilder builder;
     void *user;
     /// Called once with `user` when the tree is gone and its builder can never run again. May be null.
     void(STURDY_ABI_CALL *release_user)(void *user);
 } SturdyUiTreeDesc;
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Retained UI nodes
+//
+// A UI node is an entity that carries one layout element; nodes link to a parent node, and a node tree lays out the nodes under a root
+// whenever one of them changes. Where a UI tree's builder re-declares the whole UI every time it is laid out, a node tree is data: create,
+// edit, reparent and destroy nodes from game logic and the UI follows. Like every world change, node calls belong between updates (a game
+// logic callback, a system, `sturdy_engine_defer`), not inside a tree builder.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/// One node. Initialize with `sturdy_ui_node_desc_init`.
+typedef struct SturdyUiNodeDesc {
+    /// Set to `sizeof(SturdyUiNodeDesc)`.
+    uint32_t struct_size;
+    /// The element: sizing, padding, colours, corner radii. A node with an `id` reports hover and click through `sturdy_ui_node_state`.
+    SturdyUiElement element;
+    /// An effect and per-corner shapes for the element.
+    SturdyUiElementExtras extras;
+    /// Drawn inside the element after its child nodes; null or empty for none.
+    const char *text;
+    SturdyUiTextStyle text_style;
+    /// Siblings are laid out in ascending order, ties in creation order.
+    int32_t order;
+    /// Zero hides the node and everything under it.
+    SturdyBool visible;
+    /// The parent node; a zeroed entity for a root.
+    SturdyEntity parent;
+} SturdyUiNodeDesc;
+
+/// What the last layout found for a node that has an `id`.
+typedef struct SturdyUiNodeState {
+    SturdyBool hovered;
+    SturdyBool clicked;
+} SturdyUiNodeState;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_desc_init(SturdyUiNodeDesc *desc);
+
+/// Creates a node entity.
+///
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` for a parent that does not exist or an unknown effect id.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_spawn(SturdyEngine engine, const SturdyUiNodeDesc *desc, SturdyEntity *out_node);
+
+/// Replaces a node's data and parent (a zeroed `parent` makes it a root). Refuses a parent that would make a loop.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_update(SturdyEngine engine, SturdyEntity node, const SturdyUiNodeDesc *desc);
+
+/// Destroys a node. With `recursive` non-zero everything under it goes too; otherwise its children become roots.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_destroy(SturdyEngine engine, SturdyEntity node, SturdyBool recursive);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_state(SturdyEngine engine, SturdyEntity node, SturdyUiNodeState *out_state);
+
+/// Tells every node tree that something changed which the engine cannot see on its own. Edits made through `sturdy_ui_node_update` need no
+/// call; this is for code that changes node components some other way.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_touch(void);
+
+/// Spawns a UI tree that lays out the nodes under `root`, only when one of them changes. `desc` is read like `sturdy_ui_tree_spawn`'s
+/// (target, layer, scale, ...), except that `builder` must be null and `rebuild` is forced to on-dirty.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_node_tree_spawn(SturdyEngine engine,
+                                                                  SturdyEntity root,
+                                                                  const SturdyUiTreeDesc *desc,
+                                                                  SturdyEntity *out_tree);
 
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_tree_desc_init(SturdyUiTreeDesc *desc);
 /// Spawns an entity whose only component is the tree. `STURDY_ERROR_INVALID_ARGUMENT` for a null builder. Not callable from inside a builder.

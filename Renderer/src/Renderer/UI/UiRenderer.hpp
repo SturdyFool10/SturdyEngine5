@@ -52,6 +52,9 @@ namespace SFT::UI {
         u64 quad_bytes_uploaded = 0;
         /// Whether quad textures are bound as one array.
         bool bindless_textures = false;
+        /// Effect groups whose content was prepared on worker threads (each with an encoder of its own) this frame; 0 when there were
+        /// fewer than two such groups.
+        u32 parallel_group_prepares = 0;
     };
 
     class UiRenderer {
@@ -129,7 +132,9 @@ namespace SFT::UI {
                                                     vector<RHI::BufferHandle> &out_transient_buffers,
                                                     Renderer::TextAtlasRetiredResources &out_retired_atlas_resources,
                                                     vector<RHI::BindGroupHandle> &out_transient_bind_groups,
-                                                    vector<Renderer::RenderGraphTextureHandle> &out_glow_bloom_outputs);
+                                                    vector<Renderer::RenderGraphTextureHandle> &out_glow_bloom_outputs,
+                                                    Renderer::RenderGraphTextureHandle backdrop_target = {},
+                                                    vector<RHI::CommandBufferHandle> *extra_command_buffers = nullptr);
 
         /// Issues the batches prepare() built, interleaved by paint order (see class doc comment).
         ///
@@ -195,6 +200,7 @@ namespace SFT::UI {
             vector<std::pair<Renderer::TextureHandle, f32>> drawn_images;
             vector<RHI::Rect2D> quad_scissors;
             vector<u32> quad_groups;
+            vector<UiQuadBlend> quad_blends;
             vector<UiStrokeInstance> stroke_instances;
             vector<RHI::Rect2D> stroke_scissors;
             vector<u32> stroke_groups;
@@ -262,7 +268,55 @@ namespace SFT::UI {
             vector<UiStrokeDrawBatch> glow_mask_stroke_batches;
             UiQuadFrameResources glow_composite_quad;
             vector<UiQuadDrawBatch> glow_composite_quad_batches;
+
+            /// A texture an effect group renders into (its content, or one pass's output), kept from frame to frame and
+            /// remade only when its size or format changes. Keyed by `effect_target_key`.
+            struct EffectTarget {
+                RHI::TextureHandle texture{};
+                /// All the levels, for sampling the whole chain.
+                RHI::TextureViewHandle view{};
+                RHI::Format format = RHI::Format::Undefined;
+                Core::Extent2D extent{};
+                /// Levels the texture has (1 when it is not a chain).
+                u32 mip_levels = 1;
+                /// One single-level view per level: what a mip is drawn into, and what the next level is made from.
+                vector<RHI::TextureViewHandle> mip_views;
+                /// Views over other level ranges, made when a pass asks to see only part of the chain (key: base << 8 | count).
+                std::unordered_map<u32, RHI::TextureViewHandle> range_views;
+                /// Changes whenever the texture is (re)created, so the quad pipeline's bind-group cache never serves a stale view.
+                u64 revision = 0;
+                u64 last_used_frame = 0;
+            };
+            std::unordered_map<u64, EffectTarget> effect_targets;
+            /// Frames `prepare` has run for this slot; drives the release of targets an effect stopped using.
+            u64 effect_frame = 0;
         };
+
+        /// Key of a group's target: which top-level group, and `0` for its content or `1 + pass index` for a pass's output.
+        [[nodiscard]] static constexpr u64 effect_target_key(usize group, usize slot) noexcept {
+            return (static_cast<u64>(group) << 16u) | static_cast<u64>(slot);
+        }
+        static void release_effect_targets(RHI::RhiDevice &device, FrameResources &resources) noexcept;
+        static void destroy_effect_target(RHI::RhiDevice &device, FrameResources::EffectTarget &target) noexcept;
+
+        /// Child renderers that draw effect groups' content (one per top-level group per frame, reused between frames). A child is a
+        /// whole `UiRenderer` for the content format, so a group's text, strokes and clipping go through exactly the code the main
+        /// surface uses, and a group nested in a group is the child's own effect group.
+        vector<std::unique_ptr<UiRenderer>> effect_children_;
+        u64 next_effect_revision_ = 1;
+        u32 parallel_group_prepares_ = 0;
+
+        /// Renders every top-level effect group in `input` (see `FrameSnapshot::effect_groups`) and writes the snapshot the normal
+        /// path then prepares into `out_effective`: the draws no group claimed, plus one composite quad per group that samples the
+        /// group's final image. On an error nothing is written to `out_effective` and the caller draws `input` as it is.
+        [[nodiscard]] Core::RendererResult build_effect_groups(
+            RHI::RhiDevice &device, RHI::CommandEncoder &encoder, Renderer::RenderGraph &render_graph, const FrameSnapshot &input,
+            Renderer::Renderer *texture_resolver, Core::RenderSurfaceHandle surface, u32 frame_resource_index,
+            FrameResources &frame_resources, vector<RHI::BufferHandle> &out_transient_buffers,
+            Renderer::TextAtlasRetiredResources &out_retired_atlas_resources,
+            vector<RHI::BindGroupHandle> &out_transient_bind_groups,
+            vector<Renderer::RenderGraphTextureHandle> &out_glow_bloom_outputs, FrameSnapshot &out_effective,
+            Renderer::RenderGraphTextureHandle backdrop_target, vector<RHI::CommandBufferHandle> *extra_command_buffers);
 
         struct SurfaceFrameResources {
             Core::RenderSurfaceHandle surface{};

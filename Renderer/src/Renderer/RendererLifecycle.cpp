@@ -2533,6 +2533,19 @@ namespace SFT::Renderer {
             .background = background,
             .scene = &scene_state,
         };
+        // Command buffers features add through `FrameBuildContext::extra_command_buffers`; freed here if the frame fails before they are submitted.
+        struct PrepareCommandBuffers {
+            RHI::RhiDevice *device = nullptr;
+            vector<RHI::CommandBufferHandle> handles;
+            ~PrepareCommandBuffers() {
+                for (RHI::CommandBufferHandle handle : handles) {
+                    if (handle && device != nullptr) {
+                        device->destroy_command_buffer(handle);
+                    }
+                }
+            }
+        } prepare_command_buffers{.device = device};
+
         FrameBuildContext frame_context{
             .renderer = *this,
             .graph = graph,
@@ -2552,6 +2565,7 @@ namespace SFT::Renderer {
             .frame_slot_index = frame_slot_index,
             .frame_index = frame.frame_index,
             .transient_buffers = &submission.transient_buffers,
+            .extra_command_buffers = &prepare_command_buffers.handles,
             .deferred_formats = submission.deferred_formats,
             .camera = submission.camera,
             .exposure = submission.lighting.exposure,
@@ -2669,7 +2683,9 @@ namespace SFT::Renderer {
                 return timing_target;
             }
         }
-        vector<RHI::CommandBufferHandle> frame_command_buffers;
+        // Uploads other features recorded on encoders of their own go first, ahead of the graph's command buffers.
+        vector<RHI::CommandBufferHandle> frame_command_buffers = std::move(prepare_command_buffers.handles);
+        prepare_command_buffers.handles.clear();
         {
             ScopedRendererStageTimer timer{"execute render graph", &current_frame_cpu_stage_timings_ms};
 

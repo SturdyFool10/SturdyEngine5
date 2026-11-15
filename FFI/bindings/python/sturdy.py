@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 44)
+ABI_VERSION = (0, 46)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -792,6 +792,9 @@ class SturdyRenderTargetFormat(enum.IntEnum):
     STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2
     STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3
     STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4
+    STURDY_RENDER_TARGET_FORMAT_BGRA8 = 5
+    STURDY_RENDER_TARGET_FORMAT_RGBA8 = 6
+    STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT = 7
 
 class SturdyRenderTargetUse(enum.IntEnum):
     STURDY_RENDER_TARGET_USE_SCREEN = 0
@@ -1009,10 +1012,65 @@ class SturdyTryStatus(enum.IntEnum):
     STURDY_TRY_WOULD_BLOCK = 1
     STURDY_TRY_CLOSED = 2
 
+class SturdyUiColorSpace(enum.IntEnum):
+    """CSS colour spaces (CSS Color Module 4). Colours are straight-alpha with components in the space's own reference ranges: sRGB-style spaces 0..1, HSL/HWB saturation, lightness, whiteness and blackness 0..100, hue in degrees, Lab L 0..100, Oklab L 0..1."""
+    STURDY_UI_COLOR_SPACE_SRGB = 0
+    STURDY_UI_COLOR_SPACE_SRGB_LINEAR = 1
+    STURDY_UI_COLOR_SPACE_DISPLAY_P3 = 2
+    STURDY_UI_COLOR_SPACE_DISPLAY_P3_LINEAR = 3
+    STURDY_UI_COLOR_SPACE_A98_RGB = 4
+    STURDY_UI_COLOR_SPACE_PROPHOTO_RGB = 5
+    STURDY_UI_COLOR_SPACE_REC2020 = 6
+    STURDY_UI_COLOR_SPACE_XYZ_D50 = 7
+    STURDY_UI_COLOR_SPACE_XYZ_D65 = 8
+    STURDY_UI_COLOR_SPACE_LAB = 9
+    STURDY_UI_COLOR_SPACE_OKLAB = 10
+    STURDY_UI_COLOR_SPACE_HSL = 11
+    STURDY_UI_COLOR_SPACE_HWB = 12
+    STURDY_UI_COLOR_SPACE_LCH = 13
+    STURDY_UI_COLOR_SPACE_OKLCH = 14
+
 class SturdyUiDirection(enum.IntEnum):
     """Which way an element stacks its children."""
     STURDY_UI_DIRECTION_LEFT_TO_RIGHT = 0
     STURDY_UI_DIRECTION_TOP_TO_BOTTOM = 1
+
+class SturdyUiEffectComposite(enum.IntEnum):
+    """How an effect's finished image is laid over what is already drawn."""
+    STURDY_UI_EFFECT_COMPOSITE_NORMAL = 0
+    STURDY_UI_EFFECT_COMPOSITE_ADDITIVE = 1
+    STURDY_UI_EFFECT_COMPOSITE_MULTIPLY = 2
+    STURDY_UI_EFFECT_COMPOSITE_REPLACE = 3
+
+class SturdyUiEffectInputKind(enum.IntEnum):
+    """What one input of an effect pass is."""
+    STURDY_UI_EFFECT_INPUT_GROUP_CONTENT = 0
+    STURDY_UI_EFFECT_INPUT_PASS_OUTPUT = 1
+    STURDY_UI_EFFECT_INPUT_TEXTURE = 2
+    STURDY_UI_EFFECT_INPUT_BACKDROP = 3
+
+class SturdyUiEffectKind(enum.IntEnum):
+    """Which ready-made effect `sturdy_ui_effect_create` builds, and what `values` / `color` mean for it."""
+    STURDY_UI_EFFECT_COLOR_ADJUST = 0
+    STURDY_UI_EFFECT_TINT = 1
+    STURDY_UI_EFFECT_BLUR = 2
+    STURDY_UI_EFFECT_FAST_BLUR = 3
+    STURDY_UI_EFFECT_DROP_SHADOW = 4
+    STURDY_UI_EFFECT_GLOW = 5
+    STURDY_UI_EFFECT_OUTLINE = 6
+    STURDY_UI_EFFECT_INSET_SHADOW = 7
+    STURDY_UI_EFFECT_FROSTED_GLASS = 8
+    STURDY_UI_EFFECT_LAYER = 9
+    STURDY_UI_EFFECT_LINEAR_GRADIENT = 10
+    STURDY_UI_EFFECT_RADIAL_GRADIENT = 11
+    STURDY_UI_EFFECT_CONIC_GRADIENT = 12
+    STURDY_UI_EFFECT_TRANSFORM = 13
+    STURDY_UI_EFFECT_CLIP_INSET = 14
+    STURDY_UI_EFFECT_CLIP_CIRCLE = 15
+    STURDY_UI_EFFECT_CLIP_ELLIPSE = 16
+    STURDY_UI_EFFECT_CLIP_POLYGON = 17
+    STURDY_UI_EFFECT_MASK_LINEAR = 18
+    STURDY_UI_EFFECT_MASK_IMAGE = 19
 
 class SturdyUiGraphBarStackMode(enum.IntEnum):
     STURDY_UI_GRAPH_BAR_GROUPED = 0
@@ -1031,6 +1089,18 @@ class SturdyUiGraphType(enum.IntEnum):
     STURDY_UI_GRAPH_TYPE_BAR = 2
     STURDY_UI_GRAPH_TYPE_SCATTER = 3
     STURDY_UI_GRAPH_TYPE_PIE = 4
+
+class SturdyUiHitTestMode(enum.IntEnum):
+    """What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets)."""
+    STURDY_UI_HIT_TEST_CSS = 0
+    STURDY_UI_HIT_TEST_FIXED = 1
+
+class SturdyUiHueMethod(enum.IntEnum):
+    """How the hue travels between two colours in a polar space (HSL, HWB, LCH, OKLCH)."""
+    STURDY_UI_HUE_SHORTER = 0
+    STURDY_UI_HUE_LONGER = 1
+    STURDY_UI_HUE_INCREASING = 2
+    STURDY_UI_HUE_DECREASING = 3
 
 class SturdyUiRebuildPolicy(enum.IntEnum):
     STURDY_UI_REBUILD_EVERY_UPDATE = 0
@@ -1784,8 +1854,22 @@ class SturdyTrayEntry(ctypes.Structure):
     pass
 class SturdyUdpOptions(ctypes.Structure):
     pass
+class SturdyUiEffect(ctypes.Structure):
+    """Handle to a UI effect. 0 is "no effect"."""
+class SturdyUiEffectDesc(ctypes.Structure):
+    """Describes a ready-made effect."""
+class SturdyUiEffectInput(ctypes.Structure):
+    """One texture a pass samples: the first is `Texture2D sourceTexture` in the pass's Slang shader, the rest `extraTexture0`, ..."""
+class SturdyUiEffectOptions(ctypes.Structure):
+    """Applied on top of any effect, library or custom. Initialize with `sturdy_ui_effect_options_init`."""
+class SturdyUiEffectPass(ctypes.Structure):
+    """One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`."""
 class SturdyUiElement(ctypes.Structure):
     """One element in the layout tree."""
+class SturdyUiElementExtras(ctypes.Structure):
+    """Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`."""
+class SturdyUiGradientStop(ctypes.Structure):
+    """One colour stop of a gradient. A gradient takes up to three stops, in ascending position."""
 class SturdyUiGraphAxis(ctypes.Structure):
     """One axis's configuration for `sturdy_ui_graph_draw`."""
 class SturdyUiGraphDesc(ctypes.Structure):
@@ -1794,6 +1878,10 @@ class SturdyUiGraphPieSlice(ctypes.Structure):
     """One wedge of a `GraphType::Pie` chart."""
 class SturdyUiGraphSeriesRef(ctypes.Structure):
     """One data series bound to `sturdy_ui_graph_draw`."""
+class SturdyUiNodeDesc(ctypes.Structure):
+    """One node. Initialize with `sturdy_ui_node_desc_init`."""
+class SturdyUiNodeState(ctypes.Structure):
+    """What the last layout found for a node that has an `id`."""
 class SturdyUiTextStyle(ctypes.Structure):
     """How text is drawn."""
 class SturdyUiTreeDesc(ctypes.Structure):
@@ -4043,6 +4131,60 @@ SturdyUdpOptions._fields_ = [
     ('receive_buffer', ctypes.c_uint64),
     ('send_buffer', ctypes.c_uint64),
 ]
+SturdyUiEffect._fields_ = [
+    ('id', ctypes.c_uint64),
+]
+SturdyUiEffectDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('values', (ctypes.c_float * 16)),
+    ('value_count', ctypes.c_uint32),
+    ('texture', ctypes.c_uint64),
+    ('color', (ctypes.c_float * 4)),
+    ('color_space', ctypes.c_int32),
+    ('interpolation_space', ctypes.c_int32),
+    ('interpolation_hue', ctypes.c_int32),
+    ('stops', ctypes.POINTER(SturdyUiGradientStop)),
+    ('stop_count', ctypes.c_uint32),
+]
+SturdyUiEffectInput._fields_ = [
+    ('kind', ctypes.c_int32),
+    ('pass', ctypes.c_uint32),
+    ('texture', ctypes.c_uint64),
+    ('base_mip', ctypes.c_uint32),
+    ('mip_count', ctypes.c_uint32),
+]
+SturdyUiEffectOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('composite', ctypes.c_int32),
+    ('opacity', ctypes.c_float),
+    ('outset', (ctypes.c_float * 4)),
+    ('clip_to_bounds', ctypes.c_uint8),
+    ('layer', ctypes.c_uint32),
+    ('content_mip_levels', ctypes.c_uint32),
+]
+SturdyUiEffectPass._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('label', ctypes.c_char_p),
+    ('shader_path', ctypes.c_char_p),
+    ('module_name', ctypes.c_char_p),
+    ('fragment_entry_point', ctypes.c_char_p),
+    ('inputs', ctypes.POINTER(SturdyUiEffectInput)),
+    ('input_count', ctypes.c_uint32),
+    ('linear_filter', ctypes.c_uint8),
+    ('linear_mips', ctypes.c_uint8),
+    ('address', ctypes.c_uint32),
+    ('lod_bias', ctypes.c_float),
+    ('min_lod', ctypes.c_float),
+    ('max_lod', ctypes.c_float),
+    ('max_anisotropy', ctypes.c_float),
+    ('output_format', ctypes.c_uint32),
+    ('output_scale', ctypes.c_float),
+    ('output_mip_levels', ctypes.c_uint32),
+    ('output_mip_filter', ctypes.c_uint32),
+    ('parameters', ctypes.c_void_p),
+    ('parameter_size', ctypes.c_uint32),
+]
 SturdyUiElement._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('width_kind', ctypes.c_int32),
@@ -4058,6 +4200,28 @@ SturdyUiElement._fields_ = [
     ('background', (ctypes.c_float * 4)),
     ('corner_radius', (ctypes.c_float * 4)),
     ('id', ctypes.c_char_p),
+]
+SturdyUiElementExtras._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('effect', SturdyUiEffect),
+    ('corner_shape', (ctypes.c_float * 4)),
+    ('has_border_edges', ctypes.c_uint8),
+    ('border_edge_color', (ctypes.c_float * 16)),
+    ('border_edge_style', (ctypes.c_uint32 * 4)),
+    ('border_edge_width', (ctypes.c_float * 4)),
+    ('inset_for_corners', ctypes.c_uint8),
+    ('clip_horizontal', ctypes.c_uint8),
+    ('clip_vertical', ctypes.c_uint8),
+    ('clip_follow_corners', ctypes.c_uint8),
+    ('clip_path', SturdyUiEffect),
+]
+SturdyUiGradientStop._fields_ = [
+    ('color', (ctypes.c_float * 4)),
+    ('position', ctypes.c_float),
+    ('space', ctypes.c_int32),
+    ('has_toward_next', ctypes.c_uint8),
+    ('toward_space', ctypes.c_int32),
+    ('toward_hue', ctypes.c_int32),
 ]
 SturdyUiGraphAxis._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -4131,6 +4295,28 @@ SturdyUiTextStyle._fields_ = [
     ('font_size', ctypes.c_uint32),
     ('reserved', ctypes.c_uint32),
     ('color', (ctypes.c_float * 4)),
+    ('decoration_lines', ctypes.c_uint32),
+    ('decoration_style', ctypes.c_uint32),
+    ('decoration_thickness', ctypes.c_float),
+    ('has_decoration_color', ctypes.c_uint8),
+    ('decoration_color', (ctypes.c_float * 4)),
+    ('shadow_enabled', ctypes.c_uint8),
+    ('shadow_offset', (ctypes.c_float * 2)),
+    ('shadow_color', (ctypes.c_float * 4)),
+]
+SturdyUiNodeDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('element', SturdyUiElement),
+    ('extras', SturdyUiElementExtras),
+    ('text', ctypes.c_char_p),
+    ('text_style', SturdyUiTextStyle),
+    ('order', ctypes.c_int32),
+    ('visible', ctypes.c_uint8),
+    ('parent', SturdyEntity),
+]
+SturdyUiNodeState._fields_ = [
+    ('hovered', ctypes.c_uint8),
+    ('clicked', ctypes.c_uint8),
 ]
 SturdyUiTreeTarget._fields_ = [
     ('kind', ctypes.c_int32),
@@ -4152,6 +4338,7 @@ SturdyUiTreeDesc._fields_ = [
     ('window_input', ctypes.c_uint8),
     ('clear_color', (ctypes.c_float * 4)),
     ('build_budget_ms', ctypes.c_float),
+    ('hit_test_mode', ctypes.c_int32),
     ('builder', SturdyUiTreeBuilder),
     ('user', ctypes.c_void_p),
     ('release_user', SturdyUiTreeDesc_release_user_fn),
@@ -5440,7 +5627,17 @@ _FUNCTIONS = {
     'sturdy_udp_set_multicast_ttl': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint32, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_ui_begin': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyFrameInput))),
     'sturdy_ui_begin_element': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiElement))),
+    'sturdy_ui_begin_element_ex': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiElement), ctypes.POINTER(SturdyUiElementExtras))),
     'sturdy_ui_clicked': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_ui_effect_add_pass': (ctypes.c_int32, (SturdyUiEffect, ctypes.POINTER(SturdyUiEffectPass))),
+    'sturdy_ui_effect_create': (ctypes.c_int32, (ctypes.POINTER(SturdyUiEffectDesc), ctypes.POINTER(SturdyUiEffectOptions), ctypes.POINTER(SturdyUiEffect))),
+    'sturdy_ui_effect_create_custom': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyUiEffectOptions), ctypes.POINTER(SturdyUiEffect))),
+    'sturdy_ui_effect_desc_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiEffectDesc),)),
+    'sturdy_ui_effect_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiEffectOptions),)),
+    'sturdy_ui_effect_pass_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiEffectPass),)),
+    'sturdy_ui_effect_release': (ctypes.c_int32, (SturdyUiEffect,)),
+    'sturdy_ui_effect_set_options': (ctypes.c_int32, (SturdyUiEffect, ctypes.POINTER(SturdyUiEffectOptions))),
+    'sturdy_ui_element_extras_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiElementExtras),)),
     'sturdy_ui_element_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiElement),)),
     'sturdy_ui_end': (ctypes.c_int32, (SturdyEngine, SturdyFrame)),
     'sturdy_ui_end_element': (ctypes.c_int32, (SturdyEngine,)),
@@ -5453,9 +5650,17 @@ _FUNCTIONS = {
     'sturdy_ui_graph_series_push': (ctypes.c_int32, (SturdyGraphSeries, ctypes.c_double, ctypes.c_double)),
     'sturdy_ui_graph_series_release': (None, (SturdyGraphSeries,)),
     'sturdy_ui_hovered': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_ui_node_desc_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiNodeDesc),)),
+    'sturdy_ui_node_destroy': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_uint8)),
+    'sturdy_ui_node_spawn': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiNodeDesc), ctypes.POINTER(SturdyEntity))),
+    'sturdy_ui_node_state': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiNodeState))),
+    'sturdy_ui_node_touch': (ctypes.c_int32, ()),
+    'sturdy_ui_node_tree_spawn': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiTreeDesc), ctypes.POINTER(SturdyEntity))),
+    'sturdy_ui_node_update': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.POINTER(SturdyUiNodeDesc))),
     'sturdy_ui_pointer_down': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_ui_pointer_position': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
     'sturdy_ui_register_font': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_uint32)),
+    'sturdy_ui_set_hit_test_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32)),
     'sturdy_ui_set_scale_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32)),
     'sturdy_ui_text': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(SturdyUiTextStyle))),
     'sturdy_ui_text_style_init': (ctypes.c_int32, (ctypes.POINTER(SturdyUiTextStyle),)),
@@ -6365,7 +6570,13 @@ _DOCS = {
     'sturdy_udp_send_to': 'Sends one datagram. Number: bytes sent.',
     'sturdy_ui_begin': "Opens a UI frame, to be built and then closed with `sturdy_ui_end`.\n\nCall this from `request_render_frame` before building any UI. It readies the UI renderer, starts a layout pass sized to the surface, and picks up this frame's pointer state so hover and click queries work.\n\nBetween begin and end, the ABI holds an open layout. Build the tree, then call `sturdy_ui_end` on every path — including when you decide not to render the frame — or the next frame's begin reports `STURDY_ERROR_BUSY`.",
     'sturdy_ui_begin_element': 'Opens an element. Children declared until the matching `sturdy_ui_end_element` go inside it.',
+    'sturdy_ui_begin_element_ex': 'Opens an element like `sturdy_ui_begin_element`, with an effect and per-corner shapes. `extras` may be null.',
     'sturdy_ui_clicked': 'Reports whether the element with this id was clicked this frame.',
+    'sturdy_ui_effect_add_pass': 'Appends a pass to a custom effect. A pass that cannot be valid (a missing shader path, an input naming a pass that has not run yet, parameters that are not whole 4-byte words) is refused and the reason reported; a shader that fails to compile is reported when the effect is first drawn, in the engine log, and the element is drawn without the effect.',
+    'sturdy_ui_effect_create': 'Builds a ready-made effect. `options` may be null for the defaults.',
+    'sturdy_ui_effect_create_custom': "Starts a custom effect with no passes; add them with `sturdy_ui_effect_add_pass`, in order. The last pass's output is what is composited. `options` may be null.",
+    'sturdy_ui_effect_release': 'Releases an effect. Frames already built keep drawing with it; building a new element with the id fails.',
+    'sturdy_ui_effect_set_options': "Changes an effect's options. Only before a frame has used the effect.",
     'sturdy_ui_element_init': 'Fills an element declaration with defaults: fit sizing, no padding, transparent, left-to-right.',
     'sturdy_ui_end': 'Closes the UI frame and attaches the result to `frame` as an overlay.\n\nEvery element opened with `sturdy_ui_begin_element` must be closed first.',
     'sturdy_ui_end_element': 'Closes the most recently opened element.\n\nReports `STURDY_ERROR_INVALID_ARGUMENT` if nothing is open, rather than unbalancing the tree.',
@@ -6378,9 +6589,15 @@ _DOCS = {
     'sturdy_ui_graph_series_push': 'Appends one `(x, y)` sample to `series`.',
     'sturdy_ui_graph_series_release': 'Releases a data series created with `sturdy_ui_graph_series_create`. Unknown/already-released tokens are ignored.',
     'sturdy_ui_hovered': "Reports whether the pointer is over the element with this id.\n\nReflects the previous frame's layout, which is how immediate-mode UI works: an element's bounds are not known until it has been laid out once.",
+    'sturdy_ui_node_destroy': 'Destroys a node. With `recursive` non-zero everything under it goes too; otherwise its children become roots.',
+    'sturdy_ui_node_spawn': 'Creates a node entity.',
+    'sturdy_ui_node_touch': 'Tells every node tree that something changed which the engine cannot see on its own. Edits made through `sturdy_ui_node_update` need no call; this is for code that changes node components some other way.',
+    'sturdy_ui_node_tree_spawn': "Spawns a UI tree that lays out the nodes under `root`, only when one of them changes. `desc` is read like `sturdy_ui_tree_spawn`'s (target, layer, scale, ...), except that `builder` must be null and `rebuild` is forced to on-dirty.",
+    'sturdy_ui_node_update': "Replaces a node's data and parent (a zeroed `parent` makes it a root). Refuses a parent that would make a loop.",
     'sturdy_ui_pointer_down': 'Reports whether the pointer is currently held down.',
     'sturdy_ui_pointer_position': 'Reads the pointer position in UI coordinates: the same units as element sizes and positions, which are framebuffer pixels divided by the content scale unless `STURDY_UI_SCALE_MODE_RAW_PIXELS` is set.',
     'sturdy_ui_register_font': 'Loads a font file and registers it under `font_id`.\n\nText draws nothing until a font is registered, so do this once during `on_engine_initialized`. `font_id` 0 is the default the text style starts with.',
+    'sturdy_ui_set_hit_test_mode': 'Chooses the hit-test mode of the window UI (the `sturdy_ui_begin` frames). Takes effect at the next `sturdy_ui_begin`. UI trees choose theirs in `SturdyUiTreeDesc::hit_test_mode`.',
     'sturdy_ui_set_scale_mode': 'Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.',
     'sturdy_ui_text': 'Draws text inside the current element.',
     'sturdy_ui_text_style_init': 'Fills a text style with defaults: font 0, 16px, opaque white.',

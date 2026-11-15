@@ -17,6 +17,8 @@
 #include <Engine/ForeignUi.hpp>
 
 #include <FFI/AbiSupport.hpp>
+#include <FFI/UiConvert.hpp>
+#include <Engine/ForeignUiNodes.hpp>
 
 namespace {
 
@@ -159,6 +161,99 @@ namespace {
 
     [[nodiscard]] bool finite(float value) noexcept { return std::isfinite(value); }
 
+    /// Everything of a tree description except the builder.
+    [[nodiscard]] SturdyResult to_native_desc(const SturdyUiTreeDesc &desc, E::UiTreeDesc &native) {
+        if (desc.struct_size != sizeof(SturdyUiTreeDesc)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiTreeDesc::struct_size does not match this build");
+        }
+        if (!finite(desc.rebuild_hz) || !finite(desc.content_scale) || !finite(desc.hdr_reference_white_scale) || !finite(desc.build_budget_ms) ||
+            desc.rebuild_hz < 0.0f || desc.content_scale <= 0.0f) {
+            return invalid("rebuild_hz, content_scale, hdr_reference_white_scale and build_budget_ms must be finite (and the first two positive)");
+        }
+        if (desc.name != nullptr) {
+            native.name = desc.name;
+        }
+        if (const SturdyResult target = to_native(desc.target, &native.target); target != STURDY_OK) {
+            return target;
+        }
+        bool policy_ok = false;
+        native.rebuild = to_native(desc.rebuild, &policy_ok);
+        if (!policy_ok) {
+            return invalid("unrecognized rebuild policy");
+        }
+        native.rebuild_hz = desc.rebuild_hz;
+        native.layer = desc.layer;
+        switch (desc.scale_mode) {
+        case STURDY_UI_SCALE_MODE_CONTENT_SCALE:
+            native.scale_mode = SFT::UI::UiScaleMode::ContentScale;
+            break;
+        case STURDY_UI_SCALE_MODE_RAW_PIXELS:
+            native.scale_mode = SFT::UI::UiScaleMode::RawPixels;
+            break;
+        case STURDY_UI_SCALE_MODE_FORCE_U32:
+        default:
+            return invalid("unrecognized scale mode");
+        }
+        native.content_scale = desc.content_scale;
+        native.hdr_reference_white_scale = desc.hdr_reference_white_scale;
+        native.window_input = desc.window_input != 0;
+        native.clear_color = {desc.clear_color[0], desc.clear_color[1], desc.clear_color[2], desc.clear_color[3]};
+        native.build_budget_ms = desc.build_budget_ms;
+        switch (desc.hit_test_mode) {
+        case STURDY_UI_HIT_TEST_CSS: native.hit_test_mode = SFT::UI::HitTestMode::Css; break;
+        case STURDY_UI_HIT_TEST_FIXED: native.hit_test_mode = SFT::UI::HitTestMode::Fixed; break;
+        case STURDY_UI_HIT_TEST_FORCE_U32:
+        default: return invalid("unrecognized hit-test mode");
+        }
+        return STURDY_OK;
+    }
+
+    [[nodiscard]] E::ForeignUiNode to_foreign_node(const SturdyUiNodeDesc &desc) {
+        E::ForeignUiNode node;
+        node.element = SFT::Ffi::to_foreign_element(desc.element);
+        node.element.effect = desc.extras.effect.id;
+        for (int i = 0; i < 4; ++i) {
+            node.element.corner_shape[i] = desc.extras.corner_shape[i];
+        }
+        node.element.inset_for_corners = desc.extras.inset_for_corners != 0;
+        node.element.clip_horizontal = desc.extras.clip_horizontal != 0;
+        node.element.clip_vertical = desc.extras.clip_vertical != 0;
+        node.element.clip_follow_corners = desc.extras.clip_follow_corners != 0;
+        node.element.clip_path = desc.extras.clip_path.id;
+        node.element.has_border_edges = desc.extras.has_border_edges != 0;
+        for (int i = 0; i < 4; ++i) {
+            for (int c = 0; c < 4; ++c) {
+                node.element.border_edge_color[i][c] = desc.extras.border_edge_color[i * 4 + c];
+            }
+            node.element.border_edge_style[i] = desc.extras.border_edge_style[i];
+            node.element.border_width[i] = desc.extras.border_edge_width[i];
+        }
+        if (desc.text != nullptr) {
+            node.text = desc.text;
+        }
+        node.text_style = SFT::Ffi::to_foreign_text_style(desc.text_style);
+        node.order = desc.order;
+        node.visible = desc.visible != 0;
+        node.parent = to_entity(desc.parent);
+        return node;
+    }
+
+    [[nodiscard]] SturdyResult node_error(const E::ForeignUiError &failure) {
+        return set_error(failure.kind == E::ForeignUiErrorKind::NotAvailable ? STURDY_ERROR_NOT_AVAILABLE : STURDY_ERROR_INVALID_ARGUMENT,
+                         failure.message);
+    }
+
+    [[nodiscard]] SturdyResult check_node_desc(const SturdyUiNodeDesc *desc) {
+        if (desc == nullptr) {
+            return invalid("desc must not be null");
+        }
+        if (desc->struct_size != sizeof(SturdyUiNodeDesc) || desc->element.struct_size != sizeof(SturdyUiElement) ||
+            desc->extras.struct_size != sizeof(SturdyUiElementExtras) || desc->text_style.struct_size != sizeof(SturdyUiTextStyle)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiNodeDesc (or a struct inside it) has the wrong struct_size");
+        }
+        return STURDY_OK;
+    }
+
 } // namespace
 
 extern "C" {
@@ -184,6 +279,7 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_tree_desc_init(SturdyUiTreeDesc *desc) {
             desc->clear_color[i] = defaults.clear_color[i];
         }
         desc->build_budget_ms = defaults.build_budget_ms;
+        desc->hit_test_mode = STURDY_UI_HIT_TEST_CSS;
         return STURDY_OK;
     });
 }
@@ -197,48 +293,137 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_tree_spawn(SturdyEngine engine, const Stu
         if (desc == nullptr || out_entity == nullptr) {
             return invalid("desc and output pointer must not be null");
         }
-        if (desc->struct_size != sizeof(SturdyUiTreeDesc)) {
-            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiTreeDesc::struct_size does not match this build");
-        }
-        if (desc->builder == nullptr) {
+        if (desc->struct_size == sizeof(SturdyUiTreeDesc) && desc->builder == nullptr) {
             return invalid("a UI tree needs a builder");
         }
-        if (!finite(desc->rebuild_hz) || !finite(desc->content_scale) || !finite(desc->hdr_reference_white_scale) || !finite(desc->build_budget_ms) ||
-            desc->rebuild_hz < 0.0f || desc->content_scale <= 0.0f) {
-            return invalid("rebuild_hz, content_scale, hdr_reference_white_scale and build_budget_ms must be finite (and the first two positive)");
-        }
         E::UiTreeDesc native;
-        if (desc->name != nullptr) {
-            native.name = desc->name;
+        if (const SturdyResult parsed = to_native_desc(*desc, native); parsed != STURDY_OK) {
+            return parsed;
         }
-        if (const SturdyResult target = to_native(desc->target, &native.target); target != STURDY_OK) {
-            return target;
-        }
-        bool policy_ok = false;
-        native.rebuild = to_native(desc->rebuild, &policy_ok);
-        if (!policy_ok) {
-            return invalid("unrecognized rebuild policy");
-        }
-        native.rebuild_hz = desc->rebuild_hz;
-        native.layer = desc->layer;
-        switch (desc->scale_mode) {
-        case STURDY_UI_SCALE_MODE_CONTENT_SCALE:
-            native.scale_mode = SFT::UI::UiScaleMode::ContentScale;
-            break;
-        case STURDY_UI_SCALE_MODE_RAW_PIXELS:
-            native.scale_mode = SFT::UI::UiScaleMode::RawPixels;
-            break;
-        case STURDY_UI_SCALE_MODE_FORCE_U32:
-        default:
-            return invalid("unrecognized scale mode");
-        }
-        native.content_scale = desc->content_scale;
-        native.hdr_reference_white_scale = desc->hdr_reference_white_scale;
-        native.window_input = desc->window_input != 0;
-        native.clear_color = {desc->clear_color[0], desc->clear_color[1], desc->clear_color[2], desc->clear_color[3]};
-        native.build_budget_ms = desc->build_budget_ms;
         native.builder = make_builder(desc->builder, desc->user, desc->release_user);
         *out_entity = from_entity(resolved->spawn_ui_tree(std::move(native)));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_desc_init(SturdyUiNodeDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return invalid("desc must not be null");
+        }
+        *desc = {};
+        desc->struct_size = sizeof(SturdyUiNodeDesc);
+        if (const SturdyResult r = sturdy_ui_element_init(&desc->element); r != STURDY_OK) {
+            return r;
+        }
+        if (const SturdyResult r = sturdy_ui_element_extras_init(&desc->extras); r != STURDY_OK) {
+            return r;
+        }
+        if (const SturdyResult r = sturdy_ui_text_style_init(&desc->text_style); r != STURDY_OK) {
+            return r;
+        }
+        desc->visible = STURDY_TRUE;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_spawn(SturdyEngine engine, const SturdyUiNodeDesc *desc, SturdyEntity *out_node) {
+    return guarded([&]() -> SturdyResult {
+        E::Engine *resolved = nullptr;
+        if (const SturdyResult result = resolve_engine(engine, &resolved); result != STURDY_OK) {
+            return result;
+        }
+        if (out_node == nullptr) {
+            return invalid("output pointer must not be null");
+        }
+        if (const SturdyResult checked = check_node_desc(desc); checked != STURDY_OK) {
+            return checked;
+        }
+        const auto spawned = E::spawn_foreign_ui_node(*resolved, to_foreign_node(*desc));
+        if (!spawned) {
+            return node_error(spawned.error());
+        }
+        *out_node = from_entity(*spawned);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_update(SturdyEngine engine, SturdyEntity node, const SturdyUiNodeDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        E::Engine *resolved = nullptr;
+        if (const SturdyResult result = resolve_engine(engine, &resolved); result != STURDY_OK) {
+            return result;
+        }
+        if (const SturdyResult checked = check_node_desc(desc); checked != STURDY_OK) {
+            return checked;
+        }
+        const auto updated = E::update_foreign_ui_node(*resolved, to_entity(node), to_foreign_node(*desc));
+        return updated ? STURDY_OK : node_error(updated.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_destroy(SturdyEngine engine, SturdyEntity node, SturdyBool recursive) {
+    return guarded([&]() -> SturdyResult {
+        E::Engine *resolved = nullptr;
+        if (const SturdyResult result = resolve_engine(engine, &resolved); result != STURDY_OK) {
+            return result;
+        }
+        const auto destroyed = E::destroy_foreign_ui_node(*resolved, to_entity(node), recursive != 0);
+        return destroyed ? STURDY_OK : node_error(destroyed.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_state(SturdyEngine engine, SturdyEntity node, SturdyUiNodeState *out_state) {
+    return guarded([&]() -> SturdyResult {
+        E::Engine *resolved = nullptr;
+        if (const SturdyResult result = resolve_engine(engine, &resolved); result != STURDY_OK) {
+            return result;
+        }
+        if (out_state == nullptr) {
+            return invalid("output pointer must not be null");
+        }
+        const auto state = E::foreign_ui_node_state(*resolved, to_entity(node));
+        if (!state) {
+            return node_error(state.error());
+        }
+        out_state->hovered = state->hovered ? STURDY_TRUE : STURDY_FALSE;
+        out_state->clicked = state->clicked ? STURDY_TRUE : STURDY_FALSE;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_touch(void) {
+    return guarded([&]() -> SturdyResult {
+        E::touch_ui_nodes();
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_node_tree_spawn(SturdyEngine engine, SturdyEntity root, const SturdyUiTreeDesc *desc, SturdyEntity *out_tree) {
+    return guarded([&]() -> SturdyResult {
+        E::Engine *resolved = nullptr;
+        if (const SturdyResult result = resolve_engine(engine, &resolved); result != STURDY_OK) {
+            return result;
+        }
+        if (desc == nullptr || out_tree == nullptr) {
+            return invalid("desc and output pointer must not be null");
+        }
+        if (desc->builder != nullptr) {
+            return invalid("a node tree draws its nodes; builder must be null");
+        }
+        if (!resolved->ecs_world().is_alive(to_entity(root))) {
+            return invalid("the root node does not exist");
+        }
+        E::UiTreeDesc native = E::ui_node_tree_desc(*resolved, to_entity(root), "ui nodes");
+        const E::UiTreeBuilder builder = native.builder;
+        const auto dirty_check = native.dirty_check;
+        if (const SturdyResult parsed = to_native_desc(*desc, native); parsed != STURDY_OK) {
+            return parsed;
+        }
+        native.builder = builder;
+        native.dirty_check = dirty_check;
+        native.rebuild = E::UiRebuildPolicy::OnDirty;
+        *out_tree = from_entity(resolved->spawn_ui_tree(std::move(native)));
         return STURDY_OK;
     });
 }

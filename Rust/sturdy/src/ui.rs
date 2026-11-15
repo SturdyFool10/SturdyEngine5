@@ -118,24 +118,29 @@ impl Padding {
 /// Which axes an [`ElementDesc`] clips its overflowing content on -- also what makes it scrollable
 /// along that axis (a clipped axis with content bigger than the element accepts pointer-wheel
 /// scroll and [`Ui::set_scroll_offset`]). Mirrors `SFT::UI::ClipConfig`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Clip {
     pub horizontal: bool,
     pub vertical: bool,
+    /// Also cut the overflow to the element's own rounded, bevelled, scooped or notched corners (CSS `overflow: hidden` with `border-radius`).
+    /// Costs an off-screen pass for the element.
+    pub follow_corners: bool,
+    /// Cut the element and everything in it to this clip effect (`UiEffect::clip_circle`, `clip_polygon`, ...), whatever its shape.
+    pub path: Option<crate::ui_effects::UiEffect>,
 }
 
 impl Clip {
     /// Clips (and makes scrollable) both axes -- the common "scroll container" shape.
     pub const fn both() -> Self {
-        Self { horizontal: true, vertical: true }
+        Self { horizontal: true, vertical: true, follow_corners: false, path: None }
     }
 
     pub const fn vertical() -> Self {
-        Self { horizontal: false, vertical: true }
+        Self { horizontal: false, vertical: true, follow_corners: false, path: None }
     }
 
     pub const fn horizontal() -> Self {
-        Self { horizontal: true, vertical: false }
+        Self { horizontal: true, vertical: false, follow_corners: false, path: None }
     }
 }
 
@@ -189,6 +194,34 @@ pub struct ElementDesc {
     pub cursor: Cursor,
     /// Shown in the engine's UI debug views; no effect on layout.
     pub debug_label: String,
+    /// A shader effect on this element and everything inside it (blur, shadow, gradient, glass, a custom shader, ...). See
+    /// [`crate::ui_effects`]. `None` draws it plainly.
+    pub effect: Option<crate::ui_effects::UiEffect>,
+    /// The profile of each corner; the corner's size is `corner_radius`. Round by default.
+    pub corner_shape: crate::ui_effects::CornerShapes,
+    /// A colour and style per border edge (CSS `border-left-color`, `border-top-style`, ...); the widths come from `border`. `None`
+    /// draws the single `border.color` solid border.
+    pub border_edges: Option<crate::ui_effects::BorderEdges>,
+    /// Edge-aware layout: grows the padding so children stay inside the element's rounded, bevelled, scooped or notched corners (the
+    /// declared padding is a floor).
+    pub inset_for_corners: bool,
+}
+
+/// How an image sits in its element's box (CSS `object-fit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum ImageFit {
+    /// Stretched to the box.
+    #[default]
+    Fill = 0,
+    /// Scaled to fit inside, keeping its aspect ratio.
+    Contain = 1,
+    /// Scaled to cover the box, keeping its aspect ratio; the overflow is cropped.
+    Cover = 2,
+    /// Its own size, cropped to the box.
+    None = 3,
+    /// The smaller of `None` and `Contain`.
+    ScaleDown = 4,
 }
 
 pub use ffi::UiAlignX as AlignX;
@@ -345,6 +378,8 @@ impl ElementDesc {
             ],
             clip_horizontal: self.clip.horizontal,
             clip_vertical: self.clip.vertical,
+            clip_follow_corners: self.clip.follow_corners,
+            clip_path: self.clip.path.as_ref().map_or(0, |effect| effect.id()),
             align_x: self.align.x,
             align_y: self.align.y,
             border_color: self.border.color.into(),
@@ -355,6 +390,12 @@ impl ElementDesc {
                 self.border.bottom,
                 self.border.between_children,
             ],
+            effect: self.effect.as_ref().map_or(0, |effect| effect.id()),
+            corner_shape: self.corner_shape.to_array(),
+            inset_for_corners: self.inset_for_corners,
+            has_border_edges: self.border_edges.is_some(),
+            border_edge_colors: self.border_edges.map_or([0.0; 16], |e| e.colors()),
+            border_edge_styles: self.border_edges.map_or([0; 4], |e| e.styles()),
             floating: Floating::to_ffi(self.floating.as_ref()),
             z: self.z,
             cursor: self.cursor,
@@ -377,6 +418,36 @@ pub struct TextStyle {
     pub line_height: u16,
     pub wrap: TextWrap,
     pub align: TextAlign,
+    /// Underline, overline and line-through (CSS `text-decoration`).
+    pub decoration: TextDecoration,
+    /// A hard shadow under the text (CSS `text-shadow` without the blur). For a blurred one put the text in an element with a drop-shadow effect.
+    pub shadow: Option<TextShadow>,
+}
+
+/// CSS `text-decoration`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TextDecoration {
+    pub underline: bool,
+    pub overline: bool,
+    pub line_through: bool,
+    /// The line's colour; the text's own when `None`.
+    pub color: Option<glam::Vec4>,
+    pub style: crate::ui_effects::BorderLineStyle,
+    /// Pixels; 0 picks one from the font size.
+    pub thickness: f32,
+}
+
+/// A hard text shadow: the text again under itself, moved by `offset` pixels, in `color`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextShadow {
+    pub offset: glam::Vec2,
+    pub color: glam::Vec4,
+}
+
+impl Default for TextShadow {
+    fn default() -> Self {
+        Self { offset: glam::vec2(1.0, 1.0), color: glam::vec4(0.0, 0.0, 0.0, 0.5) }
+    }
 }
 
 /// How a text leaf wraps.
@@ -410,12 +481,14 @@ impl Default for TextStyle {
             line_height: 0,
             wrap: TextWrap::Words,
             align: TextAlign::Left,
+            decoration: TextDecoration::default(),
+            shadow: None,
         }
     }
 }
 
 impl TextStyle {
-    fn to_ffi(self) -> ffi::UiTextStyle {
+    pub(crate) fn to_ffi(self) -> ffi::UiTextStyle {
         ffi::UiTextStyle {
             color: self.color.into(),
             font_id: self.font_id,
@@ -424,6 +497,16 @@ impl TextStyle {
             line_height: self.line_height,
             wrap_mode: self.wrap as u8,
             alignment: self.align as u8,
+            decoration_lines: u32::from(self.decoration.underline)
+                | (u32::from(self.decoration.overline) << 1)
+                | (u32::from(self.decoration.line_through) << 2),
+            decoration_style: self.decoration.style as u32,
+            decoration_thickness: self.decoration.thickness,
+            has_decoration_color: self.decoration.color.is_some(),
+            decoration_color: self.decoration.color.unwrap_or(glam::Vec4::W).into(),
+            shadow_enabled: self.shadow.is_some(),
+            shadow_offset: self.shadow.map_or([0.0; 2], |s| s.offset.into()),
+            shadow_color: self.shadow.map_or([0.0; 4], |s| s.color.into()),
         }
     }
 }
@@ -645,6 +728,27 @@ impl<'a> Ui<'a> {
 
     /// [`Ui::image`] with an explicit filter: [`ImageSampling::Nearest`] keeps pixel art (skins, item icons) crisp
     /// when scaled up.
+    /// Draws an image the way CSS `object-fit` / `object-position` would: scaled and placed in the element's box as `fit` says, cropped to it
+    /// where it overflows. `intrinsic_size` is the image's own size in layout units; an unknown size (zero) fills the box.
+    pub fn image_fitted(
+        &mut self,
+        desc: &ElementDesc,
+        texture: RendererTextureHandle,
+        sampling: ImageSampling,
+        fit: ImageFit,
+        position: glam::Vec2,
+        intrinsic_size: glam::Vec2,
+    ) {
+        ffi::ui_image_fitted(
+            &desc.to_ffi(),
+            ffi::UiTexture { value: texture.0 },
+            sampling == ImageSampling::Nearest,
+            fit as u8,
+            position.into(),
+            intrinsic_size.into(),
+        );
+    }
+
     pub fn image_sampled(&mut self, desc: &ElementDesc, texture: RendererTextureHandle, sampling: ImageSampling) {
         ffi::ui_image_sampled(&desc.to_ffi(), ffi::UiTexture { value: texture.0 }, sampling == ImageSampling::Nearest);
     }
@@ -1479,6 +1583,23 @@ pub fn set_hdr_paper_white_nits(nits: f32) {
 /// logical units that follow the window's content scale (DPI), which is what an application UI wants.
 pub fn set_raw_pixel_layout(raw: bool) {
     ffi::ui_set_raw_pixel_layout(raw);
+}
+
+/// What decides where elements react to the pointer ([`Ui::hovered`], [`Ui::clicked`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HitTestMode {
+    /// Like CSS: a transform moves the reactive area with the drawing, a clip-path cuts it, an element drawn above that draws something covers
+    /// the ones below, and masks do not matter (a masked-out part still reacts). The default.
+    #[default]
+    Css,
+    /// CSS's rules with masks made reactive: where a mask hides an element (alpha below 0.1) it does not react. An image mask needs the
+    /// texture's pixels (a texture made from data has them); without them that part stays reactive.
+    Fixed,
+}
+
+/// Chooses the hit-test mode of the on-screen UI. Takes effect at the next frame.
+pub fn set_hit_test_mode(mode: HitTestMode) {
+    ffi::ui_set_hit_test_fixed(mode == HitTestMode::Fixed);
 }
 
 /// Installs (or replaces) the process-wide per-frame UI draw closure. Called once per frame once

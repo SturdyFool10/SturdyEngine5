@@ -595,6 +595,16 @@ namespace SFT::Renderer {
         /// @note Error/status alternatives explicitly produced by this implementation include `RenderGraphCompileErrorCode::UnknownTextureHandle`, `RenderGraphCompileErrorCode::UnknownBufferHandle`, `RenderGraphCompileErrorCode::InvalidBufferAccess`, `RenderGraphCompileErrorCode::IncompatibleTextureCopy`, `RenderGraphCompileErrorCode::MissingProducer`.
         [[nodiscard]] CompileResult compile() const;
 
+        /// One pass of the compiled schedule: its label and the execution level it lands on. Passes on the same level have no
+        /// dependency on each other (no shared resource where one writes) and are recorded in parallel; a pass on level N waits for what it
+        /// reads from lower levels. Diagnostics and tests: it shows what the graph found independent.
+        struct PassExecutionInfo {
+            UString label;
+            u32 level = 0;
+        };
+        /// The compiled schedule of the passes declared so far, in execution order, with each pass's level. Empty when compiling fails.
+        [[nodiscard]] vector<PassExecutionInfo> execution_plan() const;
+
 
         /// Executes the requested work.
         ///
@@ -907,6 +917,10 @@ namespace SFT::Renderer {
             vector<RenderGraphBufferHandle> buffer_writes;
             vector<RenderGraphBufferHandle> buffer_reads;
             bool always_live = false;
+            /// The pass's pure texture reads (sampled, not also written) may run at the same level as another pass's reads of the same
+            /// texture: read-after-read is not a hazard, and `execute_parallel` puts the shared texture in its read layout first. Only
+            /// render passes (whose reads are all `sampled_texture_reads_`) set it; any other pass keeps the conservative ordering.
+            bool shareable_reads = false;
         };
         /// Performs the pass usage of operation for `RenderGraph` using the supplied arguments.
         ///

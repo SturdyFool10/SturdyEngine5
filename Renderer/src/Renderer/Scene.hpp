@@ -98,6 +98,25 @@ namespace SFT::Renderer {
         PremultipliedOver,
     };
 
+    /// How a fullscreen effect's `sourceSampler` reads its textures. The default is what every effect used before this existed: bilinear,
+    /// clamped to the edge, no anisotropy.
+    struct FullscreenSampler {
+        RHI::Filter min_filter = RHI::Filter::Linear;
+        RHI::Filter mag_filter = RHI::Filter::Linear;
+        RHI::AddressMode address_u = RHI::AddressMode::ClampToEdge;
+        RHI::AddressMode address_v = RHI::AddressMode::ClampToEdge;
+        f32 mip_lod_bias = 0.0f;
+        /// 0 or 1 means no anisotropic filtering.
+        f32 max_anisotropy = 0.0f;
+        /// Blend between mip levels or snap to one. Only matters for a source that has several.
+        RHI::MipmapMode mipmap_mode = RHI::MipmapMode::Nearest;
+        /// The mip levels a sample may use. The default 0..0 reads level 0 only, which is what every effect written before mips could do.
+        f32 min_lod = 0.0f;
+        f32 max_lod = 0.0f;
+
+        friend constexpr bool operator==(const FullscreenSampler &, const FullscreenSampler &) noexcept = default;
+    };
+
     struct CustomPostProcessEffect {
         std::string shader_path;
         std::string module_name;
@@ -112,6 +131,8 @@ namespace SFT::Renderer {
         /// (bloom's upsample accumulates this way); use a load-op that keeps the target's contents.
         FullscreenBlend blend = FullscreenBlend::None;
         f32 blend_constant = 1.0f;
+        /// Filtering and addressing of `sourceSampler`, which every texture the effect reads goes through.
+        FullscreenSampler sampler{};
     };
 
     struct LogicalRenderGraphTexture {
@@ -191,6 +212,14 @@ namespace SFT::Renderer {
         /// The frame's semantic resources (`RenderGraphSemantics::*`): how an overlay finds the scene depth or colour to
         /// sample (empty handles when the frame has no scene). Add what you read to `sampled_textures`.
         const RenderGraphBlackboard &resources;
+        /// The graph texture this overlay's pass will draw into. Passes you add from `prepare` run *before* that pass and *after* every
+        /// earlier overlay, so sampling this texture there sees the scene plus the overlays ahead of this one: that is how an effect reads
+        /// "what is behind me" (a frosted-glass panel, a blur-behind). It is not safe to also attach it in the same pass.
+        RenderGraphTextureHandle target{};
+        /// Finished command buffers to submit before any pass of the frame's graph, owned by the renderer once added: record uploads
+        /// on an encoder of your own (several overlays, or the pieces of one, can then record at the same time on worker threads) and
+        /// push the finished buffer here. Null when the frame offers none.
+        std::vector<RHI::CommandBufferHandle> *extra_command_buffers = nullptr;
     };
 
     /// What an overlay pass draws into: a render pass already targeting the frame (see `OverlayPass`), with
@@ -229,6 +258,11 @@ namespace SFT::Renderer {
         /// HDR only: when above zero, the absolute reference white in nits this overlay is composed at, in place of the
         /// window compositor's SDR white (or the render graph's paper white). `hdr_reference_white_scale` still applies.
         f32 hdr_paper_white_nits = 0.0f;
+        /// A side overlay: `prepare` runs like any overlay's, but the overlay gets no render pass on the frame's target and `draw` is not
+        /// called. Its `prepare` declares whatever passes it wants on `OverlayPrepareContext::graph` (typically into a render target of
+        /// its own), so one frame can carry the independent work of several targets, and the graph records the passes that do not depend
+        /// on each other in parallel.
+        bool prepare_only = false;
     };
 
 

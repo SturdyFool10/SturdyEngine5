@@ -29,9 +29,11 @@
 
 #include <Engine/Engine.hpp>
 #include <Engine/ForeignUi.hpp>
+#include <Engine/ForeignUiEffects.hpp>
 #include <Renderer/UI/UI.hpp>
 
 #include <FFI/AbiSupport.hpp>
+#include <FFI/UiConvert.hpp>
 
 namespace {
 
@@ -56,28 +58,7 @@ namespace {
         return set_error(STURDY_ERROR_INVALID_ARGUMENT, failure.message);
     }
 
-    /// Copies an ABI element into the shared description.
-    [[nodiscard]] E::ForeignUiElement to_foreign_element(const SturdyUiElement &element) {
-        E::ForeignUiElement out;
-        out.width_kind = static_cast<E::ForeignUiSizing>(element.width_kind);
-        out.width_value = element.width_value;
-        out.height_kind = static_cast<E::ForeignUiSizing>(element.height_kind);
-        out.height_value = element.height_value;
-        out.padding[0] = element.padding_left;
-        out.padding[1] = element.padding_right;
-        out.padding[2] = element.padding_top;
-        out.padding[3] = element.padding_bottom;
-        out.child_gap = element.child_gap;
-        out.top_to_bottom = element.direction == STURDY_UI_DIRECTION_TOP_TO_BOTTOM;
-        for (int i = 0; i < 4; ++i) {
-            out.background[i] = element.background[i];
-            out.corner_radius[i] = element.corner_radius[i];
-        }
-        if (element.id != nullptr) {
-            out.id = element.id;
-        }
-        return out;
-    }
+    using SFT::Ffi::to_foreign_element;
 
     /// Converts an ABI color to the engine's sRGB color.
     ///
@@ -274,14 +255,281 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_text(SturdyEngine engine,
                              "SturdyUiTextStyle size does not match this engine build");
         }
 
-        E::ForeignUiTextStyle foreign_style;
-        foreign_style.font_id = style->font_id;
-        foreign_style.font_size = style->font_size;
-        for (int i = 0; i < 4; ++i) {
-            foreign_style.color[i] = style->color[i];
-        }
+        const E::ForeignUiTextStyle foreign_style = SFT::Ffi::to_foreign_text_style(*style);
         const auto drawn = E::foreign_ui_text(text, foreign_style);
         return drawn ? STURDY_OK : to_result(drawn.error());
+    });
+}
+
+namespace {
+
+    [[nodiscard]] E::ForeignUiEffectOptions to_effect_options(const SturdyUiEffectOptions *options) {
+        E::ForeignUiEffectOptions out;
+        if (options != nullptr) {
+            out.composite = static_cast<uint32_t>(options->composite);
+            out.opacity = options->opacity;
+            for (int i = 0; i < 4; ++i) {
+                out.outset[i] = options->outset[i];
+            }
+            out.clip_to_bounds = options->clip_to_bounds != 0;
+            out.layer = options->layer;
+            out.content_mip_levels = options->content_mip_levels;
+        }
+        return out;
+    }
+
+    [[nodiscard]] SturdyResult check_options_size(const SturdyUiEffectOptions *options) {
+        if (options != nullptr && options->struct_size != sizeof(SturdyUiEffectOptions)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiEffectOptions size does not match this engine build");
+        }
+        return STURDY_OK;
+    }
+
+} // namespace
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_options_init(SturdyUiEffectOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        if (options == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "options must not be null");
+        }
+        *options = SturdyUiEffectOptions{};
+        options->struct_size = static_cast<uint32_t>(sizeof(SturdyUiEffectOptions));
+        options->opacity = 1.0f;
+        options->clip_to_bounds = 1;
+        options->content_mip_levels = 1;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_desc_init(SturdyUiEffectDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc must not be null");
+        }
+        *desc = SturdyUiEffectDesc{};
+        desc->struct_size = static_cast<uint32_t>(sizeof(SturdyUiEffectDesc));
+        desc->kind = STURDY_UI_EFFECT_TINT;
+        for (float &c : desc->color) {
+            c = 1.0f;
+        }
+        desc->color_space = STURDY_UI_COLOR_SPACE_SRGB;
+        desc->interpolation_space = STURDY_UI_COLOR_SPACE_OKLAB;
+        desc->interpolation_hue = STURDY_UI_HUE_SHORTER;
+        desc->value_count = 8;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_pass_init(SturdyUiEffectPass *pass) {
+    return guarded([&]() -> SturdyResult {
+        if (pass == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "pass must not be null");
+        }
+        *pass = SturdyUiEffectPass{};
+        pass->struct_size = static_cast<uint32_t>(sizeof(SturdyUiEffectPass));
+        pass->linear_filter = 1;
+        pass->linear_mips = 1;
+        pass->max_lod = 1000.0f;
+        pass->max_anisotropy = 1.0f;
+        pass->output_scale = 1.0f;
+        pass->output_mip_levels = 1;
+        pass->output_mip_filter = 1;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_element_extras_init(SturdyUiElementExtras *extras) {
+    return guarded([&]() -> SturdyResult {
+        if (extras == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "extras must not be null");
+        }
+        *extras = SturdyUiElementExtras{};
+        extras->struct_size = static_cast<uint32_t>(sizeof(SturdyUiElementExtras));
+        for (float &k : extras->corner_shape) {
+            k = 1.0f;
+        }
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_create(const SturdyUiEffectDesc *desc,
+                                                     const SturdyUiEffectOptions *options,
+                                                     SturdyUiEffect *out_effect) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr || out_effect == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc and output pointer must not be null");
+        }
+        if (desc->struct_size != sizeof(SturdyUiEffectDesc)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiEffectDesc size does not match this engine build");
+        }
+        if (const SturdyResult checked = check_options_size(options); checked != STURDY_OK) {
+            return checked;
+        }
+        if (desc->stop_count > 0 && desc->stops == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "stop_count is set but stops is null");
+        }
+        E::ForeignUiEffectSpec spec;
+        spec.kind = static_cast<E::ForeignUiEffectKind>(desc->kind);
+        for (int i = 0; i < 16; ++i) {
+            spec.values[i] = desc->values[i];
+        }
+        spec.value_count = desc->value_count;
+        spec.texture = desc->texture;
+        for (int i = 0; i < 4; ++i) {
+            spec.color[i] = desc->color[i];
+        }
+        spec.color_space = static_cast<uint32_t>(desc->color_space);
+        spec.interpolation_space = static_cast<uint32_t>(desc->interpolation_space);
+        spec.interpolation_hue = static_cast<uint32_t>(desc->interpolation_hue);
+        for (uint32_t i = 0; i < desc->stop_count; ++i) {
+            const SturdyUiGradientStop &stop = desc->stops[i];
+            E::ForeignUiGradientStop out;
+            for (int c = 0; c < 4; ++c) {
+                out.color[c] = stop.color[c];
+            }
+            out.position = stop.position;
+            out.space = static_cast<uint32_t>(stop.space);
+            out.has_toward_next = stop.has_toward_next != 0;
+            out.toward_space = static_cast<uint32_t>(stop.toward_space);
+            out.toward_hue_method = static_cast<uint32_t>(stop.toward_hue);
+            spec.stops.push_back(out);
+        }
+        const auto created = E::create_foreign_ui_effect(spec, to_effect_options(options));
+        if (!created) {
+            return to_result(created.error());
+        }
+        out_effect->id = *created;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_create_custom(const char *name,
+                                                            const SturdyUiEffectOptions *options,
+                                                            SturdyUiEffect *out_effect) {
+    return guarded([&]() -> SturdyResult {
+        if (out_effect == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        if (const SturdyResult checked = check_options_size(options); checked != STURDY_OK) {
+            return checked;
+        }
+        const auto created = E::create_custom_foreign_ui_effect(name != nullptr ? name : "custom effect", to_effect_options(options));
+        if (!created) {
+            return to_result(created.error());
+        }
+        out_effect->id = *created;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_add_pass(SturdyUiEffect effect, const SturdyUiEffectPass *pass) {
+    return guarded([&]() -> SturdyResult {
+        if (pass == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "pass must not be null");
+        }
+        if (pass->struct_size != sizeof(SturdyUiEffectPass)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiEffectPass size does not match this engine build");
+        }
+        if ((pass->input_count > 0 && pass->inputs == nullptr) || (pass->parameter_size > 0 && pass->parameters == nullptr)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "a count is set but its array is null");
+        }
+        E::ForeignUiEffectPass out;
+        out.label = pass->label != nullptr ? pass->label : "";
+        out.shader_path = pass->shader_path != nullptr ? pass->shader_path : "";
+        out.module_name = pass->module_name != nullptr ? pass->module_name : "";
+        if (pass->fragment_entry_point != nullptr) {
+            out.fragment_entry_point = pass->fragment_entry_point;
+        }
+        for (uint32_t i = 0; i < pass->input_count; ++i) {
+            const SturdyUiEffectInput &input = pass->inputs[i];
+            out.inputs.push_back(E::ForeignUiEffectInput{static_cast<uint32_t>(input.kind), input.pass, input.texture, input.base_mip,
+                                                         input.mip_count});
+        }
+        out.linear_filter = pass->linear_filter != 0;
+        out.linear_mips = pass->linear_mips != 0;
+        out.address = pass->address;
+        out.lod_bias = pass->lod_bias;
+        out.min_lod = pass->min_lod;
+        out.max_lod = pass->max_lod;
+        out.max_anisotropy = pass->max_anisotropy;
+        out.output_format = pass->output_format;
+        out.output_scale = pass->output_scale;
+        out.output_mip_levels = pass->output_mip_levels;
+        out.output_mip_filter = pass->output_mip_filter;
+        const auto *bytes = static_cast<const std::byte *>(pass->parameters);
+        out.parameters.assign(bytes, bytes + pass->parameter_size);
+        const auto added = E::add_foreign_ui_effect_pass(effect.id, out);
+        return added ? STURDY_OK : to_result(added.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_set_options(SturdyUiEffect effect, const SturdyUiEffectOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        if (options == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "options must not be null");
+        }
+        if (const SturdyResult checked = check_options_size(options); checked != STURDY_OK) {
+            return checked;
+        }
+        const auto set = E::set_foreign_ui_effect_options(effect.id, to_effect_options(options));
+        return set ? STURDY_OK : to_result(set.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_effect_release(SturdyUiEffect effect) {
+    return guarded([&]() -> SturdyResult {
+        const auto released = E::release_foreign_ui_effect(effect.id);
+        return released ? STURDY_OK : to_result(released.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_begin_element_ex(SturdyEngine engine,
+                                                        const SturdyUiElement *element,
+                                                        const SturdyUiElementExtras *extras) {
+    return guarded([&]() -> SturdyResult {
+        (void)engine;
+        if (element == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "element must not be null");
+        }
+        if (element->struct_size != sizeof(SturdyUiElement)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiElement size does not match this engine build");
+        }
+        E::ForeignUiElement foreign = to_foreign_element(*element);
+        if (extras != nullptr) {
+            if (extras->struct_size != sizeof(SturdyUiElementExtras)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyUiElementExtras size does not match this engine build");
+            }
+            foreign.effect = extras->effect.id;
+            for (int i = 0; i < 4; ++i) {
+                foreign.corner_shape[i] = extras->corner_shape[i];
+            }
+            foreign.inset_for_corners = extras->inset_for_corners != 0;
+            foreign.clip_horizontal = extras->clip_horizontal != 0;
+            foreign.clip_vertical = extras->clip_vertical != 0;
+            foreign.clip_follow_corners = extras->clip_follow_corners != 0;
+            foreign.clip_path = extras->clip_path.id;
+            foreign.has_border_edges = extras->has_border_edges != 0;
+            for (int i = 0; i < 4; ++i) {
+                for (int c = 0; c < 4; ++c) {
+                    foreign.border_edge_color[i][c] = extras->border_edge_color[i * 4 + c];
+                }
+                foreign.border_edge_style[i] = extras->border_edge_style[i];
+                foreign.border_width[i] = extras->border_edge_width[i];
+            }
+        }
+        const auto begun = E::begin_foreign_ui_element(foreign);
+        return begun ? STURDY_OK : to_result(begun.error());
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_set_hit_test_mode(SturdyEngine engine, SturdyUiHitTestMode mode) {
+    return guarded([&]() -> SturdyResult {
+        (void)engine;
+        if (mode != STURDY_UI_HIT_TEST_CSS && mode != STURDY_UI_HIT_TEST_FIXED) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized hit-test mode");
+        }
+        E::set_foreign_ui_hit_test_mode(static_cast<uint32_t>(mode));
+        return STURDY_OK;
     });
 }
 

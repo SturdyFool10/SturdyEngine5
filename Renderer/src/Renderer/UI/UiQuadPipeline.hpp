@@ -51,6 +51,8 @@ namespace SFT::UI {
         /// normal opaque/translucent UI element. A caller sets this on the batch prepare() returned,
         /// not via any per-instance field, since blend state is a pipeline-level property.
         bool additive = false;
+        /// The blend the batch draws with. `additive` is the older spelling of `blend == Additive`; either selects it.
+        UiQuadBlend blend = UiQuadBlend::Normal;
     };
 
 
@@ -165,7 +167,8 @@ namespace SFT::UI {
                                                     span<const u64> instance_texture_revisions,
                                                     span<const RHI::Rect2D> instance_scissors,
                                                     span<const u32> instance_paint_groups,
-                                                    UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches);
+                                                    UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches,
+                                                    span<const UiQuadBlend> instance_blends = {});
 
         /// Draws the requested content using the current rendering state.
         ///
@@ -219,6 +222,8 @@ namespace SFT::UI {
         RHI::PipelineLayoutHandle pipeline_layout_{};
         RHI::RenderPipelineHandle pipeline_{};
         RHI::RenderPipelineHandle additive_pipeline_{};
+        RHI::RenderPipelineHandle multiply_pipeline_{};
+        RHI::RenderPipelineHandle replace_pipeline_{};
         vector<RHI::BindGroupLayoutHandle> bind_group_layouts_;
         vector<u32> bind_group_layout_sets_;
         RHI::SamplerHandle sampler_{};

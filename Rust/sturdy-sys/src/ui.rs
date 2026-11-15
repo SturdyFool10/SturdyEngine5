@@ -198,6 +198,10 @@ pub mod ffi {
         clip_horizontal: bool,
         /// Same as `clip_horizontal`, vertical axis.
         clip_vertical: bool,
+        /// Cut the overflow to the element's own rounded/shaped corners (CSS `overflow: hidden` with `border-radius`).
+        clip_follow_corners: bool,
+        /// A clip effect (`ui_effect_create` with a clip kind) the element and everything in it is cut to; 0 for none.
+        clip_path: u64,
         align_x: UiAlignX,
         align_y: UiAlignY,
         /// Straight-alpha sRGB; a zero-alpha color (the default) draws no border.
@@ -210,6 +214,118 @@ pub mod ffi {
         cursor: UiCursor,
         /// Shown in the engine's UI debug views; no effect on layout.
         debug_label: String,
+        /// A [`UiEffectOutcome::id`] from `ui_effect_create*`, or 0 for none: the element and everything in it is drawn through it.
+        effect: u64,
+        /// Profile of each corner in the order of `corner_radius`: 1 round, 2 squircle, 0 bevel, -1 scoop, +inf square, -inf notch, or
+        /// any CSS `superellipse(k)`.
+        corner_shape: [f32; 4],
+        /// Per-edge border colours and styles (left, right, top, bottom; `border_width` gives the widths) when set.
+        /// Edge-aware layout: pad so children stay inside rounded/bevelled/scooped/notched corners.
+        inset_for_corners: bool,
+        has_border_edges: bool,
+        /// Four straight-alpha sRGB floats per edge.
+        border_edge_colors: [f32; 16],
+        /// 0 solid, 1 dashed, 2 dotted, 3 double, per edge.
+        border_edge_styles: [u32; 4],
+    }
+
+    /// One colour stop of a gradient effect. `space`/`toward_*` are `UI::ColorSpace` / `UI::HueInterpolation` values.
+    #[derive(Debug, Clone, Default)]
+    struct UiEffectStop {
+        color: [f32; 4],
+        position: f32,
+        space: u32,
+        has_toward_next: bool,
+        toward_space: u32,
+        toward_hue: u32,
+    }
+
+    /// A ready-made effect (`Engine/ForeignUiEffects.hpp`, `ForeignUiEffectKind` for what `values`/`color` mean per kind).
+    #[derive(Debug, Clone, Default)]
+    struct UiEffectSpec {
+        kind: u32,
+        values: [f32; 16],
+        /// How many of `values` are set (the clip polygon reads it).
+        value_count: u32,
+        /// A renderer texture id, for the image mask.
+        texture: u64,
+        color: [f32; 4],
+        color_space: u32,
+        interpolation_space: u32,
+        interpolation_hue: u32,
+        stops: Vec<UiEffectStop>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct UiEffectOptions {
+        composite: u32,
+        opacity: f32,
+        outset: [f32; 4],
+        clip_to_bounds: bool,
+        layer: u32,
+        content_mip_levels: u32,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct UiEffectInput {
+        kind: u32,
+        pass: u32,
+        texture: u64,
+        base_mip: u32,
+        mip_count: u32,
+    }
+
+    /// One pass of a custom effect.
+    #[derive(Debug, Clone, Default)]
+    struct UiEffectPassDesc {
+        label: String,
+        shader_path: String,
+        module_name: String,
+        fragment_entry_point: String,
+        inputs: Vec<UiEffectInput>,
+        linear_filter: bool,
+        linear_mips: bool,
+        address: u32,
+        lod_bias: f32,
+        min_lod: f32,
+        max_lod: f32,
+        max_anisotropy: f32,
+        output_format: u32,
+        output_scale: f32,
+        output_mip_levels: u32,
+        output_mip_filter: u32,
+        parameters: Vec<u8>,
+    }
+
+    /// One retained UI node (`Engine/ForeignUiNodes.hpp`). `parent_index`/`parent_generation` of 0/0 mean a root.
+    #[derive(Debug, Clone)]
+    struct UiNodeDesc {
+        element: UiElementDesc,
+        text: String,
+        text_style: UiTextStyle,
+        order: i32,
+        visible: bool,
+        parent_index: u32,
+        parent_generation: u32,
+    }
+
+    /// Result of a node call. `index`/`generation` name the node for spawn.
+    #[derive(Debug, Clone, Default)]
+    struct UiNodeOutcome {
+        ok: bool,
+        index: u32,
+        generation: u32,
+        hovered: bool,
+        clicked: bool,
+        message: String,
+    }
+
+    /// Result of an effect call: on failure `message` says why; `id` is the new effect for the create calls.
+    #[derive(Debug, Clone, Default)]
+    struct UiEffectOutcome {
+        ok: bool,
+        id: u64,
+        message: String,
     }
 
     /// `SFT::Renderer::TextureHandle` (a Renderer-registry index, `{ value: u64 }`), as accepted by
@@ -487,6 +603,17 @@ pub mod ffi {
         wrap_mode: u8,
         /// 0 = left, 1 = center, 2 = right.
         alignment: u8,
+        /// Bits: 1 underline, 2 overline, 4 line-through.
+        decoration_lines: u32,
+        /// 0 solid, 1 dashed, 2 dotted, 3 double.
+        decoration_style: u32,
+        /// Pixels; 0 = from the font size.
+        decoration_thickness: f32,
+        has_decoration_color: bool,
+        decoration_color: [f32; 4],
+        shadow_enabled: bool,
+        shadow_offset: [f32; 2],
+        shadow_color: [f32; 4],
     }
 
     /// Read-only snapshot of `Engine::UiPointerState` (`UI::PointerState` plus the `consumed` flag),
@@ -596,6 +723,29 @@ pub mod ffi {
         /// root, if none is). Must be balanced by a matching `ui_end_element` before the frame ends.
         /// Only meaningful from inside the draw hook. Returns `false` if there is no open frame.
         fn ui_begin_element(desc: &UiElementDesc) -> bool;
+        /// Builds a ready-made UI effect.
+        fn ui_effect_create(spec: &UiEffectSpec, options: &UiEffectOptions) -> UiEffectOutcome;
+        /// Starts a custom effect with no passes.
+        fn ui_effect_create_custom(name: &str, options: &UiEffectOptions) -> UiEffectOutcome;
+        fn ui_effect_add_pass(effect: u64, pass: &UiEffectPassDesc) -> UiEffectOutcome;
+        fn ui_effect_set_options(effect: u64, options: &UiEffectOptions) -> UiEffectOutcome;
+        fn ui_effect_release(effect: u64) -> UiEffectOutcome;
+        /// Retained UI nodes: entities carrying one layout element each. Between updates only (never inside the draw hook).
+        fn ui_node_spawn(engine: Pin<&mut EngineView>, node: &UiNodeDesc) -> UiNodeOutcome;
+        fn ui_node_update(engine: Pin<&mut EngineView>, index: u32, generation: u32, node: &UiNodeDesc) -> UiNodeOutcome;
+        fn ui_node_destroy(engine: Pin<&mut EngineView>, index: u32, generation: u32, recursive: bool) -> UiNodeOutcome;
+        fn ui_node_state(engine: Pin<&mut EngineView>, index: u32, generation: u32) -> UiNodeOutcome;
+        fn ui_node_touch();
+        /// Spawns a headless-or-window UI tree that lays out the nodes under `root` when one changes. `window_target`: 0 = the primary
+        /// window; `offscreen_target` non-zero targets that off-screen render target instead.
+        fn ui_node_tree_spawn(
+            engine: Pin<&mut EngineView>,
+            root_index: u32,
+            root_generation: u32,
+            name: &str,
+            layer: i32,
+            offscreen_target: u64,
+        ) -> UiNodeOutcome;
         /// Closes the innermost element opened by `ui_begin_element`. Returns `false` if there is no
         /// open frame or no open element to close.
         fn ui_end_element() -> bool;
@@ -610,6 +760,16 @@ pub mod ffi {
         fn ui_image(desc: &UiElementDesc, texture: UiTexture) -> bool;
         /// `ui_image` with nearest-neighbour sampling when `nearest` (pixel art scales crisply).
         fn ui_image_sampled(desc: &UiElementDesc, texture: UiTexture, nearest: bool) -> bool;
+        /// An image with CSS `object-fit` / `object-position`: `fit` is 0 fill, 1 contain, 2 cover, 3 none, 4 scale-down; `position` is 0..1
+        /// from the top-left on each axis; `intrinsic_size` is the image's own size in layout units (zero = unknown, which means fill).
+        fn ui_image_fitted(
+            desc: &UiElementDesc,
+            texture: UiTexture,
+            nearest: bool,
+            fit: u8,
+            position: [f32; 2],
+            intrinsic_size: [f32; 2],
+        ) -> bool;
 
         /// Loads (or returns the cached rasterization of) an SVG file at `path`, rendered at
         /// `target_px` (the SVG's largest dimension, in logical UI pixels -- re-rasterized at a new
@@ -684,6 +844,8 @@ pub mod ffi {
         /// `true` lays the UI out in framebuffer pixels (pixel-art / design-size UI); `false` (default) in logical
         /// units that follow the window's content scale.
         fn ui_set_raw_pixel_layout(raw: bool);
+        /// Chooses what decides where elements react to the pointer: `false` CSS-like (the default), `true` fixed to the layout.
+        fn ui_set_hit_test_fixed(fixed: bool);
         /// Bounds (position and size, in layout pixels) of the element with this id as of the last
         /// finished layout; `found == false` if no such element was laid out.
         fn ui_element_bounds(id: &str) -> UiBounds;

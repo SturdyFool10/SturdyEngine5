@@ -68,6 +68,8 @@ namespace SFT::Engine {
         void set_scale_mode(UI::UiScaleMode mode) noexcept { surface_.set_scale_mode(mode); }
         /// The overlay to append to `RenderFrameParameters::overlay_passes`.
         [[nodiscard]] Renderer::OverlayPass finish_overlay(UI::UiOverlayOptions options = {});
+        /// Like `finish_overlay`, with one overlay per UI layer (`UI::UiEffect::layer`), lowest first; append them all, in order.
+        [[nodiscard]] std::vector<Renderer::OverlayPass> finish_overlays(UI::UiOverlayOptions options = {});
 
         /// Releases the UI's GPU renderer now (a graphics reconstruction, an HDR toggle); the layout context and its
         /// fonts are kept. `ensure_ready` recreates the renderer.

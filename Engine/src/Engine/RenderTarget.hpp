@@ -31,6 +31,14 @@ namespace SFT::Engine {
         /// Display-encoded SDR at 10 bits per channel (smoother gradients), 2-bit alpha. Encoded by a shader, so sampling returns
         /// sRGB-*encoded* values: decode them where linear light is needed. Same memory as the 8-bit formats.
         Rgb10A2,
+        /// Display-encoded SDR without hardware sRGB: the values are sRGB-encoded by a shader, so sampling returns encoded values (like
+        /// `Rgb10A2`). For code that reads or processes the pixels as plain 8-bit.
+        Bgra8,
+        /// The same as `Bgra8` with RGBA channel order.
+        Rgba8,
+        /// Linear single-precision float, unclamped (1.0 = paper white): `Rgba16Float` at full precision. Four times the memory of the
+        /// 8-bit formats.
+        Rgba32Float,
     };
 
     /// What a target is for. Every setting left on Auto is decided from it, using the best the device offers for that use.

@@ -11,7 +11,7 @@
 namespace SFT::Renderer {
 
     Core::RendererResult add_overlay_passes(FrameBuildContext &frame, std::span<const OverlayPass> overlays) {
-        if (std::ranges::none_of(overlays, [](const OverlayPass &overlay) { return static_cast<bool>(overlay.draw); })) {
+        if (std::ranges::none_of(overlays, [](const OverlayPass &overlay) { return static_cast<bool>(overlay.draw) || overlay.prepare_only; })) {
             return {};
         }
         const Core::Extent2D extent = frame.module.presentation_extent;
@@ -32,7 +32,7 @@ namespace SFT::Renderer {
 
         bool first = true;
         for (const OverlayPass &overlay : overlays) {
-            if (!overlay.draw) {
+            if (!overlay.draw && !overlay.prepare_only) {
                 continue;
             }
             std::vector<RenderGraphTextureHandle> sampled_textures;
@@ -54,10 +54,15 @@ namespace SFT::Renderer {
                     .transient_bind_groups = frame.transient_bind_groups,
                     .sampled_textures = sampled_textures,
                     .resources = frame.resources,
+                    .target = target,
+                    .extra_command_buffers = frame.extra_command_buffers,
                 };
                 if (Core::RendererResult prepared = overlay.prepare(prepare); !prepared.has_value()) {
                     return prepared;
                 }
+            }
+            if (overlay.prepare_only) {
+                continue; // its passes were declared by prepare; nothing is drawn onto the frame's target
             }
 
             const UString label{overlay.name.empty() ? std::string{"overlay"} : overlay.name};

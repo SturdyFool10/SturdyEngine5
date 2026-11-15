@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 44; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 46; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -985,6 +985,9 @@ namespace Sturdy
         STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2,
         STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3,
         STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4,
+        STURDY_RENDER_TARGET_FORMAT_BGRA8 = 5,
+        STURDY_RENDER_TARGET_FORMAT_RGBA8 = 6,
+        STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT = 7,
     }
 
     public enum SturdyRenderTargetUse : int
@@ -1257,11 +1260,74 @@ namespace Sturdy
         STURDY_TRY_CLOSED = 2,
     }
 
+    /// CSS colour spaces (CSS Color Module 4). Colours are straight-alpha with components in the space's own reference ranges: sRGB-style spaces 0..1, HSL/HWB saturation, lightness, whiteness and blackness 0..100, hue in degrees, Lab L 0..100, Oklab L 0..1.
+    public enum SturdyUiColorSpace : int
+    {
+        STURDY_UI_COLOR_SPACE_SRGB = 0,
+        STURDY_UI_COLOR_SPACE_SRGB_LINEAR = 1,
+        STURDY_UI_COLOR_SPACE_DISPLAY_P3 = 2,
+        STURDY_UI_COLOR_SPACE_DISPLAY_P3_LINEAR = 3,
+        STURDY_UI_COLOR_SPACE_A98_RGB = 4,
+        STURDY_UI_COLOR_SPACE_PROPHOTO_RGB = 5,
+        STURDY_UI_COLOR_SPACE_REC2020 = 6,
+        STURDY_UI_COLOR_SPACE_XYZ_D50 = 7,
+        STURDY_UI_COLOR_SPACE_XYZ_D65 = 8,
+        STURDY_UI_COLOR_SPACE_LAB = 9,
+        STURDY_UI_COLOR_SPACE_OKLAB = 10,
+        STURDY_UI_COLOR_SPACE_HSL = 11,
+        STURDY_UI_COLOR_SPACE_HWB = 12,
+        STURDY_UI_COLOR_SPACE_LCH = 13,
+        STURDY_UI_COLOR_SPACE_OKLCH = 14,
+    }
+
     /// Which way an element stacks its children.
     public enum SturdyUiDirection : int
     {
         STURDY_UI_DIRECTION_LEFT_TO_RIGHT = 0,
         STURDY_UI_DIRECTION_TOP_TO_BOTTOM = 1,
+    }
+
+    /// How an effect's finished image is laid over what is already drawn.
+    public enum SturdyUiEffectComposite : int
+    {
+        STURDY_UI_EFFECT_COMPOSITE_NORMAL = 0,
+        STURDY_UI_EFFECT_COMPOSITE_ADDITIVE = 1,
+        STURDY_UI_EFFECT_COMPOSITE_MULTIPLY = 2,
+        STURDY_UI_EFFECT_COMPOSITE_REPLACE = 3,
+    }
+
+    /// What one input of an effect pass is.
+    public enum SturdyUiEffectInputKind : int
+    {
+        STURDY_UI_EFFECT_INPUT_GROUP_CONTENT = 0,
+        STURDY_UI_EFFECT_INPUT_PASS_OUTPUT = 1,
+        STURDY_UI_EFFECT_INPUT_TEXTURE = 2,
+        STURDY_UI_EFFECT_INPUT_BACKDROP = 3,
+    }
+
+    /// Which ready-made effect `sturdy_ui_effect_create` builds, and what `values` / `color` mean for it.
+    public enum SturdyUiEffectKind : int
+    {
+        STURDY_UI_EFFECT_COLOR_ADJUST = 0,
+        STURDY_UI_EFFECT_TINT = 1,
+        STURDY_UI_EFFECT_BLUR = 2,
+        STURDY_UI_EFFECT_FAST_BLUR = 3,
+        STURDY_UI_EFFECT_DROP_SHADOW = 4,
+        STURDY_UI_EFFECT_GLOW = 5,
+        STURDY_UI_EFFECT_OUTLINE = 6,
+        STURDY_UI_EFFECT_INSET_SHADOW = 7,
+        STURDY_UI_EFFECT_FROSTED_GLASS = 8,
+        STURDY_UI_EFFECT_LAYER = 9,
+        STURDY_UI_EFFECT_LINEAR_GRADIENT = 10,
+        STURDY_UI_EFFECT_RADIAL_GRADIENT = 11,
+        STURDY_UI_EFFECT_CONIC_GRADIENT = 12,
+        STURDY_UI_EFFECT_TRANSFORM = 13,
+        STURDY_UI_EFFECT_CLIP_INSET = 14,
+        STURDY_UI_EFFECT_CLIP_CIRCLE = 15,
+        STURDY_UI_EFFECT_CLIP_ELLIPSE = 16,
+        STURDY_UI_EFFECT_CLIP_POLYGON = 17,
+        STURDY_UI_EFFECT_MASK_LINEAR = 18,
+        STURDY_UI_EFFECT_MASK_IMAGE = 19,
     }
 
     public enum SturdyUiGraphBarStackMode : int
@@ -1286,6 +1352,22 @@ namespace Sturdy
         STURDY_UI_GRAPH_TYPE_BAR = 2,
         STURDY_UI_GRAPH_TYPE_SCATTER = 3,
         STURDY_UI_GRAPH_TYPE_PIE = 4,
+    }
+
+    /// What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets).
+    public enum SturdyUiHitTestMode : int
+    {
+        STURDY_UI_HIT_TEST_CSS = 0,
+        STURDY_UI_HIT_TEST_FIXED = 1,
+    }
+
+    /// How the hue travels between two colours in a polar space (HSL, HWB, LCH, OKLCH).
+    public enum SturdyUiHueMethod : int
+    {
+        STURDY_UI_HUE_SHORTER = 0,
+        STURDY_UI_HUE_LONGER = 1,
+        STURDY_UI_HUE_INCREASING = 2,
+        STURDY_UI_HUE_DECREASING = 3,
     }
 
     public enum SturdyUiRebuildPolicy : int
@@ -4671,6 +4753,80 @@ namespace Sturdy
         public ulong send_buffer;
     }
 
+    /// Handle to a UI effect. 0 is "no effect".
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiEffect
+    {
+        public ulong id;
+    }
+
+    /// Describes a ready-made effect.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiEffectDesc
+    {
+        public uint struct_size;
+        public SturdyUiEffectKind kind;
+        public fixed float values[16];
+        public uint value_count;
+        public ulong texture;
+        public fixed float color[4];
+        public SturdyUiColorSpace color_space;
+        public SturdyUiColorSpace interpolation_space;
+        public SturdyUiHueMethod interpolation_hue;
+        public SturdyUiGradientStop* stops;
+        public uint stop_count;
+    }
+
+    /// One texture a pass samples: the first is `Texture2D sourceTexture` in the pass's Slang shader, the rest `extraTexture0`, ...
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiEffectInput
+    {
+        public SturdyUiEffectInputKind kind;
+        public uint pass;
+        public ulong texture;
+        public uint base_mip;
+        public uint mip_count;
+    }
+
+    /// Applied on top of any effect, library or custom. Initialize with `sturdy_ui_effect_options_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiEffectOptions
+    {
+        public uint struct_size;
+        public SturdyUiEffectComposite composite;
+        public float opacity;
+        public fixed float outset[4];
+        public byte clip_to_bounds;
+        public uint layer;
+        public uint content_mip_levels;
+    }
+
+    /// One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiEffectPass
+    {
+        public uint struct_size;
+        public byte* label;
+        public byte* shader_path;
+        public byte* module_name;
+        public byte* fragment_entry_point;
+        public SturdyUiEffectInput* inputs;
+        public uint input_count;
+        public byte linear_filter;
+        public byte linear_mips;
+        public uint address;
+        public float lod_bias;
+        public float min_lod;
+        public float max_lod;
+        public float max_anisotropy;
+        public uint output_format;
+        public float output_scale;
+        public uint output_mip_levels;
+        public uint output_mip_filter;
+        public void* parameters;
+        public uint parameter_size;
+    }
+
     /// One element in the layout tree.
     ///
     /// A deliberately small slice of what the engine's C++ `ElementDecl` can express — enough for panels, rows, columns and spacing. Borders, clipping, floating elements and per-element cursors are not exposed yet.
@@ -4693,6 +4849,36 @@ namespace Sturdy
         public fixed float background[4];
         public fixed float corner_radius[4];
         public byte* id;
+    }
+
+    /// Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiElementExtras
+    {
+        public uint struct_size;
+        public SturdyUiEffect effect;
+        public fixed float corner_shape[4];
+        public byte has_border_edges;
+        public fixed float border_edge_color[16];
+        public fixed uint border_edge_style[4];
+        public fixed float border_edge_width[4];
+        public byte inset_for_corners;
+        public byte clip_horizontal;
+        public byte clip_vertical;
+        public byte clip_follow_corners;
+        public SturdyUiEffect clip_path;
+    }
+
+    /// One colour stop of a gradient. A gradient takes up to three stops, in ascending position.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiGradientStop
+    {
+        public fixed float color[4];
+        public float position;
+        public SturdyUiColorSpace space;
+        public byte has_toward_next;
+        public SturdyUiColorSpace toward_space;
+        public SturdyUiHueMethod toward_hue;
     }
 
     /// One axis's configuration for `sturdy_ui_graph_draw`.
@@ -4785,6 +4971,36 @@ namespace Sturdy
         public uint font_size;
         public uint reserved;
         public fixed float color[4];
+        public uint decoration_lines;
+        public uint decoration_style;
+        public float decoration_thickness;
+        public byte has_decoration_color;
+        public fixed float decoration_color[4];
+        public byte shadow_enabled;
+        public fixed float shadow_offset[2];
+        public fixed float shadow_color[4];
+    }
+
+    /// One node. Initialize with `sturdy_ui_node_desc_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiNodeDesc
+    {
+        public uint struct_size;
+        public SturdyUiElement element;
+        public SturdyUiElementExtras extras;
+        public byte* text;
+        public SturdyUiTextStyle text_style;
+        public int order;
+        public byte visible;
+        public SturdyEntity parent;
+    }
+
+    /// What the last layout found for a node that has an `id`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUiNodeState
+    {
+        public byte hovered;
+        public byte clicked;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -4812,6 +5028,7 @@ namespace Sturdy
         public byte window_input;
         public fixed float clear_color[4];
         public float build_budget_ms;
+        public SturdyUiHitTestMode hit_test_mode;
         public delegate* unmanaged[Cdecl]<SturdyEngine, SturdyUiTreeFrame*, void*, void> builder;
         public void* user;
         public delegate* unmanaged[Cdecl]<void*, void> release_user;
@@ -9173,9 +9390,45 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_begin_element(SturdyEngine engine, SturdyUiElement* element);
 
+        /// Opens an element like `sturdy_ui_begin_element`, with an effect and per-corner shapes. `extras` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_begin_element_ex(SturdyEngine engine, SturdyUiElement* element, SturdyUiElementExtras* extras);
+
         /// Reports whether the element with this id was clicked this frame.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_clicked(SturdyEngine engine, byte* id, byte* out_clicked);
+
+        /// Appends a pass to a custom effect. A pass that cannot be valid (a missing shader path, an input naming a pass that has not run yet, parameters that are not whole 4-byte words) is refused and the reason reported; a shader that fails to compile is reported when the effect is first drawn, in the engine log, and the element is drawn without the effect.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_add_pass(SturdyUiEffect effect, SturdyUiEffectPass* pass);
+
+        /// Builds a ready-made effect. `options` may be null for the defaults.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_create(SturdyUiEffectDesc* desc, SturdyUiEffectOptions* options, SturdyUiEffect* out_effect);
+
+        /// Starts a custom effect with no passes; add them with `sturdy_ui_effect_add_pass`, in order. The last pass's output is what is composited. `options` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_create_custom(byte* name, SturdyUiEffectOptions* options, SturdyUiEffect* out_effect);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_desc_init(SturdyUiEffectDesc* desc);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_options_init(SturdyUiEffectOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_pass_init(SturdyUiEffectPass* pass);
+
+        /// Releases an effect. Frames already built keep drawing with it; building a new element with the id fails.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_release(SturdyUiEffect effect);
+
+        /// Changes an effect's options. Only before a frame has used the effect.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_effect_set_options(SturdyUiEffect effect, SturdyUiEffectOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_element_extras_init(SturdyUiElementExtras* extras);
 
         /// Fills an element declaration with defaults: fit sizing, no padding, transparent, left-to-right.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -9231,6 +9484,32 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_hovered(SturdyEngine engine, byte* id, byte* out_hovered);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_desc_init(SturdyUiNodeDesc* desc);
+
+        /// Destroys a node. With `recursive` non-zero everything under it goes too; otherwise its children become roots.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_destroy(SturdyEngine engine, SturdyEntity node, byte recursive);
+
+        /// Creates a node entity.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_spawn(SturdyEngine engine, SturdyUiNodeDesc* desc, SturdyEntity* out_node);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_state(SturdyEngine engine, SturdyEntity node, SturdyUiNodeState* out_state);
+
+        /// Tells every node tree that something changed which the engine cannot see on its own. Edits made through `sturdy_ui_node_update` need no call; this is for code that changes node components some other way.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_touch();
+
+        /// Spawns a UI tree that lays out the nodes under `root`, only when one of them changes. `desc` is read like `sturdy_ui_tree_spawn`'s (target, layer, scale, ...), except that `builder` must be null and `rebuild` is forced to on-dirty.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_tree_spawn(SturdyEngine engine, SturdyEntity root, SturdyUiTreeDesc* desc, SturdyEntity* out_tree);
+
+        /// Replaces a node's data and parent (a zeroed `parent` makes it a root). Refuses a parent that would make a loop.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_node_update(SturdyEngine engine, SturdyEntity node, SturdyUiNodeDesc* desc);
+
         /// Reports whether the pointer is currently held down.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_pointer_down(SturdyEngine engine, byte* out_down);
@@ -9244,6 +9523,10 @@ namespace Sturdy
         /// Text draws nothing until a font is registered, so do this once during `on_engine_initialized`. `font_id` 0 is the default the text style starts with.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_ui_register_font(SturdyEngine engine, byte* source, uint font_id);
+
+        /// Chooses the hit-test mode of the window UI (the `sturdy_ui_begin` frames). Takes effect at the next `sturdy_ui_begin`. UI trees choose theirs in `SturdyUiTreeDesc::hit_test_mode`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ui_set_hit_test_mode(SturdyEngine engine, SturdyUiHitTestMode mode);
 
         /// Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

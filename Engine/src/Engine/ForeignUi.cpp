@@ -1,11 +1,13 @@
 #include <Engine/ForeignUi.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <vector>
 
+#include <Engine/ForeignUiEffects.hpp>
 #include <Engine/ScreenUi.hpp>
 #include <Renderer/Text/Font.hpp>
 
@@ -30,6 +32,7 @@ namespace SFT::Engine {
         };
 
         thread_local UiSession t_session;
+        std::atomic<u32> g_hit_test_mode{0};
 
         /// The on-screen UI the bindings drive. The engine owns none; a binding is an application, so it keeps its own `ScreenUi` (window
         /// input + overlay) for the engine it was handed. One engine per process, as elsewhere in the foreign surfaces.
@@ -162,6 +165,7 @@ namespace SFT::Engine {
         if (!screen_ui.ensure_ready(color_format)) {
             return error(ForeignUiErrorKind::NotAvailable, "the UI renderer is not ready");
         }
+        screen_ui.context().set_hit_test_mode(g_hit_test_mode.load() == 1u ? UI::HitTestMode::Fixed : UI::HitTestMode::Css);
         apply_font_registrations(screen_ui.context());
 
         const glm::vec2 viewport{static_cast<f32>(framebuffer_width), static_cast<f32>(framebuffer_height)};
@@ -188,17 +192,19 @@ namespace SFT::Engine {
         auto snapshot = std::make_shared<UI::FrameSnapshot>((*context)->finish_frame(t_session.viewport));
         // A null frame means "discard": the layout is still finished, so the next frame starts clean, but nothing is attached.
         if (frame != nullptr) {
-            frame->overlay_passes.push_back(screen_ui_for(engine).surface().overlay_for_snapshot(std::move(snapshot), engine.renderer()));
+            // One overlay per UI layer (a frame with no layered element makes exactly one), lowest first.
+            UI::UiSurface &surface = screen_ui_for(engine).surface();
+            surface.input().end_text_frame();
+            for (Renderer::OverlayPass &overlay :
+                 surface.make_layer_overlays(UI::FrameSnapshot::split_layers(std::move(snapshot)), engine.renderer())) {
+                frame->overlay_passes.push_back(std::move(overlay));
+            }
         }
         reset_session();
         return {};
     }
 
-    ForeignUiResult<void> begin_foreign_ui_element(const ForeignUiElement &element) {
-        auto context = require_session();
-        if (!context) {
-            return std::unexpected(context.error());
-        }
+    ForeignUiResult<UI::ElementDecl> make_foreign_ui_decl(const ForeignUiElement &element) {
         auto width = to_ui_axis(element.width_kind, element.width_value);
         auto height = to_ui_axis(element.height_kind, element.height_value);
         if (!width || !height) {
@@ -212,10 +218,55 @@ namespace SFT::Engine {
         decl.direction = element.top_to_bottom ? UI::LayoutDirection::TopToBottom : UI::LayoutDirection::LeftToRight;
         decl.background_color = to_color(element.background);
         decl.corner_radius = UI::CornerRadius{element.corner_radius[0], element.corner_radius[1], element.corner_radius[2], element.corner_radius[3]};
+        decl.inset_for_corners = element.inset_for_corners;
+        decl.clip.horizontal = element.clip_horizontal;
+        decl.clip.vertical = element.clip_vertical;
+        decl.clip.follow_corners = element.clip_follow_corners;
+        if (element.clip_path != 0) {
+            decl.clip.path = find_foreign_ui_effect(element.clip_path);
+            if (!decl.clip.path) {
+                return error(ForeignUiErrorKind::InvalidArgument, "unknown or released clip path effect id on element");
+            }
+        }
+        decl.corner_shapes = UI::CornerShapes{UI::CornerShape{element.corner_shape[0]}, UI::CornerShape{element.corner_shape[1]},
+                                              UI::CornerShape{element.corner_shape[2]}, UI::CornerShape{element.corner_shape[3]}};
+        if (element.effect != 0) {
+            decl.effect = find_foreign_ui_effect(element.effect);
+            if (!decl.effect) {
+                return error(ForeignUiErrorKind::InvalidArgument, "unknown or released effect id on element");
+            }
+        }
+        if (element.has_border_edges) {
+            auto edges = std::make_shared<UI::BorderEdges>();
+            UI::BorderEdge *targets[4] = {&edges->left, &edges->right, &edges->top, &edges->bottom};
+            for (int i = 0; i < 4; ++i) {
+                if (element.border_edge_style[i] > static_cast<u32>(UI::BorderLineStyle::Double)) {
+                    return error(ForeignUiErrorKind::InvalidArgument, "unknown border edge style");
+                }
+                targets[i]->color = to_color(element.border_edge_color[i]);
+                targets[i]->style = static_cast<UI::BorderLineStyle>(element.border_edge_style[i]);
+            }
+            decl.border_edges = std::move(edges);
+            // The widths of the edges come from the element's border; give it a visible colour so a border is declared at all.
+            decl.border.width = UI::BorderWidth{static_cast<u16>(element.border_width[0]), static_cast<u16>(element.border_width[1]),
+                                                static_cast<u16>(element.border_width[2]), static_cast<u16>(element.border_width[3])};
+        }
         if (!element.id.empty()) {
             decl.id = UString{std::string_view{element.id}};
         }
-        t_session.open_elements.push_back(std::make_unique<UI::ElementScope>((*context)->element(decl)));
+        return decl;
+    }
+
+    ForeignUiResult<void> begin_foreign_ui_element(const ForeignUiElement &element) {
+        auto context = require_session();
+        if (!context) {
+            return std::unexpected(context.error());
+        }
+        auto decl = make_foreign_ui_decl(element);
+        if (!decl) {
+            return std::unexpected(decl.error());
+        }
+        t_session.open_elements.push_back(std::make_unique<UI::ElementScope>((*context)->element(*decl)));
         return {};
     }
 
@@ -240,16 +291,38 @@ namespace SFT::Engine {
         return {};
     }
 
+    void set_foreign_ui_hit_test_mode(u32 mode) noexcept { g_hit_test_mode.store(mode); }
+
+    ForeignUiResult<UI::TextStyle> make_foreign_ui_text_style(const ForeignUiTextStyle &style) {
+        if (style.decoration_style > static_cast<u32>(UI::BorderLineStyle::Double)) {
+            return error(ForeignUiErrorKind::InvalidArgument, "unknown text decoration style");
+        }
+        UI::TextStyle out{};
+        out.color = to_color(style.color);
+        out.font_id = static_cast<UI::FontId>(style.font_id);
+        out.font_size = static_cast<u16>(style.font_size);
+        out.decoration.lines = static_cast<UI::TextDecorationLine>(style.decoration_lines & 7u);
+        out.decoration.style = static_cast<UI::BorderLineStyle>(style.decoration_style);
+        out.decoration.thickness = style.decoration_thickness;
+        if (style.has_decoration_color) {
+            out.decoration.color = to_color(style.decoration_color);
+        }
+        out.shadow.enabled = style.shadow_enabled;
+        out.shadow.offset = glm::vec2{style.shadow_offset[0], style.shadow_offset[1]};
+        out.shadow.color = to_color(style.shadow_color);
+        return out;
+    }
+
     ForeignUiResult<void> foreign_ui_text(std::string_view text, const ForeignUiTextStyle &style) {
         auto context = require_session();
         if (!context) {
             return std::unexpected(context.error());
         }
-        UI::TextStyle engine_style{};
-        engine_style.color = to_color(style.color);
-        engine_style.font_id = static_cast<UI::FontId>(style.font_id);
-        engine_style.font_size = static_cast<u16>(style.font_size);
-        (*context)->text(ustr{text}, engine_style);
+        auto engine_style = make_foreign_ui_text_style(style);
+        if (!engine_style) {
+            return std::unexpected(engine_style.error());
+        }
+        (*context)->text(ustr{text}, *engine_style);
         return {};
     }
 

@@ -71,6 +71,9 @@ namespace SFT::Engine {
                 case RenderTargetFormat::Rgba8Srgb: return RHI::Format::RGBA8UnormSrgb;
                 case RenderTargetFormat::Rgba16Float: return RHI::Format::RGBA16Float;
                 case RenderTargetFormat::Rgb10A2: return RHI::Format::RGB10A2Unorm;
+                case RenderTargetFormat::Bgra8: return RHI::Format::BGRA8Unorm;
+                case RenderTargetFormat::Rgba8: return RHI::Format::RGBA8Unorm;
+                case RenderTargetFormat::Rgba32Float: return RHI::Format::RGBA32Float;
             }
             return RHI::Format::Undefined;
         }
@@ -81,6 +84,9 @@ namespace SFT::Engine {
                 case RHI::Format::RGBA8UnormSrgb: return RenderTargetFormat::Rgba8Srgb;
                 case RHI::Format::RGBA16Float: return RenderTargetFormat::Rgba16Float;
                 case RHI::Format::RGB10A2Unorm: return RenderTargetFormat::Rgb10A2;
+                case RHI::Format::BGRA8Unorm: return RenderTargetFormat::Bgra8;
+                case RHI::Format::RGBA8Unorm: return RenderTargetFormat::Rgba8;
+                case RHI::Format::RGBA32Float: return RenderTargetFormat::Rgba32Float;
                 default: return RenderTargetFormat::Bgra8Srgb;
             }
         }

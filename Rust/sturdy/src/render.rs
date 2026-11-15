@@ -641,6 +641,12 @@ pub enum TargetFormat {
     /// Display-encoded SDR at 10 bits per channel (smoother gradients), 2-bit alpha. Encoded by a shader, so sampling
     /// returns sRGB-*encoded* values: decode them where linear light is needed.
     Rgb10A2,
+    /// Display-encoded SDR in a plain 8-bit format (BGRA order): encoded by a shader, so sampling returns encoded values.
+    Bgra8,
+    /// The same as [`TargetFormat::Bgra8`] in RGBA channel order.
+    Rgba8,
+    /// Linear single-precision float, unclamped: [`TargetFormat::Rgba16Float`] at full precision.
+    Rgba32Float,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -735,6 +741,9 @@ impl OffscreenTargetDesc {
                 TargetFormat::Rgba8Srgb => ffi::OffscreenTargetFormat::Rgba8Srgb,
                 TargetFormat::Rgba16Float => ffi::OffscreenTargetFormat::Rgba16Float,
                 TargetFormat::Rgb10A2 => ffi::OffscreenTargetFormat::Rgb10A2,
+                TargetFormat::Bgra8 => ffi::OffscreenTargetFormat::Bgra8,
+                TargetFormat::Rgba8 => ffi::OffscreenTargetFormat::Rgba8,
+                TargetFormat::Rgba32Float => ffi::OffscreenTargetFormat::Rgba32Float,
             },
             filter: match self.sampling.filter {
                 TargetFilter::Linear => ffi::OffscreenTargetFilter::Linear,
@@ -759,6 +768,9 @@ impl OffscreenTargetDesc {
                 ffi::OffscreenTargetFormat::Rgba8Srgb => TargetFormat::Rgba8Srgb,
                 ffi::OffscreenTargetFormat::Rgba16Float => TargetFormat::Rgba16Float,
                 ffi::OffscreenTargetFormat::Rgb10A2 => TargetFormat::Rgb10A2,
+                ffi::OffscreenTargetFormat::Bgra8 => TargetFormat::Bgra8,
+                ffi::OffscreenTargetFormat::Rgba8 => TargetFormat::Rgba8,
+                ffi::OffscreenTargetFormat::Rgba32Float => TargetFormat::Rgba32Float,
                 _ => TargetFormat::Bgra8Srgb,
             },
             sampling: TargetSampling {

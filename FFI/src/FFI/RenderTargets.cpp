@@ -75,6 +75,9 @@ namespace {
         {STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB, E::RenderTargetFormat::Rgba8Srgb},
         {STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT, E::RenderTargetFormat::Rgba16Float},
         {STURDY_RENDER_TARGET_FORMAT_RGB10A2, E::RenderTargetFormat::Rgb10A2},
+        {STURDY_RENDER_TARGET_FORMAT_BGRA8, E::RenderTargetFormat::Bgra8},
+        {STURDY_RENDER_TARGET_FORMAT_RGBA8, E::RenderTargetFormat::Rgba8},
+        {STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT, E::RenderTargetFormat::Rgba32Float},
     };
     constexpr Mapping<SturdyRenderTargetUse, E::RenderTargetUse> use_table[] = {
         {STURDY_RENDER_TARGET_USE_SCREEN, E::RenderTargetUse::Screen},

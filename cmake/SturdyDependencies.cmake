@@ -55,9 +55,8 @@ set(STURDY_LIBFLAC_TAG "1.5.0" CACHE STRING "libFLAC git tag to fetch.")
 # Core's interface for Web (precompiled/offline shaders instead of in-engine compilation).
 # Foundation and Platform are unaffected and build/link cleanly for Web today.
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
-# Clay is vendored in-tree (thirdparty/clay/), forked from upstream v0.14 with this engine's own
-# correctness fixes applied on top — see sturdy_fetch_clay() and the modification notice at the top
-# of thirdparty/clay/clay.h. No longer fetched, so no CACHE tag variable here to keep in sync.
+# Clay is no longer a dependency: the engine's fork lives in-tree as SEClay (Renderer/src/Renderer/UI/SEClay/),
+# a derivative of Clay v0.14 under Clay's zlib license (see sturdy_register_seclay_license()).
 # msdfgen-core has no dependency on FreeType/PNG/Skia — those only gate msdfgen-ext (font loading)
 # and the msdfgen-standalone CLI, neither of which this engine uses: HarfBuzz's hb-draw already
 # supplies glyph outlines directly (see Text/Outline.cppm), so msdfgen only ever consumes shapes
@@ -719,7 +718,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_libunibreak()
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
-        sturdy_fetch_clay()
+        sturdy_register_seclay_license()
         sturdy_fetch_msdfgen()
         sturdy_fetch_lunasvg()
         sturdy_fetch_stb_image()
@@ -782,7 +781,7 @@ function(sturdy_configure_dependencies)
         sturdy_find_libunibreak()
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
-        sturdy_find_clay()
+        sturdy_register_seclay_license()
         find_package(msdfgen CONFIG REQUIRED)
         find_package(lunasvg CONFIG REQUIRED)
         sturdy_find_stb_image()
@@ -1159,21 +1158,6 @@ function(sturdy_find_slang)
     if(NOT TARGET Sturdy::Slang)
         add_library(Sturdy::Slang INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Sturdy::Slang INTERFACE "${_sturdy_slang_target}")
-    endif()
-endfunction()
-
-# Clay ships no installed CMake package (its own CMakeLists.txt only builds examples), so unlike
-# the other STURDY_PREFER_SYSTEM_DEPENDENCIES=OFF paths, this just looks for a system-installed
-# clay.h rather than a find_package() config.
-function(sturdy_find_clay)
-    find_path(STURDY_CLAY_INCLUDE_DIR NAMES clay.h)
-    if(NOT STURDY_CLAY_INCLUDE_DIR)
-        message(FATAL_ERROR "Could not find clay.h. Install Clay or enable STURDY_FETCH_DEPENDENCIES.")
-    endif()
-
-    if(NOT TARGET clay)
-        add_library(clay INTERFACE)
-        target_include_directories(clay INTERFACE "${STURDY_CLAY_INCLUDE_DIR}")
     endif()
 endfunction()
 
@@ -2036,24 +2020,12 @@ function(sturdy_find_audio_codecs)
 endfunction()
 
 
-function(sturdy_fetch_clay)
-    # Clay (clay.h) is vendored directly into this repository at thirdparty/clay/ rather than fetched
-    # at configure time — this engine's UI depends on real correctness fixes (not speculative
-    # patches) applied on top of upstream v0.14 that upstream doesn't have; see the modification
-    # notice at the top of thirdparty/clay/clay.h for exactly what changed and why. A FetchContent-based
-    # fetch would silently discard those fixes on the next dependency refresh/cache wipe, so this is
-    # the one dependency in this file that is intentionally *not* re-downloaded.
-    set(_sturdy_clay_dir "${CMAKE_SOURCE_DIR}/thirdparty/clay")
-    if(NOT EXISTS "${_sturdy_clay_dir}/clay.h")
-        message(FATAL_ERROR "sturdy_fetch_clay: vendored clay.h not found at ${_sturdy_clay_dir} — this dependency is no longer fetched, it must be present in-tree.")
-    endif()
-
-    if(NOT TARGET clay)
-        add_library(clay INTERFACE)
-        target_include_directories(clay INTERFACE "${_sturdy_clay_dir}")
-    endif()
-    sturdy_mark_dependency_targets_exclude_from_all(clay)
-    sturdy_register_license(clay "${_sturdy_clay_dir}")
+function(sturdy_register_seclay_license)
+    # SEClay (Sturdy Engine Clay) is no longer a dependency: it is the engine's own UI layout library,
+    # derived from Clay v0.14, and lives in Renderer/src/Renderer/UI/SEClay/ as ordinary engine source.
+    # It is still a derivative of Clay, so Clay's zlib license (with the derivative notice) ships with
+    # the collected licenses.
+    sturdy_register_license_file(seclay "${CMAKE_SOURCE_DIR}/Renderer/src/Renderer/UI/SEClay/LICENSE.md")
 endfunction()
 
 function(sturdy_fetch_msdfgen)
@@ -2113,7 +2085,7 @@ endfunction()
 
 function(sturdy_fetch_stb_image)
     # stb_image.h is a single header with no CMakeLists.txt of its own — wire up the include
-    # directory by hand, same shape as sturdy_fetch_clay().
+    # directory by hand, same shape as the other vendored dependencies.
     sturdy_fetchcontent_declare(stb
         GIT_REPOSITORY https://github.com/nothings/stb.git
         GIT_TAG ${STURDY_STB_TAG}
@@ -3077,10 +3049,6 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::miniaudio
         miniaudio::miniaudio
         miniaudio
-    )
-
-    sturdy_alias_existing_target(Sturdy::clay
-        clay
     )
 
     sturdy_alias_existing_target(Sturdy::MsdfGen

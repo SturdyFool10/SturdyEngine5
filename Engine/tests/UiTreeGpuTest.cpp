@@ -11,6 +11,7 @@
 #include <glm/gtc/packing.hpp>
 
 #include <array>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <string>
@@ -41,7 +42,8 @@ namespace {
             case RHI::Format::BGRA8Unorm:
             case RHI::Format::BGRA8UnormSrgb:
             case RHI::Format::RGBA8Unorm:
-            case RHI::Format::RGBA8UnormSrgb: texel_bytes = 4; break;
+            case RHI::Format::RGBA8UnormSrgb:
+            case RHI::Format::RGB10A2Unorm: texel_bytes = 4; break;
             case RHI::Format::RGBA16Float: texel_bytes = 8; break;
             default:
                 Foundation::log_error("unsupported target format {}", static_cast<int>(format));
@@ -105,6 +107,11 @@ namespace {
             for (int c = 0; c < 3; ++c) {
                 rgb[c] = static_cast<u32>(std::clamp(glm::unpackHalf1x16(halves[c]), 0.0f, 1.0f) * 255.0f + 0.5f);
             }
+        } else if (format == RHI::Format::RGB10A2Unorm) {
+            u32 packed = 0;
+            std::memcpy(&packed, texel, 4);
+            rgb = {static_cast<u32>((packed & 1023u) * 255u / 1023u), static_cast<u32>(((packed >> 10) & 1023u) * 255u / 1023u),
+                   static_cast<u32>(((packed >> 20) & 1023u) * 255u / 1023u)};
         } else if (format == RHI::Format::BGRA8Unorm || format == RHI::Format::BGRA8UnormSrgb) {
             rgb = {texel[2], texel[1], texel[0]};
         } else {
@@ -196,6 +203,22 @@ int main() {
     engine->wait_idle();
     check(engine->render_health().frames_failed == 0, std::format("rendering the monitors must not fail: {}", engine->render_health().last_error));
 
+    // Both monitors were drawn in one frame, and the graph found the second one's pass independent of the first's chain: it does not
+    // wait behind it (same level as the first tree's own overlay pass or earlier).
+    {
+        const auto plan = engine->renderer()->last_frame_execution_plan(*surface);
+        std::optional<u32> green_level;
+        std::optional<u32> red_level;
+        for (const auto &pass : plan) {
+            const std::string label = pass.label.cpp_string();
+            if (label == "green monitor target") green_level = pass.level;
+            if (label == "red monitor") red_level = pass.level;
+        }
+        check(green_level && red_level, "the frame holds a pass for each monitor");
+        check(green_level && red_level && *green_level <= *red_level,
+              "the second monitor's pass is independent of the first's (it must not run after it)");
+    }
+
     const auto red_inside = read_texel(*engine, targets[0], kSize / 4, kSize / 4);
     const auto red_outside = read_texel(*engine, targets[0], kSize * 3 / 4, kSize * 3 / 4);
     const auto green_inside = read_texel(*engine, targets[1], kSize / 4, kSize / 4);
@@ -217,6 +240,61 @@ int main() {
     engine->ecs_world().get_component<Engine::UiTree>(red)->request_rebuild();
     engine->update(1.0 / 60.0);
     check(engine->render_ui_tree_targets() == 1, "only the monitor that changed must be rendered again");
+
+    // Targets that need more than a draw: a shader-encoded 10-bit one, a plain 8-bit one (also encoded by a shader), and a mipped one. They
+    // join the same shared frame: the renderer declares each target's encode and mip passes, and each still ends up right.
+    {
+        struct Extra {
+            const char *name;
+            Engine::RenderTargetFormat format;
+            u32 mips;
+            UI::Color color;
+        };
+        const Extra extras[] = {
+            {"rgb10a2", Engine::RenderTargetFormat::Rgb10A2, 1, UI::Color{1.0, 0.0, 0.0, 1.0}},
+            {"plain 8-bit", Engine::RenderTargetFormat::Bgra8, 1, UI::Color{0.0, 1.0, 0.0, 1.0}},
+            {"mipped", Engine::RenderTargetFormat::Bgra8Srgb, 0, UI::Color{1.0, 0.0, 0.0, 1.0}},
+        };
+        std::vector<Engine::RenderTargetHandle> extra_targets;
+        std::vector<int> extra_builds(3, 0);
+        for (usize i = 0; i < 3; ++i) {
+            auto created = engine->create_offscreen_render_target(Engine::OffscreenRenderTargetDescription{
+                .width = kSize, .height = kSize, .label = UString{std::string_view{extras[i].name}}, .format = extras[i].format,
+                .mip_levels = extras[i].mips});
+            if (!check(created.has_value(), "an off-screen target in an extra format must be created")) return 1;
+            extra_targets.push_back(*created);
+            (void)engine->spawn_ui_tree({.name = extras[i].name,
+                                         .target = Engine::UiOffscreenTarget{*created},
+                                         .builder = monitor_ui(extras[i].color, extra_builds[i]),
+                                         .rebuild = Engine::UiRebuildPolicy::OnDirty,
+                                         .clear_color = {0.0f, 0.0f, 1.0f, 1.0f}});
+        }
+        engine->update(1.0 / 60.0);
+        check(engine->render_ui_tree_targets() == 3, "all three extra monitors must be rendered");
+        engine->wait_idle();
+        check(engine->render_health().frames_failed == 0, std::format("the extra monitors must not fail: {}", engine->render_health().last_error));
+        for (usize i = 0; i < 3; ++i) {
+            const auto inside = read_texel(*engine, extra_targets[i], kSize / 4, kSize / 4);
+            const auto outside = read_texel(*engine, extra_targets[i], kSize * 3 / 4, kSize * 3 / 4);
+            const bool red_expected = extras[i].color.r > 0.5;
+            const auto text = [](const std::optional<std::array<u32, 3>> &rgb) {
+                return rgb ? std::format("{},{},{}", (*rgb)[0], (*rgb)[1], (*rgb)[2]) : std::string{"none"};
+            };
+            check(inside && (red_expected ? (*inside)[0] > 200 && (*inside)[1] < 60 : (*inside)[1] > 200 && (*inside)[0] < 60),
+                  std::format("the {} monitor shows its panel colour (got {})", extras[i].name, text(inside)));
+            check(outside && (*outside)[2] > 200 && (*outside)[0] < 60,
+                  std::format("the {} monitor shows its clear colour outside the panel (got {})", extras[i].name, text(outside)));
+        }
+        const auto plan = engine->renderer()->last_frame_execution_plan(*surface);
+        usize encodes = 0;
+        usize mips = 0;
+        for (const auto &pass : plan) {
+            encodes += pass.label.cpp_string() == "off-screen target encode";
+            mips += pass.label.cpp_string() == "off-screen target mip";
+        }
+        check(encodes == 2, std::format("the two shader-encoded targets get an encode pass each (found {})", encodes));
+        check(mips > 0, "the mipped target gets its chain filtered down");
+    }
 
     // The window tree rides on the window's frame without the frame callback appending anything.
     const Core::FrameInput frame{.delta_seconds = 1.0 / 60.0, .frame_index = 1, .framebuffer_width = kSize, .framebuffer_height = kSize};

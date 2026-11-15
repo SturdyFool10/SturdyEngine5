@@ -11,7 +11,17 @@
 
 namespace SFT::UI {
 
-    enum class UiQuadKind : u32 { Rect = 0, Image = 1, ImageNearest = 2 };
+    /// `ImagePremultiplied` is an image whose colour is already multiplied by its alpha (what a UI effect group renders): the shader
+    /// divides it back out before the pipeline's straight-alpha blend, so the result composites as premultiplied source-over.
+    ///
+    /// `ImagePremultipliedOut` is the same input but written out premultiplied (colour already times alpha, which is what an additive or
+    /// multiply blend wants); an effect group uses it for those two composites, and `ImagePremultiplied` for normal and replace.
+    enum class UiQuadKind : u32 { Rect = 0, Image = 1, ImageNearest = 2, ImagePremultiplied = 3, ImagePremultipliedOut = 4 };
+
+    /// How a quad is laid over what is already drawn. A property of the pipeline, so a quad with anything but `Normal` is drawn in a
+    /// batch of its own. `Additive` adds its (premultiplied) colour; `Multiply` multiplies the destination by it (`dst * (1 - a + a * c)`);
+    /// `Replace` overwrites the destination, alpha included.
+    enum class UiQuadBlend : u8 { Normal, Additive, Multiply, Replace };
 
                                                                                                        
                                                                                                 
@@ -36,7 +46,9 @@ namespace SFT::UI {
         glm::vec2 size{0.0f};
                                                                                        
         glm::vec4 corner_radius{0.0f};
-                                                                         
+        /// The four corners' `CornerShape` bytes (`pack_corner_shapes`, UI/Style.hpp): top left in bits 0-7, top right 8-15,
+        /// bottom left 16-23, bottom right 24-31. Zero is four round corners, so a quad that never sets it is unchanged.
+        u32 corner_shape_codes = 0;
         glm::vec4 border_width{0.0f};
         glm::vec4 fill_color{1.0f};
         glm::vec4 border_color{0.0f};
@@ -45,7 +57,6 @@ namespace SFT::UI {
         f32 kind = 0.0f;
         f32 _pad0 = 0.0f;
         f32 _pad1 = 0.0f;
-        f32 _pad2 = 0.0f;
     };
 
     /// The record `UiQuadPipeline` uploads for one quad: `UiQuadInstance` with its radii, widths and colours stored as
@@ -62,9 +73,10 @@ namespace SFT::UI {
         glm::vec2 uv_max{1.0f};
         /// Low 8 bits: the kind (`UiQuadKind`). The rest: the index into the bound texture array (bindless draws only).
         u32 kind_and_texture = 0;
-        /// Fills the record out to a multiple of 8 bytes, which is the stride a structured buffer of it has on the GPU
-        /// (the 8-byte `float2`/`uint2` members make the whole struct 8-byte aligned).
-        u32 reserved = 0;
+        /// The four corner profiles, one byte each (`UiQuadInstance::corner_shape_codes`). Also what rounds the record out to a
+        /// multiple of 8 bytes, the stride a structured buffer of it has on the GPU (the 8-byte `float2`/`uint2` members make the
+        /// whole struct 8-byte aligned).
+        u32 corner_shape_codes = 0;
     };
     static_assert(sizeof(UiQuadInstanceGpu) == 72 && alignof(UiQuadInstanceGpu) == 4,
                   "UiQuadInstanceGpu must match the 18-word record in ui_quad.slang");
@@ -120,6 +132,7 @@ namespace SFT::UI {
         packed.uv_min = instance.uv_min;
         packed.uv_max = instance.uv_max;
         packed.kind_and_texture = (static_cast<u32>(instance.kind) & 0xFFu) | (texture_index << 8u);
+        packed.corner_shape_codes = instance.corner_shape_codes;
         return packed;
     }
 

@@ -86,6 +86,7 @@ namespace SFT::Renderer {
             }
             usage.always_live = pass.side_effect_ ||
                                 (pass.color_attachments_.empty() && !pass.has_depth_stencil_attachment_);
+            usage.shareable_reads = true;
             return usage;
         }
 
@@ -881,6 +882,28 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 ///
 /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
 /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+vector<RenderGraph::PassExecutionInfo> RenderGraph::execution_plan() const {
+    vector<PassExecutionInfo> out;
+    const CompileResult compiled = compile();
+    if (!compiled.has_value()) {
+        return out;
+    }
+    const vector<u32> levels = compute_execution_levels(compiled->order);
+    out.reserve(compiled->order.size());
+    for (usize i = 0; i < compiled->order.size(); ++i) {
+        const OrderedPass &ordered = compiled->order[i];
+        UString label;
+        switch (ordered.kind) {
+            case PassKind::Render: label = render_passes_[ordered.index].label_; break;
+            case PassKind::Compute: label = compute_passes_[ordered.index].label_; break;
+            case PassKind::Blit: label = blit_passes_[ordered.index].label; break;
+            case PassKind::Copy: label = copy_passes_[ordered.index].label; break;
+        }
+        out.push_back(PassExecutionInfo{.label = std::move(label), .level = levels[i]});
+    }
+    return out;
+}
+
 [[nodiscard]] Core::RendererResult RenderGraph::execute_one_pass(RHI::CommandEncoder &encoder, const OrderedPass &ordered,
                                                                    u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
                                                                    bool timing_enabled, bool cpu_timing_enabled,
@@ -976,7 +999,14 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             ZoneScopedN("RenderGraph::compute_levels_from_usage");
             const usize count = usage_by_position.size();
             const usize logical_key_offset = physical_slots_.size();
-            vector<i64> last_touch_pos(physical_slots_.size() + textures_.size(), -1);
+            // Per texture (physical slot, or logical texture when it has none): the last pass that wrote it, and the passes that have
+            // only read it since. A reader waits for the writer; a writer waits for the writer and every reader since (RAW, WAW, WAR).
+            // Two readers do not wait for each other.
+            struct Track {
+                i64 writer = -1;
+                vector<i64> readers;
+            };
+            vector<Track> tracks(physical_slots_.size() + textures_.size());
             vector<i64> last_buffer_touch_pos(buffers_.size(), -1);
             const auto touch_key = [this, logical_key_offset](RenderGraphTextureHandle handle) -> usize {
                 const TextureRecord *record = texture_record(handle);
@@ -990,41 +1020,69 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             };
             vector<u32> level(count, 0);
             for (usize i = 0; i < count; ++i) {
+                const PassUsage &usage = usage_by_position[i];
+                const auto is_written = [&usage](RenderGraphTextureHandle handle) {
+                    return std::find(usage.writes.begin(), usage.writes.end(), handle) != usage.writes.end();
+                };
                 u32 pass_level = 0;
-                for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
-                    for (RenderGraphTextureHandle handle : *handles) {
-                        const usize key = touch_key(handle);
-                        if (key >= last_touch_pos.size()) {
-                            continue;
-                        }
-                        const i64 toucher = last_touch_pos[key];
-                        if (toucher >= 0) {
-                            pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
+                const auto after = [&](i64 toucher) {
+                    if (toucher >= 0) {
+                        pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
+                    }
+                };
+                for (RenderGraphTextureHandle handle : usage.reads) {
+                    const usize key = touch_key(handle);
+                    if (key >= tracks.size()) {
+                        continue;
+                    }
+                    after(tracks[key].writer);
+                    if (!usage.shareable_reads || is_written(handle)) {
+                        for (i64 reader : tracks[key].readers) {
+                            after(reader);
                         }
                     }
                 }
+                for (RenderGraphTextureHandle handle : usage.writes) {
+                    const usize key = touch_key(handle);
+                    if (key >= tracks.size()) {
+                        continue;
+                    }
+                    after(tracks[key].writer);
+                    for (i64 reader : tracks[key].readers) {
+                        after(reader);
+                    }
+                }
                 for (const vector<RenderGraphBufferHandle> *handles : {
-                         &usage_by_position[i].buffer_reads, &usage_by_position[i].buffer_writes}) {
+                         &usage.buffer_reads, &usage.buffer_writes}) {
                     for (RenderGraphBufferHandle handle : *handles) {
                         if (handle.index < last_buffer_touch_pos.size()) {
-                            const i64 toucher = last_buffer_touch_pos[handle.index];
-                            if (toucher >= 0) {
-                                pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
-                            }
+                            after(last_buffer_touch_pos[handle.index]);
                         }
                     }
                 }
                 level[i] = pass_level;
-                for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
-                    for (RenderGraphTextureHandle handle : *handles) {
-                        const usize key = touch_key(handle);
-                        if (key < last_touch_pos.size()) {
-                            last_touch_pos[key] = static_cast<i64>(i);
-                        }
+                for (RenderGraphTextureHandle handle : usage.reads) {
+                    const usize key = touch_key(handle);
+                    if (key >= tracks.size()) {
+                        continue;
+                    }
+                    if (usage.shareable_reads && !is_written(handle)) {
+                        tracks[key].readers.push_back(static_cast<i64>(i));
+                    } else {
+                        // A read that cannot be shared is ordered like a write.
+                        tracks[key].writer = static_cast<i64>(i);
+                        tracks[key].readers.clear();
+                    }
+                }
+                for (RenderGraphTextureHandle handle : usage.writes) {
+                    const usize key = touch_key(handle);
+                    if (key < tracks.size()) {
+                        tracks[key].writer = static_cast<i64>(i);
+                        tracks[key].readers.clear();
                     }
                 }
                 for (const vector<RenderGraphBufferHandle> *handles : {
-                         &usage_by_position[i].buffer_reads, &usage_by_position[i].buffer_writes}) {
+                         &usage.buffer_reads, &usage.buffer_writes}) {
                     for (RenderGraphBufferHandle handle : *handles) {
                         if (handle.index < last_buffer_touch_pos.size()) {
                             last_buffer_touch_pos[handle.index] = static_cast<i64>(i);
@@ -1170,6 +1228,68 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     }
                     out_command_buffers.push_back(*finished);
                     continue;
+                }
+
+                // Textures that several passes of this level only read: put them in the union of those passes' read states now, in a command
+                // buffer that runs before the level's, so the passes (recorded concurrently) find them ready and change nothing.
+                {
+                    struct SharedRead {
+                        RenderGraphTextureHandle texture{};
+                        usize passes = 0;
+                        RHI::PipelineStage stages{};
+                        RHI::AccessFlags access{};
+                    };
+                    vector<SharedRead> shared;
+                    for (usize i : positions) {
+                        if (execution_order[i].kind != PassKind::Render) {
+                            continue;
+                        }
+                        const RenderGraphRenderPassBuilder &pass = render_passes_[execution_order[i].index];
+                        vector<RenderGraphTextureHandle> seen_in_pass;
+                        for (const RenderGraphSampledTextureReadDesc &read : pass.sampled_texture_reads_) {
+                            auto entry = std::find_if(shared.begin(), shared.end(), [&](const SharedRead &s) { return s.texture == read.texture; });
+                            if (entry == shared.end()) {
+                                shared.push_back(SharedRead{.texture = read.texture});
+                                entry = shared.end() - 1;
+                            }
+                            if (std::find(seen_in_pass.begin(), seen_in_pass.end(), read.texture) == seen_in_pass.end()) {
+                                seen_in_pass.push_back(read.texture);
+                                ++entry->passes;
+                            }
+                            entry->stages = entry->stages | read.stages;
+                            entry->access = entry->access | read.access;
+                        }
+                    }
+                    const bool any_shared = std::any_of(shared.begin(), shared.end(), [](const SharedRead &s) { return s.passes > 1; });
+                    if (any_shared) {
+                        auto prologue = device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph shared reads"});
+                        if (!prologue) {
+                            return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                     "execute_parallel: failed to create the shared-read command encoder."));
+                        }
+                        for (usize i : positions) {
+                            if (execution_order[i].kind != PassKind::Render) {
+                                continue;
+                            }
+                            for (const RenderGraphSampledTextureReadDesc &read : render_passes_[execution_order[i].index].sampled_texture_reads_) {
+                                const auto entry = std::find_if(shared.begin(), shared.end(), [&](const SharedRead &s) { return s.texture == read.texture; });
+                                if (entry == shared.end() || entry->passes < 2) {
+                                    continue;
+                                }
+                                if (Core::RendererResult moved = transition_texture(**prologue, read.texture, RHI::TextureLayout::ShaderReadOnly,
+                                                                                    entry->stages, entry->access, read.subresources);
+                                    !moved.has_value()) {
+                                    return fail(moved);
+                                }
+                            }
+                        }
+                        auto finished_prologue = (*prologue)->finish();
+                        if (!finished_prologue) {
+                            return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                     "execute_parallel: failed to finish the shared-read command encoder."));
+                        }
+                        out_command_buffers.push_back(*finished_prologue);
+                    }
                 }
 
                 struct LevelPassGroup {
@@ -1519,6 +1639,13 @@ void RenderGraph::reset() noexcept {
             for (u32 mip = first_mip; mip < first_mip + mip_count; ++mip) {
                 TextureState &state = slot->mip_states[mip];
                 if (state.layout == next_layout && state.stage == next_stage && state.access == next_access) {
+                    continue;
+                }
+                // Read after read in the same read layout needs no barrier when the earlier barrier already covered these stages and
+                // accesses (this is what lets passes that share a read-only texture be recorded in parallel: the texture is put in the
+                // union of their read states before the level, and no pass then changes its state).
+                if (next_layout == RHI::TextureLayout::ShaderReadOnly && state.layout == next_layout &&
+                    (state.stage & next_stage) == next_stage && (state.access & next_access) == next_access) {
                     continue;
                 }
                 const RHI::TextureBarrier barrier{

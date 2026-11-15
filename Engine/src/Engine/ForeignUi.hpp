@@ -57,18 +57,55 @@ namespace SFT::Engine {
         f32 corner_radius[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         /// Names the element for `hovered` / `clicked`; empty for none.
         std::string id;
+        /// Profile of each corner in the order of `corner_radius`: 1 round (the default), 2 squircle, 0 bevel, -1 scoop, +inf square,
+        /// -inf notch, or any CSS `superellipse(k)`.
+        f32 corner_shape[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        /// A `ForeignUiEffectId` from `ForeignUiEffects.hpp`, or 0 for none. The element and everything inside it is drawn through it.
+        u64 effect = 0;
+        /// Per-edge border colours and styles (left, right, top, bottom), when `has_border_edges`: straight-alpha sRGB colour and a
+        /// style (0 solid, 1 dashed, 2 dotted, 3 double) for each. The widths still come from where the element's border is declared.
+        /// Edge-aware layout: pad the element so children stay inside its rounded/bevelled/scooped/notched corners.
+        bool inset_for_corners = false;
+        /// Clipping: `clip_horizontal` / `clip_vertical` clip (and make scrollable) the overflow to the element's rectangle; `clip_follow_corners`
+        /// cuts it to the element's own rounded/shaped corners; `clip_path` is a `ForeignUiEffectId` of a clip effect (circle, polygon, ...) to cut it to.
+        bool clip_horizontal = false;
+        bool clip_vertical = false;
+        bool clip_follow_corners = false;
+        u64 clip_path = 0;
+        bool has_border_edges = false;
+        /// Left, right, top, bottom widths in pixels of the border the edges describe.
+        f32 border_width[4] = {};
+        f32 border_edge_color[4][4] = {};
+        u32 border_edge_style[4] = {};
     };
 
     struct ForeignUiTextStyle {
         u32 font_id = 0;
         u32 font_size = 16;
         f32 color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        /// Bits: 1 underline, 2 overline, 4 line-through.
+        u32 decoration_lines = 0;
+        /// 0 solid, 1 dashed, 2 dotted, 3 double.
+        u32 decoration_style = 0;
+        /// Pixels; 0 = from the font size.
+        f32 decoration_thickness = 0.0f;
+        bool has_decoration_color = false;
+        f32 decoration_color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        bool shadow_enabled = false;
+        f32 shadow_offset[2] = {1.0f, 1.0f};
+        f32 shadow_color[4] = {0.0f, 0.0f, 0.0f, 0.5f};
     };
+
+    /// The engine text style for a foreign one. Fails for an unknown decoration style.
+    [[nodiscard]] ForeignUiResult<UI::TextStyle> make_foreign_ui_text_style(const ForeignUiTextStyle &style);
 
     /// Whether UI units follow the OS content scale (the default) or are raw pixels. Values match the C ABI.
     enum class ForeignUiScaleMode : u32 { ContentScale = 0, RawPixels = 1 };
 
     /// Loads a font file and registers it under `font_id`. Safe at any time: it is replayed into the UI context whenever that is rebuilt.
+    /// What decides where the window UI's elements react to the pointer: 0 CSS-like (transforms and clip-paths followed, drawn elements cover
+    /// those below; the default), 1 fixed to the layout. Takes effect at the next frame. Any thread.
+    void set_foreign_ui_hit_test_mode(u32 mode) noexcept;
     [[nodiscard]] ForeignUiResult<void> register_foreign_ui_font(Engine &engine, std::string_view path, u32 font_id);
     [[nodiscard]] ForeignUiResult<void> set_foreign_ui_scale_mode(Engine &engine, ForeignUiScaleMode mode);
 
@@ -101,6 +138,9 @@ namespace SFT::Engine {
     /// frame ends with `end_foreign_ui_frame`. Does nothing when no frame is open.
     void discard_foreign_ui_frame() noexcept;
 
+    /// The engine declaration for `element` (sizing, padding, colours, corner radii and shapes, effect, id). Fails for an unrecognised
+    /// sizing mode or an unknown effect id. No frame needs to be open.
+    [[nodiscard]] ForeignUiResult<UI::ElementDecl> make_foreign_ui_decl(const ForeignUiElement &element);
     [[nodiscard]] ForeignUiResult<void> begin_foreign_ui_element(const ForeignUiElement &element);
     /// Opens an element from a ready-made declaration (a dock panel's content region, say); close it with `end_foreign_ui_element`.
     [[nodiscard]] ForeignUiResult<void> begin_foreign_ui_declared_element(const UI::ElementDecl &declaration);

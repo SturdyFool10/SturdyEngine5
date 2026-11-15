@@ -205,6 +205,9 @@ pub mod ffi {
         Rgba8Srgb,
         Rgba16Float,
         Rgb10A2,
+        Bgra8,
+        Rgba8,
+        Rgba32Float,
     }
 
     /// `SFT::Engine::RenderTargetFilter`.

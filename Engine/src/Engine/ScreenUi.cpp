@@ -149,7 +149,12 @@ namespace SFT::Engine {
         if (const WindowSnapshot *window = tracked_window()) {
             surface_.set_content_scale(window->content_scale);
         }
+        surface_.set_texture_resolver(engine_.renderer());
         return surface_.begin_frame(viewport, delta_seconds);
+    }
+
+    std::vector<Renderer::OverlayPass> ScreenUi::finish_overlays(UI::UiOverlayOptions options) {
+        return surface_.finish_overlays(engine_.renderer(), std::move(options));
     }
 
     Renderer::OverlayPass ScreenUi::finish_overlay(UI::UiOverlayOptions options) {

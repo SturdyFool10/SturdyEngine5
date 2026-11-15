@@ -285,4 +285,9 @@ namespace SFT::Renderer {
         return nullptr;
     }
 
+    vector<RenderGraph::PassExecutionInfo> Renderer::last_frame_execution_plan(Core::RenderSurfaceHandle surface) const {
+        const WindowSurfaceRecord *record = window_surface(surface);
+        return record != nullptr ? record->graph.execution_plan() : vector<RenderGraph::PassExecutionInfo>{};
+    }
+
 } // namespace SFT::Renderer

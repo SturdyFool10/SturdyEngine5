@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <Async/Mutex.hpp>
 #include <Core/Core.hpp>
@@ -64,6 +65,8 @@ namespace SFT::UI {
         /// when the GPU objects cannot be created.
         [[nodiscard]] bool ensure_ready(RHI::RhiDevice &device, RHI::Format color_format);
         [[nodiscard]] bool ready() const;
+        /// The colour format the renderer was built for, or `Undefined` before there is one.
+        [[nodiscard]] RHI::Format renderer_format() const noexcept { return renderer_state_->format.load(); }
 
         /// Creates the layout context only (no GPU objects), so a UI can be laid out before a device exists or with
         /// none at all (headless trees, tests). `ensure_ready` does this too. Returns false, and logs why, on failure.
@@ -92,9 +95,17 @@ namespace SFT::UI {
         /// pointer (`input().pointer_consumed()`). Layout itself runs in `extent / pixel_scale()` units.
         Context &begin_frame(glm::vec2 extent, f32 delta_seconds);
 
+        /// The renderer whose textures image masks read for `HitTestMode::Fixed` (the pixels of a texture made from data). Optional; set it once.
+        void set_texture_resolver(Renderer::Renderer *resolver) noexcept { texture_resolver_ = resolver; }
+
         /// Finishes the frame and returns the overlay that draws it. `texture_resolver` is the renderer the UI's
         /// images resolve textures through (and where glow passes come from).
         [[nodiscard]] Renderer::OverlayPass finish_overlay(Renderer::Renderer *texture_resolver, OverlayOptions options = {});
+
+        /// Finishes the frame and returns one overlay per UI layer, lowest first (`UiEffect::layer`, `Effects::layer`). Append them all
+        /// to the frame's overlay passes in order: a layer's effects can read (`Backdrop`) everything the lower layers drew. With no
+        /// layered element this is the one overlay `finish_overlay` returns. Layers above the first build their renderers on first use.
+        [[nodiscard]] std::vector<Renderer::OverlayPass> finish_overlays(Renderer::Renderer *texture_resolver, OverlayOptions options = {});
 
         /// Like `finish_overlay`, for a snapshot you finished yourself.
         [[nodiscard]] Renderer::OverlayPass overlay_for_snapshot(std::shared_ptr<FrameSnapshot> snapshot,
@@ -106,6 +117,20 @@ namespace SFT::UI {
         /// later than it was finished. The caller ends the text frame once, when it finishes the layout.
         [[nodiscard]] Renderer::OverlayPass make_overlay(std::shared_ptr<FrameSnapshot> snapshot, Renderer::Renderer *texture_resolver,
                                                          OverlayOptions options = {}) const;
+
+        /// A side overlay that draws `snapshot` into an off-screen render target of its own, clearing it to `clear_color` first (straight alpha),
+        /// as passes the frame's graph schedules like any others: several of these in one frame are independent of each other, so the graph
+        /// records them in parallel. Works for single-mip targets in a format the UI renderer was built for (`ensure_ready` with the
+        /// target's format); anything else draws nothing and the caller renders that target the ordinary way. The overlay is a
+        /// `prepare_only` overlay: it adds nothing to the frame's own target.
+        [[nodiscard]] Renderer::OverlayPass make_target_overlay(std::shared_ptr<FrameSnapshot> snapshot, Renderer::Renderer *texture_resolver,
+                                                                Renderer::OffscreenRenderTargetHandle target, glm::vec4 clear_color,
+                                                                OverlayOptions options = {}) const;
+
+        /// The overlays for the pieces `FrameSnapshot::split_layers` made, lowest first, without ending the input's text frame.
+        [[nodiscard]] std::vector<Renderer::OverlayPass> make_layer_overlays(std::vector<std::shared_ptr<FrameSnapshot>> pieces,
+                                                                             Renderer::Renderer *texture_resolver,
+                                                                             OverlayOptions options = {});
 
         /// What the renderer built for the most recent frame (draws, textures, bytes uploaded), or zeros before there is one.
         [[nodiscard]] UiRenderStats render_stats() const;
@@ -132,6 +157,13 @@ namespace SFT::UI {
         Context context_{};
         UiInput input_{};
         std::shared_ptr<RendererState> renderer_state_ = std::make_shared<RendererState>();
+        /// Renderers of the layers above the first (index 0 is layer piece 1), built when their overlay is first prepared.
+        std::vector<std::shared_ptr<RendererState>> layer_states_;
+
+        [[nodiscard]] Renderer::OverlayPass make_overlay_for(std::shared_ptr<RendererState> state, bool create_on_demand,
+                                                             std::shared_ptr<FrameSnapshot> snapshot,
+                                                             Renderer::Renderer *texture_resolver, OverlayOptions options) const;
+        Renderer::Renderer *texture_resolver_ = nullptr;
         f32 content_scale_ = 1.0f;
         UiScaleMode scale_mode_ = UiScaleMode::ContentScale;
         bool context_created_ = false;

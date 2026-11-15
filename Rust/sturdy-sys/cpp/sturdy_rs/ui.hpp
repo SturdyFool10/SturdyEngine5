@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include <rust/cxx.h>
 
@@ -46,6 +47,12 @@ namespace sturdy_rs::ui {
     struct UiDockTabDrag;
     struct UiDockPanelInfo;
     struct UiDockEvents;
+    struct UiEffectOutcome;
+    struct UiEffectSpec;
+    struct UiEffectOptions;
+    struct UiEffectPassDesc;
+    struct UiNodeDesc;
+    struct UiNodeOutcome;
 
     /// Owned by Rust via `UniquePtr`; see src/ui.rs.
     using DockWorkspace = SFT::UI::Docking::DockWorkspace;
@@ -93,13 +100,28 @@ namespace sturdy_rs::ui {
     void ui_set_hdr_reference_white(float scale) noexcept;
     void ui_set_hdr_paper_white_nits(float nits) noexcept;
     void ui_set_raw_pixel_layout(bool raw) noexcept;
+    void ui_set_hit_test_fixed(bool fixed) noexcept;
 
     bool ui_begin_element(const UiElementDesc &desc);
+    UiEffectOutcome ui_effect_create(const UiEffectSpec &spec, const UiEffectOptions &options);
+    UiEffectOutcome ui_effect_create_custom(rust::Str name, const UiEffectOptions &options);
+    UiEffectOutcome ui_effect_add_pass(std::uint64_t effect, const UiEffectPassDesc &pass);
+    UiEffectOutcome ui_effect_set_options(std::uint64_t effect, const UiEffectOptions &options);
+    UiEffectOutcome ui_effect_release(std::uint64_t effect);
+    UiNodeOutcome ui_node_spawn(EngineView &engine, const UiNodeDesc &node);
+    UiNodeOutcome ui_node_update(EngineView &engine, std::uint32_t index, std::uint32_t generation, const UiNodeDesc &node);
+    UiNodeOutcome ui_node_destroy(EngineView &engine, std::uint32_t index, std::uint32_t generation, bool recursive);
+    UiNodeOutcome ui_node_state(EngineView &engine, std::uint32_t index, std::uint32_t generation);
+    void ui_node_touch() noexcept;
+    UiNodeOutcome ui_node_tree_spawn(EngineView &engine, std::uint32_t root_index, std::uint32_t root_generation, rust::Str name,
+                                     std::int32_t layer, std::uint64_t offscreen_target);
     bool ui_end_element();
     bool ui_text(rust::Str text, const UiTextStyle &style);
 
     bool ui_image(const UiElementDesc &desc, UiTexture texture);
     bool ui_image_sampled(const UiElementDesc &desc, UiTexture texture, bool nearest);
+    bool ui_image_fitted(const UiElementDesc &desc, UiTexture texture, bool nearest, std::uint8_t fit, std::array<float, 2> position,
+                         std::array<float, 2> intrinsic_size);
     UiSvgOutcome ui_load_svg(EngineView &engine, rust::Str path, float target_px);
     UiSvgOutcome ui_load_svg_data(EngineView &engine, rust::Str name, rust::Slice<const std::uint8_t> svg, float target_px);
     void ui_clear_svg_cache(EngineView &engine);
@@ -167,7 +189,7 @@ namespace sturdy_rs::ui {
     /// finished building, if any (and if it has not already been taken). Called from `shim.cpp`'s
     /// `RustGameLogic::request_render_frame`, right after `ui_run_frame`, to append the result to
     /// that frame's `Engine::RenderFrameParameters::overlay_passes`. See ui.rs's module doc comment.
-    [[nodiscard]] std::optional<SFT::Renderer::OverlayPass> ui_take_pending_overlay() noexcept;
+    [[nodiscard]] std::vector<SFT::Renderer::OverlayPass> ui_take_pending_overlays() noexcept;
 
     /// The engine's shared on-screen UI (window input + context + renderer) for this engine.
     [[nodiscard]] SFT::Engine::ScreenUi &screen(EngineView &engine);

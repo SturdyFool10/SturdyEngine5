@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Sturdy {
     public static final int ABI_MAJOR = 0;
-    public static final int ABI_MINOR = 44;
+    public static final int ABI_MINOR = 46;
 
     private Sturdy() {}
 
@@ -1038,6 +1038,9 @@ public final class Sturdy {
         public static final int STURDY_RENDER_TARGET_FORMAT_RGBA8_SRGB = 2;
         public static final int STURDY_RENDER_TARGET_FORMAT_RGBA16_FLOAT = 3;
         public static final int STURDY_RENDER_TARGET_FORMAT_RGB10A2 = 4;
+        public static final int STURDY_RENDER_TARGET_FORMAT_BGRA8 = 5;
+        public static final int STURDY_RENDER_TARGET_FORMAT_RGBA8 = 6;
+        public static final int STURDY_RENDER_TARGET_FORMAT_RGBA32_FLOAT = 7;
     }
 
     /** SturdyRenderTargetUse */
@@ -1319,11 +1322,74 @@ public final class Sturdy {
         public static final int STURDY_TRY_CLOSED = 2;
     }
 
+    /** CSS colour spaces (CSS Color Module 4). Colours are straight-alpha with components in the space's own reference ranges: sRGB-style spaces 0..1, HSL/HWB saturation, lightness, whiteness and blackness 0..100, hue in degrees, Lab L 0..100, Oklab L 0..1. */
+    public static final class SturdyUiColorSpace {
+        private SturdyUiColorSpace() {}
+        public static final int STURDY_UI_COLOR_SPACE_SRGB = 0;
+        public static final int STURDY_UI_COLOR_SPACE_SRGB_LINEAR = 1;
+        public static final int STURDY_UI_COLOR_SPACE_DISPLAY_P3 = 2;
+        public static final int STURDY_UI_COLOR_SPACE_DISPLAY_P3_LINEAR = 3;
+        public static final int STURDY_UI_COLOR_SPACE_A98_RGB = 4;
+        public static final int STURDY_UI_COLOR_SPACE_PROPHOTO_RGB = 5;
+        public static final int STURDY_UI_COLOR_SPACE_REC2020 = 6;
+        public static final int STURDY_UI_COLOR_SPACE_XYZ_D50 = 7;
+        public static final int STURDY_UI_COLOR_SPACE_XYZ_D65 = 8;
+        public static final int STURDY_UI_COLOR_SPACE_LAB = 9;
+        public static final int STURDY_UI_COLOR_SPACE_OKLAB = 10;
+        public static final int STURDY_UI_COLOR_SPACE_HSL = 11;
+        public static final int STURDY_UI_COLOR_SPACE_HWB = 12;
+        public static final int STURDY_UI_COLOR_SPACE_LCH = 13;
+        public static final int STURDY_UI_COLOR_SPACE_OKLCH = 14;
+    }
+
     /** Which way an element stacks its children. */
     public static final class SturdyUiDirection {
         private SturdyUiDirection() {}
         public static final int STURDY_UI_DIRECTION_LEFT_TO_RIGHT = 0;
         public static final int STURDY_UI_DIRECTION_TOP_TO_BOTTOM = 1;
+    }
+
+    /** How an effect's finished image is laid over what is already drawn. */
+    public static final class SturdyUiEffectComposite {
+        private SturdyUiEffectComposite() {}
+        public static final int STURDY_UI_EFFECT_COMPOSITE_NORMAL = 0;
+        public static final int STURDY_UI_EFFECT_COMPOSITE_ADDITIVE = 1;
+        public static final int STURDY_UI_EFFECT_COMPOSITE_MULTIPLY = 2;
+        public static final int STURDY_UI_EFFECT_COMPOSITE_REPLACE = 3;
+    }
+
+    /** What one input of an effect pass is. */
+    public static final class SturdyUiEffectInputKind {
+        private SturdyUiEffectInputKind() {}
+        public static final int STURDY_UI_EFFECT_INPUT_GROUP_CONTENT = 0;
+        public static final int STURDY_UI_EFFECT_INPUT_PASS_OUTPUT = 1;
+        public static final int STURDY_UI_EFFECT_INPUT_TEXTURE = 2;
+        public static final int STURDY_UI_EFFECT_INPUT_BACKDROP = 3;
+    }
+
+    /** Which ready-made effect `sturdy_ui_effect_create` builds, and what `values` / `color` mean for it. */
+    public static final class SturdyUiEffectKind {
+        private SturdyUiEffectKind() {}
+        public static final int STURDY_UI_EFFECT_COLOR_ADJUST = 0;
+        public static final int STURDY_UI_EFFECT_TINT = 1;
+        public static final int STURDY_UI_EFFECT_BLUR = 2;
+        public static final int STURDY_UI_EFFECT_FAST_BLUR = 3;
+        public static final int STURDY_UI_EFFECT_DROP_SHADOW = 4;
+        public static final int STURDY_UI_EFFECT_GLOW = 5;
+        public static final int STURDY_UI_EFFECT_OUTLINE = 6;
+        public static final int STURDY_UI_EFFECT_INSET_SHADOW = 7;
+        public static final int STURDY_UI_EFFECT_FROSTED_GLASS = 8;
+        public static final int STURDY_UI_EFFECT_LAYER = 9;
+        public static final int STURDY_UI_EFFECT_LINEAR_GRADIENT = 10;
+        public static final int STURDY_UI_EFFECT_RADIAL_GRADIENT = 11;
+        public static final int STURDY_UI_EFFECT_CONIC_GRADIENT = 12;
+        public static final int STURDY_UI_EFFECT_TRANSFORM = 13;
+        public static final int STURDY_UI_EFFECT_CLIP_INSET = 14;
+        public static final int STURDY_UI_EFFECT_CLIP_CIRCLE = 15;
+        public static final int STURDY_UI_EFFECT_CLIP_ELLIPSE = 16;
+        public static final int STURDY_UI_EFFECT_CLIP_POLYGON = 17;
+        public static final int STURDY_UI_EFFECT_MASK_LINEAR = 18;
+        public static final int STURDY_UI_EFFECT_MASK_IMAGE = 19;
     }
 
     /** SturdyUiGraphBarStackMode */
@@ -1349,6 +1415,22 @@ public final class Sturdy {
         public static final int STURDY_UI_GRAPH_TYPE_BAR = 2;
         public static final int STURDY_UI_GRAPH_TYPE_SCATTER = 3;
         public static final int STURDY_UI_GRAPH_TYPE_PIE = 4;
+    }
+
+    /** What decides where UI elements react to the pointer (`sturdy_ui_clicked`, `sturdy_ui_hovered`, a tree's widgets). */
+    public static final class SturdyUiHitTestMode {
+        private SturdyUiHitTestMode() {}
+        public static final int STURDY_UI_HIT_TEST_CSS = 0;
+        public static final int STURDY_UI_HIT_TEST_FIXED = 1;
+    }
+
+    /** How the hue travels between two colours in a polar space (HSL, HWB, LCH, OKLCH). */
+    public static final class SturdyUiHueMethod {
+        private SturdyUiHueMethod() {}
+        public static final int STURDY_UI_HUE_SHORTER = 0;
+        public static final int STURDY_UI_HUE_LONGER = 1;
+        public static final int STURDY_UI_HUE_INCREASING = 2;
+        public static final int STURDY_UI_HUE_DECREASING = 3;
     }
 
     /** SturdyUiRebuildPolicy */
@@ -5961,6 +6043,122 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUdpOptions_send_buffer = 16L;
     public static final long SIZE_SturdyUdpOptions = 24L;
 
+    /** Handle to a UI effect. 0 is "no effect". (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiEffect = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("id")).withName("SturdyUiEffect");
+    public static final long OFFSET_SturdyUiEffect_id = 0L;
+    public static final long SIZE_SturdyUiEffect = 8L;
+
+    /** Describes a ready-made effect. (size 136, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiEffectDesc = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("kind"),
+            MemoryLayout.sequenceLayout(16, ValueLayout.JAVA_FLOAT).withName("values"),
+            ValueLayout.JAVA_INT.withName("value_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("texture"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("color"),
+            ValueLayout.JAVA_INT.withName("color_space"),
+            ValueLayout.JAVA_INT.withName("interpolation_space"),
+            ValueLayout.JAVA_INT.withName("interpolation_hue"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("stops"),
+            ValueLayout.JAVA_INT.withName("stop_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyUiEffectDesc");
+    public static final long OFFSET_SturdyUiEffectDesc_struct_size = 0L;
+    public static final long OFFSET_SturdyUiEffectDesc_kind = 4L;
+    public static final long OFFSET_SturdyUiEffectDesc_values = 8L;
+    public static final long OFFSET_SturdyUiEffectDesc_value_count = 72L;
+    public static final long OFFSET_SturdyUiEffectDesc_texture = 80L;
+    public static final long OFFSET_SturdyUiEffectDesc_color = 88L;
+    public static final long OFFSET_SturdyUiEffectDesc_color_space = 104L;
+    public static final long OFFSET_SturdyUiEffectDesc_interpolation_space = 108L;
+    public static final long OFFSET_SturdyUiEffectDesc_interpolation_hue = 112L;
+    public static final long OFFSET_SturdyUiEffectDesc_stops = 120L;
+    public static final long OFFSET_SturdyUiEffectDesc_stop_count = 128L;
+    public static final long SIZE_SturdyUiEffectDesc = 136L;
+
+    /** One texture a pass samples: the first is `Texture2D sourceTexture` in the pass's Slang shader, the rest `extraTexture0`, ... (size 24, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiEffectInput = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.JAVA_INT.withName("pass"),
+            ValueLayout.JAVA_LONG.withName("texture"),
+            ValueLayout.JAVA_INT.withName("base_mip"),
+            ValueLayout.JAVA_INT.withName("mip_count")).withName("SturdyUiEffectInput");
+    public static final long OFFSET_SturdyUiEffectInput_kind = 0L;
+    public static final long OFFSET_SturdyUiEffectInput_pass = 4L;
+    public static final long OFFSET_SturdyUiEffectInput_texture = 8L;
+    public static final long OFFSET_SturdyUiEffectInput_base_mip = 16L;
+    public static final long OFFSET_SturdyUiEffectInput_mip_count = 20L;
+    public static final long SIZE_SturdyUiEffectInput = 24L;
+
+    /** Applied on top of any effect, library or custom. Initialize with `sturdy_ui_effect_options_init`. (size 40, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyUiEffectOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("composite"),
+            ValueLayout.JAVA_FLOAT.withName("opacity"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("outset"),
+            ValueLayout.JAVA_BYTE.withName("clip_to_bounds"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("layer"),
+            ValueLayout.JAVA_INT.withName("content_mip_levels")).withName("SturdyUiEffectOptions");
+    public static final long OFFSET_SturdyUiEffectOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyUiEffectOptions_composite = 4L;
+    public static final long OFFSET_SturdyUiEffectOptions_opacity = 8L;
+    public static final long OFFSET_SturdyUiEffectOptions_outset = 12L;
+    public static final long OFFSET_SturdyUiEffectOptions_clip_to_bounds = 28L;
+    public static final long OFFSET_SturdyUiEffectOptions_layer = 32L;
+    public static final long OFFSET_SturdyUiEffectOptions_content_mip_levels = 36L;
+    public static final long SIZE_SturdyUiEffectOptions = 40L;
+
+    /** One pass of a custom effect: a fragment shader drawn over a full-target triangle. The shader file (Slang) defines `vertexMain` and `fragmentMain` (or `fragment_entry_point`), declares its inputs as above, and one `[[push_constant]]` block that starts with the engine's 48-byte `UiEffectConstants` (see `Shaders/sturdy_common.slang`) followed by `parameters`. Initialize with `sturdy_ui_effect_pass_init`. (size 112, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiEffectPass = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("label"),
+            ValueLayout.ADDRESS.withName("shader_path"),
+            ValueLayout.ADDRESS.withName("module_name"),
+            ValueLayout.ADDRESS.withName("fragment_entry_point"),
+            ValueLayout.ADDRESS.withName("inputs"),
+            ValueLayout.JAVA_INT.withName("input_count"),
+            ValueLayout.JAVA_BYTE.withName("linear_filter"),
+            ValueLayout.JAVA_BYTE.withName("linear_mips"),
+            MemoryLayout.paddingLayout(2),
+            ValueLayout.JAVA_INT.withName("address"),
+            ValueLayout.JAVA_FLOAT.withName("lod_bias"),
+            ValueLayout.JAVA_FLOAT.withName("min_lod"),
+            ValueLayout.JAVA_FLOAT.withName("max_lod"),
+            ValueLayout.JAVA_FLOAT.withName("max_anisotropy"),
+            ValueLayout.JAVA_INT.withName("output_format"),
+            ValueLayout.JAVA_FLOAT.withName("output_scale"),
+            ValueLayout.JAVA_INT.withName("output_mip_levels"),
+            ValueLayout.JAVA_INT.withName("output_mip_filter"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("parameters"),
+            ValueLayout.JAVA_INT.withName("parameter_size"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyUiEffectPass");
+    public static final long OFFSET_SturdyUiEffectPass_struct_size = 0L;
+    public static final long OFFSET_SturdyUiEffectPass_label = 8L;
+    public static final long OFFSET_SturdyUiEffectPass_shader_path = 16L;
+    public static final long OFFSET_SturdyUiEffectPass_module_name = 24L;
+    public static final long OFFSET_SturdyUiEffectPass_fragment_entry_point = 32L;
+    public static final long OFFSET_SturdyUiEffectPass_inputs = 40L;
+    public static final long OFFSET_SturdyUiEffectPass_input_count = 48L;
+    public static final long OFFSET_SturdyUiEffectPass_linear_filter = 52L;
+    public static final long OFFSET_SturdyUiEffectPass_linear_mips = 53L;
+    public static final long OFFSET_SturdyUiEffectPass_address = 56L;
+    public static final long OFFSET_SturdyUiEffectPass_lod_bias = 60L;
+    public static final long OFFSET_SturdyUiEffectPass_min_lod = 64L;
+    public static final long OFFSET_SturdyUiEffectPass_max_lod = 68L;
+    public static final long OFFSET_SturdyUiEffectPass_max_anisotropy = 72L;
+    public static final long OFFSET_SturdyUiEffectPass_output_format = 76L;
+    public static final long OFFSET_SturdyUiEffectPass_output_scale = 80L;
+    public static final long OFFSET_SturdyUiEffectPass_output_mip_levels = 84L;
+    public static final long OFFSET_SturdyUiEffectPass_output_mip_filter = 88L;
+    public static final long OFFSET_SturdyUiEffectPass_parameters = 96L;
+    public static final long OFFSET_SturdyUiEffectPass_parameter_size = 104L;
+    public static final long SIZE_SturdyUiEffectPass = 112L;
+
     /** One element in the layout tree. (size 88, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiElement = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -5993,6 +6191,53 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiElement_corner_radius = 60L;
     public static final long OFFSET_SturdyUiElement_id = 80L;
     public static final long SIZE_SturdyUiElement = 88L;
+
+    /** Per-element additions to `SturdyUiElement`: an effect, per-corner shapes. Initialize with `sturdy_ui_element_extras_init`. (size 144, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiElementExtras = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            MemoryLayout.paddingLayout(4),
+            LAYOUT_SturdyUiEffect.withName("effect"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("corner_shape"),
+            ValueLayout.JAVA_BYTE.withName("has_border_edges"),
+            MemoryLayout.paddingLayout(3),
+            MemoryLayout.sequenceLayout(16, ValueLayout.JAVA_FLOAT).withName("border_edge_color"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_INT).withName("border_edge_style"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("border_edge_width"),
+            ValueLayout.JAVA_BYTE.withName("inset_for_corners"),
+            ValueLayout.JAVA_BYTE.withName("clip_horizontal"),
+            ValueLayout.JAVA_BYTE.withName("clip_vertical"),
+            ValueLayout.JAVA_BYTE.withName("clip_follow_corners"),
+            LAYOUT_SturdyUiEffect.withName("clip_path")).withName("SturdyUiElementExtras");
+    public static final long OFFSET_SturdyUiElementExtras_struct_size = 0L;
+    public static final long OFFSET_SturdyUiElementExtras_effect = 8L;
+    public static final long OFFSET_SturdyUiElementExtras_corner_shape = 16L;
+    public static final long OFFSET_SturdyUiElementExtras_has_border_edges = 32L;
+    public static final long OFFSET_SturdyUiElementExtras_border_edge_color = 36L;
+    public static final long OFFSET_SturdyUiElementExtras_border_edge_style = 100L;
+    public static final long OFFSET_SturdyUiElementExtras_border_edge_width = 116L;
+    public static final long OFFSET_SturdyUiElementExtras_inset_for_corners = 132L;
+    public static final long OFFSET_SturdyUiElementExtras_clip_horizontal = 133L;
+    public static final long OFFSET_SturdyUiElementExtras_clip_vertical = 134L;
+    public static final long OFFSET_SturdyUiElementExtras_clip_follow_corners = 135L;
+    public static final long OFFSET_SturdyUiElementExtras_clip_path = 136L;
+    public static final long SIZE_SturdyUiElementExtras = 144L;
+
+    /** One colour stop of a gradient. A gradient takes up to three stops, in ascending position. (size 36, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyUiGradientStop = MemoryLayout.structLayout(
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("color"),
+            ValueLayout.JAVA_FLOAT.withName("position"),
+            ValueLayout.JAVA_INT.withName("space"),
+            ValueLayout.JAVA_BYTE.withName("has_toward_next"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("toward_space"),
+            ValueLayout.JAVA_INT.withName("toward_hue")).withName("SturdyUiGradientStop");
+    public static final long OFFSET_SturdyUiGradientStop_color = 0L;
+    public static final long OFFSET_SturdyUiGradientStop_position = 16L;
+    public static final long OFFSET_SturdyUiGradientStop_space = 20L;
+    public static final long OFFSET_SturdyUiGradientStop_has_toward_next = 24L;
+    public static final long OFFSET_SturdyUiGradientStop_toward_space = 28L;
+    public static final long OFFSET_SturdyUiGradientStop_toward_hue = 32L;
+    public static final long SIZE_SturdyUiGradientStop = 36L;
 
     /** One axis's configuration for `sturdy_ui_graph_draw`. (size 144, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiGraphAxis = MemoryLayout.structLayout(
@@ -6136,19 +6381,68 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiGraphSeriesRef_marker_radius = 72L;
     public static final long SIZE_SturdyUiGraphSeriesRef = 80L;
 
-    /** How text is drawn. (size 32, alignment 4) */
+    /** How text is drawn. (size 92, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyUiTextStyle = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             ValueLayout.JAVA_INT.withName("font_id"),
             ValueLayout.JAVA_INT.withName("font_size"),
             ValueLayout.JAVA_INT.withName("reserved"),
-            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("color")).withName("SturdyUiTextStyle");
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("color"),
+            ValueLayout.JAVA_INT.withName("decoration_lines"),
+            ValueLayout.JAVA_INT.withName("decoration_style"),
+            ValueLayout.JAVA_FLOAT.withName("decoration_thickness"),
+            ValueLayout.JAVA_BYTE.withName("has_decoration_color"),
+            MemoryLayout.paddingLayout(3),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("decoration_color"),
+            ValueLayout.JAVA_BYTE.withName("shadow_enabled"),
+            MemoryLayout.paddingLayout(3),
+            MemoryLayout.sequenceLayout(2, ValueLayout.JAVA_FLOAT).withName("shadow_offset"),
+            MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("shadow_color")).withName("SturdyUiTextStyle");
     public static final long OFFSET_SturdyUiTextStyle_struct_size = 0L;
     public static final long OFFSET_SturdyUiTextStyle_font_id = 4L;
     public static final long OFFSET_SturdyUiTextStyle_font_size = 8L;
     public static final long OFFSET_SturdyUiTextStyle_reserved = 12L;
     public static final long OFFSET_SturdyUiTextStyle_color = 16L;
-    public static final long SIZE_SturdyUiTextStyle = 32L;
+    public static final long OFFSET_SturdyUiTextStyle_decoration_lines = 32L;
+    public static final long OFFSET_SturdyUiTextStyle_decoration_style = 36L;
+    public static final long OFFSET_SturdyUiTextStyle_decoration_thickness = 40L;
+    public static final long OFFSET_SturdyUiTextStyle_has_decoration_color = 44L;
+    public static final long OFFSET_SturdyUiTextStyle_decoration_color = 48L;
+    public static final long OFFSET_SturdyUiTextStyle_shadow_enabled = 64L;
+    public static final long OFFSET_SturdyUiTextStyle_shadow_offset = 68L;
+    public static final long OFFSET_SturdyUiTextStyle_shadow_color = 76L;
+    public static final long SIZE_SturdyUiTextStyle = 92L;
+
+    /** One node. Initialize with `sturdy_ui_node_desc_init`. (size 360, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUiNodeDesc = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            MemoryLayout.paddingLayout(4),
+            LAYOUT_SturdyUiElement.withName("element"),
+            LAYOUT_SturdyUiElementExtras.withName("extras"),
+            ValueLayout.ADDRESS.withName("text"),
+            LAYOUT_SturdyUiTextStyle.withName("text_style"),
+            ValueLayout.JAVA_INT.withName("order"),
+            ValueLayout.JAVA_BYTE.withName("visible"),
+            MemoryLayout.paddingLayout(3),
+            LAYOUT_SturdyEntity.withName("parent"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyUiNodeDesc");
+    public static final long OFFSET_SturdyUiNodeDesc_struct_size = 0L;
+    public static final long OFFSET_SturdyUiNodeDesc_element = 8L;
+    public static final long OFFSET_SturdyUiNodeDesc_extras = 96L;
+    public static final long OFFSET_SturdyUiNodeDesc_text = 240L;
+    public static final long OFFSET_SturdyUiNodeDesc_text_style = 248L;
+    public static final long OFFSET_SturdyUiNodeDesc_order = 340L;
+    public static final long OFFSET_SturdyUiNodeDesc_visible = 344L;
+    public static final long OFFSET_SturdyUiNodeDesc_parent = 348L;
+    public static final long SIZE_SturdyUiNodeDesc = 360L;
+
+    /** What the last layout found for a node that has an `id`. (size 2, alignment 1) */
+    public static final MemoryLayout LAYOUT_SturdyUiNodeState = MemoryLayout.structLayout(
+            ValueLayout.JAVA_BYTE.withName("hovered"),
+            ValueLayout.JAVA_BYTE.withName("clicked")).withName("SturdyUiNodeState");
+    public static final long OFFSET_SturdyUiNodeState_hovered = 0L;
+    public static final long OFFSET_SturdyUiNodeState_clicked = 1L;
+    public static final long SIZE_SturdyUiNodeState = 2L;
 
     /** SturdyUiTreeTarget (size 32, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiTreeTarget = MemoryLayout.structLayout(
@@ -6165,7 +6459,7 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiTreeTarget_headless_height = 28L;
     public static final long SIZE_SturdyUiTreeTarget = 32L;
 
-    /** SturdyUiTreeDesc (size 120, alignment 8) */
+    /** SturdyUiTreeDesc (size 128, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiTreeDesc = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
             MemoryLayout.paddingLayout(4),
@@ -6181,6 +6475,8 @@ public final class Sturdy {
             MemoryLayout.paddingLayout(3),
             MemoryLayout.sequenceLayout(4, ValueLayout.JAVA_FLOAT).withName("clear_color"),
             ValueLayout.JAVA_FLOAT.withName("build_budget_ms"),
+            ValueLayout.JAVA_INT.withName("hit_test_mode"),
+            MemoryLayout.paddingLayout(4),
             ValueLayout.ADDRESS.withName("builder"),
             ValueLayout.ADDRESS.withName("user"),
             ValueLayout.ADDRESS.withName("release_user")).withName("SturdyUiTreeDesc");
@@ -6196,10 +6492,11 @@ public final class Sturdy {
     public static final long OFFSET_SturdyUiTreeDesc_window_input = 72L;
     public static final long OFFSET_SturdyUiTreeDesc_clear_color = 76L;
     public static final long OFFSET_SturdyUiTreeDesc_build_budget_ms = 92L;
-    public static final long OFFSET_SturdyUiTreeDesc_builder = 96L;
-    public static final long OFFSET_SturdyUiTreeDesc_user = 104L;
-    public static final long OFFSET_SturdyUiTreeDesc_release_user = 112L;
-    public static final long SIZE_SturdyUiTreeDesc = 120L;
+    public static final long OFFSET_SturdyUiTreeDesc_hit_test_mode = 96L;
+    public static final long OFFSET_SturdyUiTreeDesc_builder = 104L;
+    public static final long OFFSET_SturdyUiTreeDesc_user = 112L;
+    public static final long OFFSET_SturdyUiTreeDesc_release_user = 120L;
+    public static final long SIZE_SturdyUiTreeDesc = 128L;
 
     /** What a builder is handed each time its tree is laid out. Valid only inside the builder. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiTreeFrame = MemoryLayout.structLayout(
@@ -12897,10 +13194,66 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, element);
     }
 
+    // Opens an element like `sturdy_ui_begin_element`, with an effect and per-corner shapes. `extras` may be null.
+    public static int sturdy_ui_begin_element_ex(MemorySegment engine, MemorySegment element, MemorySegment extras) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_begin_element_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, element, extras);
+    }
+
     // Reports whether the element with this id was clicked this frame.
     public static int sturdy_ui_clicked(MemorySegment engine, MemorySegment id, MemorySegment out_clicked) throws Throwable {
         MethodHandle h = handle("sturdy_ui_clicked", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, id, out_clicked);
+    }
+
+    // Appends a pass to a custom effect. A pass that cannot be valid (a missing shader path, an input naming a pass that has not run yet, parameters that are not whole 4-byte words) is refused and the reason reported; a shader that fails to compile is reported when the effect is first drawn, in the engine log, and the element is drawn without the effect.
+    public static int sturdy_ui_effect_add_pass(MemorySegment effect, MemorySegment pass) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_add_pass", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyUiEffect, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(effect, pass);
+    }
+
+    // Builds a ready-made effect. `options` may be null for the defaults.
+    public static int sturdy_ui_effect_create(MemorySegment desc, MemorySegment options, MemorySegment out_effect) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(desc, options, out_effect);
+    }
+
+    // Starts a custom effect with no passes; add them with `sturdy_ui_effect_add_pass`, in order. The last pass's output is what is composited. `options` may be null.
+    public static int sturdy_ui_effect_create_custom(MemorySegment name, MemorySegment options, MemorySegment out_effect) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_create_custom", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name, options, out_effect);
+    }
+
+    public static int sturdy_ui_effect_desc_init(MemorySegment desc) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_desc_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(desc);
+    }
+
+    public static int sturdy_ui_effect_options_init(MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_options_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options);
+    }
+
+    public static int sturdy_ui_effect_pass_init(MemorySegment pass) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_pass_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pass);
+    }
+
+    // Releases an effect. Frames already built keep drawing with it; building a new element with the id fails.
+    public static int sturdy_ui_effect_release(MemorySegment effect) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyUiEffect));
+        return (int) h.invokeExact(effect);
+    }
+
+    // Changes an effect's options. Only before a frame has used the effect.
+    public static int sturdy_ui_effect_set_options(MemorySegment effect, MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_effect_set_options", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyUiEffect, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(effect, options);
+    }
+
+    public static int sturdy_ui_element_extras_init(MemorySegment extras) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_element_extras_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(extras);
     }
 
     // Fills an element declaration with defaults: fit sizing, no padding, transparent, left-to-right.
@@ -12981,6 +13334,46 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, id, out_hovered);
     }
 
+    public static int sturdy_ui_node_desc_init(MemorySegment desc) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_desc_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(desc);
+    }
+
+    // Destroys a node. With `recursive` non-zero everything under it goes too; otherwise its children become roots.
+    public static int sturdy_ui_node_destroy(MemorySegment engine, MemorySegment node, byte recursive) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_destroy", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdyEntity, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, node, recursive);
+    }
+
+    // Creates a node entity.
+    public static int sturdy_ui_node_spawn(MemorySegment engine, MemorySegment desc, MemorySegment out_node) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, desc, out_node);
+    }
+
+    public static int sturdy_ui_node_state(MemorySegment engine, MemorySegment node, MemorySegment out_state) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_state", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdyEntity, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, node, out_state);
+    }
+
+    // Tells every node tree that something changed which the engine cannot see on its own. Edits made through `sturdy_ui_node_update` need no call; this is for code that changes node components some other way.
+    public static int sturdy_ui_node_touch() throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_touch", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
+    // Spawns a UI tree that lays out the nodes under `root`, only when one of them changes. `desc` is read like `sturdy_ui_tree_spawn`'s (target, layer, scale, ...), except that `builder` must be null and `rebuild` is forced to on-dirty.
+    public static int sturdy_ui_node_tree_spawn(MemorySegment engine, MemorySegment root, MemorySegment desc, MemorySegment out_tree) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_tree_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdyEntity, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, root, desc, out_tree);
+    }
+
+    // Replaces a node's data and parent (a zeroed `parent` makes it a root). Refuses a parent that would make a loop.
+    public static int sturdy_ui_node_update(MemorySegment engine, MemorySegment node, MemorySegment desc) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_node_update", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdyEntity, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, node, desc);
+    }
+
     // Reports whether the pointer is currently held down.
     public static int sturdy_ui_pointer_down(MemorySegment engine, MemorySegment out_down) throws Throwable {
         MethodHandle h = handle("sturdy_ui_pointer_down", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
@@ -12999,6 +13392,12 @@ public final class Sturdy {
     public static int sturdy_ui_register_font(MemorySegment engine, MemorySegment source, int font_id) throws Throwable {
         MethodHandle h = handle("sturdy_ui_register_font", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
         return (int) h.invokeExact(engine, source, font_id);
+    }
+
+    // Chooses the hit-test mode of the window UI (the `sturdy_ui_begin` frames). Takes effect at the next `sturdy_ui_begin`. UI trees choose theirs in `SturdyUiTreeDesc::hit_test_mode`.
+    public static int sturdy_ui_set_hit_test_mode(MemorySegment engine, int mode) throws Throwable {
+        MethodHandle h = handle("sturdy_ui_set_hit_test_mode", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, mode);
     }
 
     // Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.

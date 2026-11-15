@@ -17,6 +17,9 @@ namespace SFT::Renderer {
                 case RHI::Format::RGBA8UnormSrgb: return "RGBA8UnormSrgb";
                 case RHI::Format::RGB10A2Unorm: return "RGB10A2Unorm";
                 case RHI::Format::RGBA16Float: return "RGBA16Float";
+                case RHI::Format::RGBA8Unorm: return "RGBA8Unorm";
+                case RHI::Format::BGRA8Unorm: return "BGRA8Unorm";
+                case RHI::Format::RGBA32Float: return "RGBA32Float";
                 default: return "an unsupported format";
             }
         }
@@ -34,9 +37,14 @@ namespace SFT::Renderer {
             static constexpr std::array half_float{RHI::Format::BGRA8UnormSrgb, RHI::Format::RGBA8UnormSrgb};
             static constexpr std::array rgba8{RHI::Format::BGRA8UnormSrgb};
             static constexpr std::array bgra8{RHI::Format::RGBA8UnormSrgb};
+            static constexpr std::array plain8{RHI::Format::BGRA8UnormSrgb, RHI::Format::RGBA8UnormSrgb};
+            static constexpr std::array float32{RHI::Format::RGBA16Float, RHI::Format::BGRA8UnormSrgb, RHI::Format::RGBA8UnormSrgb};
             switch (format) {
                 case RHI::Format::RGB10A2Unorm: return ten_bit;
                 case RHI::Format::RGBA16Float: return half_float;
+                case RHI::Format::RGBA8Unorm:
+                case RHI::Format::BGRA8Unorm: return plain8;
+                case RHI::Format::RGBA32Float: return float32;
                 case RHI::Format::RGBA8UnormSrgb: return rgba8;
                 case RHI::Format::BGRA8UnormSrgb: return bgra8;
                 default: return {};
@@ -107,8 +115,8 @@ namespace SFT::Renderer {
         } else {
             if (!is_supported_offscreen_render_target_format(request.format)) {
                 return std::unexpected(std::string{
-                    "Unsupported off-screen render target format; use BGRA8UnormSrgb, RGBA8UnormSrgb, RGB10A2Unorm (display-encoded SDR) "
-                    "or RGBA16Float (linear HDR)."});
+                    "Unsupported off-screen render target format; use BGRA8UnormSrgb, RGBA8UnormSrgb, BGRA8Unorm, RGBA8Unorm, RGB10A2Unorm "
+                    "(display-encoded SDR), or RGBA16Float, RGBA32Float (linear HDR)."});
             }
             if (usable_as_target(capabilities(request.format))) {
                 out.format = request.format;

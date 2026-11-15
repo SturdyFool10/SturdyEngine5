@@ -787,6 +787,9 @@ namespace sturdy_rs::render {
                 case OffscreenTargetFormat::Rgba8Srgb: description.format = E::RenderTargetFormat::Rgba8Srgb; break;
                 case OffscreenTargetFormat::Rgba16Float: description.format = E::RenderTargetFormat::Rgba16Float; break;
                 case OffscreenTargetFormat::Rgb10A2: description.format = E::RenderTargetFormat::Rgb10A2; break;
+                case OffscreenTargetFormat::Bgra8: description.format = E::RenderTargetFormat::Bgra8; break;
+                case OffscreenTargetFormat::Rgba8: description.format = E::RenderTargetFormat::Rgba8; break;
+                case OffscreenTargetFormat::Rgba32Float: description.format = E::RenderTargetFormat::Rgba32Float; break;
                 default: description.format = E::RenderTargetFormat::Bgra8Srgb; break;
             }
             description.mip_levels = desc.mip_levels;
@@ -854,6 +857,9 @@ namespace sturdy_rs::render {
             case E::RenderTargetFormat::Rgba8Srgb: out.format = OffscreenTargetFormat::Rgba8Srgb; break;
             case E::RenderTargetFormat::Rgba16Float: out.format = OffscreenTargetFormat::Rgba16Float; break;
             case E::RenderTargetFormat::Rgb10A2: out.format = OffscreenTargetFormat::Rgb10A2; break;
+            case E::RenderTargetFormat::Bgra8: out.format = OffscreenTargetFormat::Bgra8; break;
+            case E::RenderTargetFormat::Rgba8: out.format = OffscreenTargetFormat::Rgba8; break;
+            case E::RenderTargetFormat::Rgba32Float: out.format = OffscreenTargetFormat::Rgba32Float; break;
         }
         out.mip_levels = description->mip_levels;
         out.allow_storage = description->storage == E::RenderTargetFeature::Required || description->storage == E::RenderTargetFeature::IfSupported;

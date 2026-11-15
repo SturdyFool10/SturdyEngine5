@@ -68,12 +68,14 @@ namespace SFT::Renderer {
     /// thing that works and the config says what changed (`adjustments`, also logged once); with `strict` on, creation fails with the
     /// reason instead. `OffscreenTargetFeature::Required` fails regardless.
     ///
-    /// **Formats** (anything else is rejected with an error naming these):
+    /// **Formats** (anything else is rejected with an error naming the supported ones):
     /// - `BGRA8UnormSrgb`, `RGBA8UnormSrgb`: display-encoded SDR, the same pixels a window shows (tone mapped, clamped to
     ///   [0, 1], sRGB-encoded on write). Sampling returns linear values.
     /// - `RGB10A2Unorm`: display-encoded SDR at 10 bits per channel (less banding in gradients), 2-bit alpha. The values are
     ///   sRGB-encoded by a shader rather than by the format, so sampling returns *encoded* values: decode them (`srgbToLinear`)
     ///   where linear light is needed. The frame renders into a half-float intermediate that is encoded into the target at the end.
+    /// - `RGBA8Unorm`, `BGRA8Unorm`: display-encoded SDR like RGB10A2Unorm (encoded by a shader, sampling returns encoded values).
+    /// - `RGBA32Float`: like RGBA16Float at full precision.
     /// - `RGBA16Float`: linear and unclamped, in the reference domain (1.0 = paper white; brighter highlights keep their value). For a
     ///   target sampled back into an HDR scene (an emissive in-world screen, a portal, a reflection probe) or processed further.
     ///
@@ -139,19 +141,29 @@ namespace SFT::Renderer {
 
     /// Whether `format` can be an off-screen render target's format at all (on some device).
     [[nodiscard]] constexpr bool is_supported_offscreen_render_target_format(RHI::Format format) noexcept {
-        return format == RHI::Format::BGRA8UnormSrgb || format == RHI::Format::RGBA8UnormSrgb || format == RHI::Format::RGB10A2Unorm ||
-               format == RHI::Format::RGBA16Float;
+        switch (format) {
+            case RHI::Format::BGRA8UnormSrgb:
+            case RHI::Format::RGBA8UnormSrgb:
+            case RHI::Format::BGRA8Unorm:
+            case RHI::Format::RGBA8Unorm:
+            case RHI::Format::RGB10A2Unorm:
+            case RHI::Format::RGBA16Float:
+            case RHI::Format::RGBA32Float:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /// Whether a frame writes linear, unclamped values into a target of `format` (rather than display-encoded SDR).
     [[nodiscard]] constexpr bool offscreen_render_target_format_is_linear(RHI::Format format) noexcept {
-        return format == RHI::Format::RGBA16Float;
+        return format == RHI::Format::RGBA16Float || format == RHI::Format::RGBA32Float;
     }
 
     /// Whether a target of `format` stores sRGB-encoded values the format does not encode itself, so the frame renders into a linear
     /// intermediate and a shader encodes it into the target.
     [[nodiscard]] constexpr bool offscreen_render_target_format_needs_shader_encode(RHI::Format format) noexcept {
-        return format == RHI::Format::RGB10A2Unorm;
+        return format == RHI::Format::RGB10A2Unorm || format == RHI::Format::RGBA8Unorm || format == RHI::Format::BGRA8Unorm;
     }
 
     /// Levels in a full mip chain for `extent` (down to 1x1).

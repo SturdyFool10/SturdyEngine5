@@ -57,7 +57,8 @@ namespace SFT::Engine {
     /// release, and keyboard/text input goes to the tree that last took a press. Off-screen trees are fed by the application (a ray against
     /// the panel, a gamepad cursor) through `UiTree::with_input` / `UiTree::point_at`.
     ///
-    /// **Threading**: builders run one at a time on the `update` thread, after every update system has finished, so a builder may read
+    /// **Threading**: builders run one at a time on the `update` thread (trees that set `UiTreeDesc::parallel_build` run together on
+    /// the engine's workers instead, after the others, and the update waits for all of them), after every update system has finished, so a builder may read
     /// the ECS world (`World::get_component`, queries) and engine state freely. It must not spawn or destroy entities while it runs (queue
     /// that with `Engine::defer_to_update_boundary`) and must not call back into its own `UiTree` (use the `UiTreeFrame` it is given).
 
@@ -133,6 +134,19 @@ namespace SFT::Engine {
         glm::vec4 clear_color{0.0f, 0.0f, 0.0f, 1.0f};
         /// A build that takes longer than this is counted in `UiTreeStats::over_budget` and logged (throttled).
         f32 build_budget_ms = 4.0f;
+        /// Lets this tree's builder run on a worker thread, at the same time as other trees' builders that allow it. Set it only when the
+        /// builder is safe to run off the update thread: it reads the ECS world and engine state (no entity spawn/destroy, no
+        /// thread-affine objects) and touches nothing shared with another tree's builder except through its own locking. Trees that do
+        /// not set it are built first, one at a time, on the update thread, exactly as before. A foreign-language builder should leave this
+        /// off unless it is `Send`.
+        bool parallel_build = false;
+        /// Asked once per update, on the update thread, before the rebuild decision: returning true marks the tree dirty (so an
+        /// `OnDirty` / `FixedRate` tree is laid out this update). For trees that mirror other state (see `ui_node_tree_desc`). Must be
+        /// cheap and must not call back into this tree.
+        std::function<bool()> dirty_check{};
+        /// What decides where the tree's elements react to the pointer: `Css` (transforms and clip-paths move and cut the reactive area, drawn
+        /// elements cover those below) or `Fixed` (the same with masks reactive too). See `UI::HitTestMode`.
+        UI::HitTestMode hit_test_mode = UI::HitTestMode::Css;
     };
 
     struct UiTreeStats {
