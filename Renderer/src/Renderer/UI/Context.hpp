@@ -416,6 +416,9 @@ namespace SFT::UI {
 
         void set_debug_view_enabled(bool enabled) noexcept;
         [[nodiscard]] bool debug_view_enabled() const noexcept;
+        /// Width in layout units of the strip the view takes from the right of the layout while it is on (the layout area, `viewport_size()`
+        /// less this, is what is left for the application's own UI).
+        [[nodiscard]] static u32 debug_view_width() noexcept;
 
         // ---- diagnostics ----------------------------------------------------------------------------------------------------------------
 

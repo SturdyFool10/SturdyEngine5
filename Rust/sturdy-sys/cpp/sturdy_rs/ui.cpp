@@ -648,7 +648,11 @@ namespace sturdy_rs::ui {
         if (!g_session.open) {
             return {0.0f, 0.0f};
         }
-        const glm::vec2 size = g_session.context->viewport_size();
+        glm::vec2 size = g_session.context->viewport_size();
+        // While the layout inspector is open it takes a strip off the right of the layout; what is left is the application's.
+        if (g_session.context->debug_view_enabled()) {
+            size.x = std::max(1.0f, size.x - static_cast<float>(SFT::UI::Context::debug_view_width()));
+        }
         return {size.x, size.y};
     }
 

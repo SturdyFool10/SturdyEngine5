@@ -779,6 +779,8 @@ namespace SFT::UI {
         return SEClay_IsDebugModeEnabled();
     }
 
+    u32 Context::debug_view_width() noexcept { return SEClay__debugViewWidth; }
+
     Context::MemoryStats Context::memory_stats() const noexcept {
         MemoryStats out;
         if (context_ == nullptr) {

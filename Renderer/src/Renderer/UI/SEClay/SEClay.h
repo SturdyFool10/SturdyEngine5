@@ -4212,15 +4212,15 @@ SECLAY_DLL_EXPORT SEClay_ElementIdArray SEClay_GetPointerOverIds(void) {
 }
 
 #pragma region DebugTools
-SEClay_Color SECLAY__DEBUGVIEW_COLOR_1 = {58, 56, 52, 255};
-SEClay_Color SECLAY__DEBUGVIEW_COLOR_2 = {62, 60, 58, 255};
-SEClay_Color SECLAY__DEBUGVIEW_COLOR_3 = {141, 133, 135, 255};
-SEClay_Color SECLAY__DEBUGVIEW_COLOR_4 = {238, 226, 231, 255};
-SEClay_Color SECLAY__DEBUGVIEW_COLOR_SELECTED_ROW = {102, 80, 78, 255};
+SEClay_Color SECLAY__DEBUGVIEW_COLOR_1 = {0.2275f, 0.2196f, 0.2039f, 1.0f};
+SEClay_Color SECLAY__DEBUGVIEW_COLOR_2 = {0.2431f, 0.2353f, 0.2275f, 1.0f};
+SEClay_Color SECLAY__DEBUGVIEW_COLOR_3 = {0.5529f, 0.5216f, 0.5294f, 1.0f};
+SEClay_Color SECLAY__DEBUGVIEW_COLOR_4 = {0.9333f, 0.8863f, 0.9059f, 1.0f};
+SEClay_Color SECLAY__DEBUGVIEW_COLOR_SELECTED_ROW = {0.4f, 0.3137f, 0.3059f, 1.0f};
 const int32_t SECLAY__DEBUGVIEW_ROW_HEIGHT = 30;
 const int32_t SECLAY__DEBUGVIEW_OUTER_PADDING = 10;
 const int32_t SECLAY__DEBUGVIEW_INDENT_WIDTH = 16;
-SEClay_TextElementConfig SEClay__DebugView_TextNameConfig = {.textColor = {238, 226, 231, 255}, .fontSize = 16, .wrapMode = SEClay_TextElementConfigWrapMode::None };
+SEClay_TextElementConfig SEClay__DebugView_TextNameConfig = {.textColor = {0.9333f, 0.8863f, 0.9059f, 1.0f}, .fontSize = 16, .wrapMode = SEClay_TextElementConfigWrapMode::None };
 SEClay_LayoutConfig SEClay__DebugView_ScrollViewItemLayoutConfig = SECLAY__DEFAULT_STRUCT;
 
 typedef struct {
@@ -4230,17 +4230,17 @@ typedef struct {
 
 SEClay__DebugElementConfigTypeLabelConfig SEClay__DebugGetElementConfigTypeLabel(SEClay__ElementConfigType type) {
     switch (type) {
-        case SEClay__ElementConfigType::Shared: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Shared"), {243,134,48,255} };
-        case SEClay__ElementConfigType::Text: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Text"), {105,210,231,255} };
-        case SEClay__ElementConfigType::Aspect: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Aspect"), {101,149,194,255} };
-        case SEClay__ElementConfigType::Image: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Image"), {121,189,154,255} };
-        case SEClay__ElementConfigType::Floating: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Floating"), {250,105,0,255} };
-        case SEClay__ElementConfigType::Clip: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Scroll"), {242, 196, 90, 255} };
-        case SEClay__ElementConfigType::Border: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Border"), {108, 91, 123, 255} };
-        case SEClay__ElementConfigType::Custom: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Custom"), {11,72,107,255} };
+        case SEClay__ElementConfigType::Shared: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Shared"), {0.9529f, 0.5255f, 0.1882f, 1.0f} };
+        case SEClay__ElementConfigType::Text: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Text"), {0.4118f, 0.8235f, 0.9059f, 1.0f} };
+        case SEClay__ElementConfigType::Aspect: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Aspect"), {0.3961f, 0.5843f, 0.7608f, 1.0f} };
+        case SEClay__ElementConfigType::Image: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Image"), {0.4745f, 0.7412f, 0.6039f, 1.0f} };
+        case SEClay__ElementConfigType::Floating: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Floating"), {0.9804f, 0.4118f, 0.0f, 1.0f} };
+        case SEClay__ElementConfigType::Clip: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Scroll"), {0.949f, 0.7686f, 0.3529f, 1.0f} };
+        case SEClay__ElementConfigType::Border: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Border"), {0.4235f, 0.3569f, 0.4824f, 1.0f} };
+        case SEClay__ElementConfigType::Custom: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Custom"), {0.0431f, 0.2824f, 0.4196f, 1.0f} };
         default: break;
     }
-    return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Error"), {0,0,0,255} };
+    return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Error"), {0.0f, 0.0f, 0.0f, 1.0f} };
 }
 
 typedef struct {
@@ -4313,7 +4313,7 @@ SEClay__RenderDebugLayoutData SEClay__RenderDebugLayoutElementsList(int32_t init
                 // Collisions and offscreen info
                 if (currentElementData) {
                     if (currentElementData->debugData->collision) {
-                        SECLAY({ .layout = { .padding = { 8, 8, 2, 2 }}, .border = { .color = {177, 147, 8, 255}, .width = {1, 1, 1, 1, 0} } }) {
+                        SECLAY({ .layout = { .padding = { 8, 8, 2, 2 }}, .border = { .color = {0.6941f, 0.5765f, 0.0314f, 1.0f}, .width = {1, 1, 1, 1, 0} } }) {
                             SECLAY_TEXT(SECLAY_STRING("Duplicate ID"), SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_3, .fontSize = 16 }));
                         }
                     }
@@ -4330,7 +4330,7 @@ SEClay__RenderDebugLayoutData SEClay__RenderDebugLayoutElementsList(int32_t init
                 for (int32_t elementConfigIndex = 0; elementConfigIndex < currentElement->elementConfigs.length; ++elementConfigIndex) {
                     SEClay_ElementConfig *elementConfig = SEClay__ElementConfigArraySlice_Get(&currentElement->elementConfigs, elementConfigIndex);
                     if (elementConfig->type == SEClay__ElementConfigType::Shared) {
-                        SEClay_Color labelColor = {243,134,48,90};
+                        SEClay_Color labelColor = {0.9529f, 0.5255f, 0.1882f, 0.3529f};
                         labelColor.a = 90;
                         SEClay_Color backgroundColor = elementConfig->config.sharedElementConfig->backgroundColor;
                         SEClay_CornerRadius radius = elementConfig->config.sharedElementConfig->cornerRadius;
@@ -4542,9 +4542,9 @@ void SEClay__RenderDebugView(void) {
             // Close button
             SECLAY({
                 .layout = { .sizing = {SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 10), SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 10)}, .childAlignment = {SEClay_LayoutAlignmentX::Center, SEClay_LayoutAlignmentY::Center} },
-                .backgroundColor = {217,91,67,80},
+                .backgroundColor = {0.851f, 0.3569f, 0.2627f, 0.3137f},
                 .cornerRadius = SECLAY_CORNER_RADIUS(4),
-                .border = { .color = { 217,91,67,255 }, .width = { 1, 1, 1, 1, 0 } },
+                .border = { .color = {0.851f, 0.3569f, 0.2627f, 1.0f}, .width = { 1, 1, 1, 1, 0 } },
             }) {
                 SEClay_OnHover(HandleDebugViewCloseButtonInteraction, 0);
                 SECLAY_TEXT(SECLAY_STRING("x"), SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_4, .fontSize = 16 }));
@@ -4887,7 +4887,7 @@ void SEClay__RenderDebugView(void) {
                 SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningItemHeader"), .layout = { .sizing = {.height = SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT)}, .padding = {SECLAY__DEBUGVIEW_OUTER_PADDING, SECLAY__DEBUGVIEW_OUTER_PADDING, 0, 0 }, .childGap = 8, .childAlignment = {.y = SEClay_LayoutAlignmentY::Center} } }) {
                     SECLAY_TEXT(SECLAY_STRING("Warnings"), warningConfig);
                 }
-                SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsTopBorder"), .layout = { .sizing = { .width = SEClay_SizingGrow(0), .height = SEClay_SizingFixed(1)} }, .backgroundColor = {200, 200, 200, 255} }) {}
+                SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsTopBorder"), .layout = { .sizing = { .width = SEClay_SizingGrow(0), .height = SEClay_SizingFixed(1)} }, .backgroundColor = {0.7843f, 0.7843f, 0.7843f, 1.0f} }) {}
                 int32_t previousWarningsLength = context->warnings.length;
                 for (int32_t i = 0; i < previousWarningsLength; i++) {
                     SEClay__Warning warning = context->warnings.internalArray[i];
@@ -4905,7 +4905,7 @@ void SEClay__RenderDebugView(void) {
 #pragma endregion
 
 uint32_t SEClay__debugViewWidth = 400;
-SEClay_Color SEClay__debugViewHighlightColor = { 168, 66, 28, 100 };
+SEClay_Color SEClay__debugViewHighlightColor = {0.6588f, 0.2588f, 0.1098f, 0.3922f};
 
 // HARDENING: reports an error through the current context's handler. Safe when there is no current context (the
 // failure paths below can run before one exists, or after it was cleared) and when the handler is somehow unset.
