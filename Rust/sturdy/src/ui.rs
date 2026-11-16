@@ -1626,6 +1626,12 @@ pub fn set_debug_view(enabled: bool) {
     ffi::ui_set_debug_view(enabled);
 }
 
+/// Whether the layout inspector is on. It turns itself off when the user presses its close button, so an application that mirrors the
+/// state in a setting reads this to follow along.
+pub fn debug_view() -> bool {
+    ffi::ui_debug_view()
+}
+
 /// The colours of the layout inspector ([`set_debug_view`]), straight-alpha sRGB. The defaults are the inspector's own dark theme; set these
 /// from the application's palette so it matches.
 #[derive(Debug, Clone, Copy, PartialEq)]

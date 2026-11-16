@@ -565,7 +565,14 @@ namespace sturdy_rs::ui {
             }
             ui.set_scale_mode(g_raw_pixel_layout.load() ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale);
             ui.context().set_hit_test_mode(g_hit_test_fixed.load() ? SFT::UI::HitTestMode::Fixed : SFT::UI::HitTestMode::Css);
-            ui.context().set_debug_view_enabled(g_debug_view.load());
+            // The inspector has a close button of its own. When the layout engine switched itself off since the last frame, that was the user
+            // closing it: carry that into the request so it does not reopen, and so `ui_debug_view` tells the application.
+            static bool g_debug_view_applied = false;
+            if (g_debug_view_applied && !ui.context().debug_view_enabled()) {
+                g_debug_view.store(false);
+            }
+            g_debug_view_applied = g_debug_view.load();
+            ui.context().set_debug_view_enabled(g_debug_view_applied);
             ui.begin_frame(viewport, static_cast<float>(delta_seconds));
 
             g_session.declared_ids.clear();
@@ -673,6 +680,7 @@ namespace sturdy_rs::ui {
     void ui_set_raw_pixel_layout(bool raw) noexcept { g_raw_pixel_layout.store(raw); }
     void ui_set_hit_test_fixed(bool fixed) noexcept { g_hit_test_fixed.store(fixed); }
     void ui_set_debug_view(bool enabled) noexcept { g_debug_view.store(enabled); }
+    bool ui_debug_view() noexcept { return g_debug_view.load(); }
 
     void ui_set_debug_view_theme(const UiDebugViewTheme &theme) noexcept {
         const auto color = [&](usize index) {

@@ -109,6 +109,7 @@ namespace sturdy_rs::ui {
     void ui_set_raw_pixel_layout(bool raw) noexcept;
     void ui_set_hit_test_fixed(bool fixed) noexcept;
     void ui_set_debug_view(bool enabled) noexcept;
+    bool ui_debug_view() noexcept;
     void ui_set_debug_view_theme(const UiDebugViewTheme &theme) noexcept;
     UiDebugViewTheme ui_debug_view_theme() noexcept;
 

@@ -2194,14 +2194,28 @@ bool SEClay__PointIsInsideRect(SEClay_Vector2 point, SEClay_BoundingBox rect) {
 static void SEClay__RebuildElementHashMap(SEClay_Context *context) {
     SEClay__LayoutElementHashMapItemArray *items = &context->layoutElementsHashMapInternal;
     const int32_t kept = items->length;
-    // Per-item debug data is a parallel persistent array: hand each surviving item a fresh slot in the same order.
+    // Per-item debug data is a parallel persistent array: hand each surviving item a slot in the same order, and carry what the debug view
+    // kept in it (which rows are collapsed) over. Each item still points at its old slot, read here before the slot is reused: entries only
+    // move towards the start of the array when the map is compacted, so copying in increasing order never overwrites a slot still to be read,
+    // and when the context has grown the old array is still alive until the caller releases it.
     if (context->debugElementData.internalArray != NULL) {
         int32_t debugKept = kept < context->debugElementData.capacity ? kept : context->debugElementData.capacity;
-        memset((void *)context->debugElementData.internalArray, 0, (size_t)debugKept * sizeof(SEClay__DebugElementData));
-        context->debugElementData.length = debugKept;
         for (int32_t i = 0; i < kept; i++) {
-            items->internalArray[i].debugData = i < debugKept ? &context->debugElementData.internalArray[i] : &SEClay__DebugElementData_DEFAULT;
+            SEClay__DebugElementData carried = SEClay__DebugElementData SECLAY__DEFAULT_STRUCT;
+            if (items->internalArray[i].debugData != NULL) {
+                carried = *items->internalArray[i].debugData;
+            }
+            if (i < debugKept) {
+                context->debugElementData.internalArray[i] = carried;
+                items->internalArray[i].debugData = &context->debugElementData.internalArray[i];
+            } else {
+                items->internalArray[i].debugData = &SEClay__DebugElementData_DEFAULT;
+            }
         }
+        if (debugKept < context->debugElementData.length) {
+            memset((void *)&context->debugElementData.internalArray[debugKept], 0, (size_t)(context->debugElementData.length - debugKept) * sizeof(SEClay__DebugElementData));
+        }
+        context->debugElementData.length = debugKept;
     }
     for (int32_t i = 0; i < context->layoutElementsHashMap.capacity; i++) {
         context->layoutElementsHashMap.internalArray[i] = -1;

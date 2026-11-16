@@ -976,6 +976,8 @@ pub mod ffi {
         fn ui_set_hit_test_fixed(fixed: bool);
         /// Shows or hides the layout engine's inspector over the UI (element tree, sizes, configs). Takes effect at the next frame.
         fn ui_set_debug_view(enabled: bool);
+        /// Whether the inspector is requested: false again once the user closes it with its own close button.
+        fn ui_debug_view() -> bool;
         /// Sets the debug view's colours; they apply from the next layout.
         fn ui_set_debug_view_theme(theme: &UiDebugViewTheme);
         fn ui_debug_view_theme() -> UiDebugViewTheme;
