@@ -1049,6 +1049,10 @@ SECLAY_DLL_EXPORT void SEClay_UpdateScrollContainers(bool enableDragScrolling, S
 // Returns the internally stored scroll offset for the currently open element.
 // Generally intended for use with clip elements to create scrolling containers.
 SECLAY_DLL_EXPORT SEClay_Vector2 SEClay_GetScrollOffset(void);
+// The scroll offset of the scroll container with the given id, as of the last layout (zero if there is none yet). Unlike
+// `SEClay_GetScrollOffset` it does not depend on the element being open, so it is the one to use in a declaration that gives its own id:
+// at that point the open element has not been given its id yet.
+SECLAY_DLL_EXPORT SEClay_Vector2 SEClay_GetScrollOffsetForId(SEClay_ElementId id);
 // Updates the layout dimensions in response to the window or outer container being resized.
 SECLAY_DLL_EXPORT void SEClay_SetLayoutDimensions(SEClay_Dimensions dimensions);
 // Called before starting any layout declarations.
@@ -1096,6 +1100,24 @@ SECLAY_DLL_EXPORT SEClay_RenderCommand * SEClay_RenderCommandArray_Get(SEClay_Re
 // Enables and disables Clay's internal debug tools.
 // This state is retained and does not need to be set each frame.
 SECLAY_DLL_EXPORT void SEClay_SetDebugModeEnabled(bool enabled);
+
+// The colours the debug view is drawn in (straight-alpha sRGB, 0 to 1 like every colour in this engine). `tags` is indexed by element
+// configuration kind: none, border, floating, scroll, aspect, image, text, custom, shared.
+typedef struct SEClay_DebugViewTheme {
+    SEClay_Color surface;      // the element list's background, on alternating rows with surfaceAlt
+    SEClay_Color surfaceAlt;
+    SEClay_Color muted;        // lines, borders and secondary text
+    SEClay_Color text;
+    SEClay_Color selectedRow;
+    SEClay_Color highlight;    // laid over the element the pointer is on in the list
+    SEClay_Color close;        // the close button
+    SEClay_Color warning;      // the offscreen / duplicate id notes
+    SEClay_Color tags[9];
+} SEClay_DebugViewTheme;
+
+// Replaces the debug view's colours (process-wide). Takes effect at the next layout.
+SECLAY_DLL_EXPORT void SEClay_SetDebugViewTheme(const SEClay_DebugViewTheme *theme);
+SECLAY_DLL_EXPORT SEClay_DebugViewTheme SEClay_GetDebugViewTheme(void);
 // Returns true if Clay's internal debug tools are currently enabled.
 [[nodiscard]] SECLAY_DLL_EXPORT bool SEClay_IsDebugModeEnabled(void);
 // Enables and disables visibility culling. By default, Clay will not generate render commands for elements whose bounding box is entirely outside the screen.
@@ -1145,6 +1167,9 @@ SECLAY_DLL_EXPORT SEClay_TextElementConfig *SEClay__StoreTextElementConfig(SECla
 SECLAY_DLL_EXPORT uint32_t SEClay__GetParentElementId(void);
 
 extern SEClay_Color SEClay__debugViewHighlightColor;
+extern SEClay_Color SEClay__debugViewCloseColor;
+extern SEClay_Color SEClay__debugViewWarningColor;
+extern SEClay_Color SEClay__debugViewTagColors[9];
 extern uint32_t SEClay__debugViewWidth;
 
 #ifdef __cplusplus
@@ -4229,18 +4254,20 @@ typedef struct {
 } SEClay__DebugElementConfigTypeLabelConfig;
 
 SEClay__DebugElementConfigTypeLabelConfig SEClay__DebugGetElementConfigTypeLabel(SEClay__ElementConfigType type) {
+    const int32_t index = (int32_t)type;
+    const SEClay_Color color = (index >= 0 && index < 9) ? SEClay__debugViewTagColors[index] : SEClay_Color{0.0f, 0.0f, 0.0f, 1.0f};
     switch (type) {
-        case SEClay__ElementConfigType::Shared: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Shared"), {0.9529f, 0.5255f, 0.1882f, 1.0f} };
-        case SEClay__ElementConfigType::Text: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Text"), {0.4118f, 0.8235f, 0.9059f, 1.0f} };
-        case SEClay__ElementConfigType::Aspect: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Aspect"), {0.3961f, 0.5843f, 0.7608f, 1.0f} };
-        case SEClay__ElementConfigType::Image: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Image"), {0.4745f, 0.7412f, 0.6039f, 1.0f} };
-        case SEClay__ElementConfigType::Floating: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Floating"), {0.9804f, 0.4118f, 0.0f, 1.0f} };
-        case SEClay__ElementConfigType::Clip: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Scroll"), {0.949f, 0.7686f, 0.3529f, 1.0f} };
-        case SEClay__ElementConfigType::Border: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Border"), {0.4235f, 0.3569f, 0.4824f, 1.0f} };
-        case SEClay__ElementConfigType::Custom: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Custom"), {0.0431f, 0.2824f, 0.4196f, 1.0f} };
+        case SEClay__ElementConfigType::Shared: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Shared"), color };
+        case SEClay__ElementConfigType::Text: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Text"), color };
+        case SEClay__ElementConfigType::Aspect: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Aspect"), color };
+        case SEClay__ElementConfigType::Image: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Image"), color };
+        case SEClay__ElementConfigType::Floating: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Floating"), color };
+        case SEClay__ElementConfigType::Clip: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Scroll"), color };
+        case SEClay__ElementConfigType::Border: return SEClay__DebugElementConfigTypeLabelConfig {SECLAY_STRING("Border"), color };
+        case SEClay__ElementConfigType::Custom: return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Custom"), color };
         default: break;
     }
-    return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Error"), {0.0f, 0.0f, 0.0f, 1.0f} };
+    return SEClay__DebugElementConfigTypeLabelConfig { SECLAY_STRING("Error"), color };
 }
 
 typedef struct {
@@ -4313,7 +4340,7 @@ SEClay__RenderDebugLayoutData SEClay__RenderDebugLayoutElementsList(int32_t init
                 // Collisions and offscreen info
                 if (currentElementData) {
                     if (currentElementData->debugData->collision) {
-                        SECLAY({ .layout = { .padding = { 8, 8, 2, 2 }}, .border = { .color = {0.6941f, 0.5765f, 0.0314f, 1.0f}, .width = {1, 1, 1, 1, 0} } }) {
+                        SECLAY({ .layout = { .padding = { 8, 8, 2, 2 }}, .border = { .color = SEClay__debugViewWarningColor, .width = {1, 1, 1, 1, 0} } }) {
                             SECLAY_TEXT(SECLAY_STRING("Duplicate ID"), SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_3, .fontSize = 16 }));
                         }
                     }
@@ -4330,8 +4357,8 @@ SEClay__RenderDebugLayoutData SEClay__RenderDebugLayoutElementsList(int32_t init
                 for (int32_t elementConfigIndex = 0; elementConfigIndex < currentElement->elementConfigs.length; ++elementConfigIndex) {
                     SEClay_ElementConfig *elementConfig = SEClay__ElementConfigArraySlice_Get(&currentElement->elementConfigs, elementConfigIndex);
                     if (elementConfig->type == SEClay__ElementConfigType::Shared) {
-                        SEClay_Color labelColor = {0.9529f, 0.5255f, 0.1882f, 0.3529f};
-                        labelColor.a = 90;
+                        SEClay_Color labelColor = SEClay__debugViewWarningColor;
+                        labelColor.a = 0.3529f;
                         SEClay_Color backgroundColor = elementConfig->config.sharedElementConfig->backgroundColor;
                         SEClay_CornerRadius radius = elementConfig->config.sharedElementConfig->cornerRadius;
                         if (backgroundColor.a > 0) {
@@ -4348,7 +4375,7 @@ SEClay__RenderDebugLayoutData SEClay__RenderDebugLayoutElementsList(int32_t init
                     }
                     SEClay__DebugElementConfigTypeLabelConfig config = SEClay__DebugGetElementConfigTypeLabel(elementConfig->type);
                     SEClay_Color backgroundColor = config.color;
-                    backgroundColor.a = 90;
+                    backgroundColor.a = 0.3529f;
                     SECLAY({ .layout = { .padding = { 8, 8, 2, 2 } }, .backgroundColor = backgroundColor, .cornerRadius = SECLAY_CORNER_RADIUS(4), .border = { .color = config.color, .width = { 1, 1, 1, 1, 0 } } }) {
                         SECLAY_TEXT(config.label, SECLAY_TEXT_CONFIG({ .textColor = offscreen ? SECLAY__DEBUGVIEW_COLOR_3 : SECLAY__DEBUGVIEW_COLOR_4, .fontSize = 16 }));
                     }
@@ -4445,7 +4472,7 @@ void SEClay__RenderDebugLayoutSizing(SEClay_SizingAxis sizing, SEClay_TextElemen
 void SEClay__RenderDebugViewElementConfigHeader(SEClay_String elementId, SEClay__ElementConfigType type) {
     SEClay__DebugElementConfigTypeLabelConfig config = SEClay__DebugGetElementConfigTypeLabel(type);
     SEClay_Color backgroundColor = config.color;
-    backgroundColor.a = 90;
+    backgroundColor.a = 0.3529f;
     SECLAY({ .layout = { .sizing = { .width = SEClay_SizingGrow(0) }, .padding = SECLAY_PADDING_ALL(SECLAY__DEBUGVIEW_OUTER_PADDING), .childAlignment = { .y = SEClay_LayoutAlignmentY::Center } } }) {
         SECLAY({ .layout = { .padding = { 8, 8, 2, 2 } }, .backgroundColor = backgroundColor, .cornerRadius = SECLAY_CORNER_RADIUS(4), .border = { .color = config.color, .width = { 1, 1, 1, 1, 0 } } }) {
             SECLAY_TEXT(config.label, SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_4, .fontSize = 16 }));
@@ -4458,13 +4485,13 @@ void SEClay__RenderDebugViewElementConfigHeader(SEClay_String elementId, SEClay_
 void SEClay__RenderDebugViewColor(SEClay_Color color, SEClay_TextElementConfig *textConfig) {
     SECLAY({ .layout = { .childAlignment = {.y = SEClay_LayoutAlignmentY::Center} } }) {
         SECLAY_TEXT(SECLAY_STRING("{ r: "), textConfig);
-        SECLAY_TEXT(SEClay__IntToString(color.r), textConfig);
+        SECLAY_TEXT(SEClay__IntToString((int32_t)(color.r * 255.0f + 0.5f)), textConfig);
         SECLAY_TEXT(SECLAY_STRING(", g: "), textConfig);
-        SECLAY_TEXT(SEClay__IntToString(color.g), textConfig);
+        SECLAY_TEXT(SEClay__IntToString((int32_t)(color.g * 255.0f + 0.5f)), textConfig);
         SECLAY_TEXT(SECLAY_STRING(", b: "), textConfig);
-        SECLAY_TEXT(SEClay__IntToString(color.b), textConfig);
+        SECLAY_TEXT(SEClay__IntToString((int32_t)(color.b * 255.0f + 0.5f)), textConfig);
         SECLAY_TEXT(SECLAY_STRING(", a: "), textConfig);
-        SECLAY_TEXT(SEClay__IntToString(color.a), textConfig);
+        SECLAY_TEXT(SEClay__IntToString((int32_t)(color.a * 255.0f + 0.5f)), textConfig);
         SECLAY_TEXT(SECLAY_STRING(" }"), textConfig);
         SECLAY({ .layout = { .sizing = { .width = SEClay_SizingFixed(10) } } }) {}
         SECLAY({ .layout = { .sizing = { SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 8), SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 8)} }, .backgroundColor = color, .cornerRadius = SECLAY_CORNER_RADIUS(4), .border = { .color = SECLAY__DEBUGVIEW_COLOR_4, .width = { 1, 1, 1, 1, 0 } } }) {}
@@ -4542,17 +4569,19 @@ void SEClay__RenderDebugView(void) {
             // Close button
             SECLAY({
                 .layout = { .sizing = {SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 10), SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT - 10)}, .childAlignment = {SEClay_LayoutAlignmentX::Center, SEClay_LayoutAlignmentY::Center} },
-                .backgroundColor = {0.851f, 0.3569f, 0.2627f, 0.3137f},
+                .backgroundColor = SEClay_Color{SEClay__debugViewCloseColor.r, SEClay__debugViewCloseColor.g, SEClay__debugViewCloseColor.b, 0.3137f},
                 .cornerRadius = SECLAY_CORNER_RADIUS(4),
-                .border = { .color = {0.851f, 0.3569f, 0.2627f, 1.0f}, .width = { 1, 1, 1, 1, 0 } },
+                .border = { .color = SEClay__debugViewCloseColor, .width = { 1, 1, 1, 1, 0 } },
             }) {
                 SEClay_OnHover(HandleDebugViewCloseButtonInteraction, 0);
                 SECLAY_TEXT(SECLAY_STRING("x"), SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_4, .fontSize = 16 }));
             }
         }
         SECLAY({ .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFixed(1)} }, .backgroundColor = SECLAY__DEBUGVIEW_COLOR_3 } ) {}
-        SECLAY({ .id = scrollId, .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingGrow(0)} }, .clip = { .horizontal = true, .vertical = true, .childOffset = SEClay_GetScrollOffset() } }) {
-            SECLAY({ .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingGrow(0)}, .layoutDirection = SEClay_LayoutDirection::TopToBottom }, .backgroundColor = ((initialElementsLength + initialRootsLength) & 1) == 0 ? SECLAY__DEBUGVIEW_COLOR_2 : SECLAY__DEBUGVIEW_COLOR_1 }) {
+        // The pane carries the background and the list inside it is as tall as its rows (a Fit height), so the pane has something to scroll:
+        // a Grow list would be held to the pane's own height and never overflow it.
+        SECLAY({ .id = scrollId, .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingGrow(0)} }, .backgroundColor = ((initialElementsLength + initialRootsLength) & 1) == 0 ? SECLAY__DEBUGVIEW_COLOR_2 : SECLAY__DEBUGVIEW_COLOR_1, .clip = { .horizontal = true, .vertical = true, .childOffset = SEClay_GetScrollOffsetForId(scrollId) } }) {
+            SECLAY({ .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFit(0)}, .layoutDirection = SEClay_LayoutDirection::TopToBottom } }) {
                 SEClay_ElementId panelContentsId = SEClay__HashString(SECLAY_STRING("SEClay__DebugViewPaneOuter"), 0, 0);
                 // Element list
                 SECLAY({ .id = panelContentsId, .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingGrow(0)} }, .floating = { .zIndex = 32766, .pointerCaptureMode = SEClay_PointerCaptureMode::Passthrough, .attachTo = SEClay_FloatingAttachToElement::Parent, .clipTo = SEClay_FloatingClipToElement::AttachedParent } }) {
@@ -4579,10 +4608,12 @@ void SEClay__RenderDebugView(void) {
         SECLAY({ .layout = { .sizing = {.width = SEClay_SizingGrow(0), .height = SEClay_SizingFixed(1)} }, .backgroundColor = SECLAY__DEBUGVIEW_COLOR_3 }) {}
         if (context->debugSelectedElementId != 0) {
             SEClay_LayoutElementHashMapItem *selectedItem = SEClay__GetHashMapItem(context->debugSelectedElementId);
+            SEClay_ElementId configPaneId = SEClay__HashString(SECLAY_STRING("SEClay__DebugViewConfigPane"), 0, 0);
             SECLAY({
+                .id = configPaneId,
                 .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFixed(300)}, .layoutDirection = SEClay_LayoutDirection::TopToBottom },
                 .backgroundColor = SECLAY__DEBUGVIEW_COLOR_2 ,
-                .clip = { .vertical = true, .childOffset = SEClay_GetScrollOffset() },
+                .clip = { .vertical = true, .childOffset = SEClay_GetScrollOffsetForId(configPaneId) },
                 .border = { .color = SECLAY__DEBUGVIEW_COLOR_3, .width = { .betweenChildren = 1 } }
             }) {
                 SECLAY({ .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT + 8)}, .padding = {SECLAY__DEBUGVIEW_OUTER_PADDING, SECLAY__DEBUGVIEW_OUTER_PADDING, 0, 0 }, .childAlignment = {.y = SEClay_LayoutAlignmentY::Center} } }) {
@@ -4882,12 +4913,12 @@ void SEClay__RenderDebugView(void) {
                 }
             }
         } else {
-            SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsScrollPane"), .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFixed(300)}, .childGap = 6, .layoutDirection = SEClay_LayoutDirection::TopToBottom }, .backgroundColor = SECLAY__DEBUGVIEW_COLOR_2, .clip = { .horizontal = true, .vertical = true, .childOffset = SEClay_GetScrollOffset() } }) {
+            SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsScrollPane"), .layout = { .sizing = {SEClay_SizingGrow(0), SEClay_SizingFixed(300)}, .childGap = 6, .layoutDirection = SEClay_LayoutDirection::TopToBottom }, .backgroundColor = SECLAY__DEBUGVIEW_COLOR_2, .clip = { .horizontal = true, .vertical = true, .childOffset = SEClay_GetScrollOffsetForId(SEClay__HashString(SECLAY_STRING("SEClay__DebugViewWarningsScrollPane"), 0, 0)) } }) {
                 SEClay_TextElementConfig *warningConfig = SECLAY_TEXT_CONFIG({ .textColor = SECLAY__DEBUGVIEW_COLOR_4, .fontSize = 16, .wrapMode = SEClay_TextElementConfigWrapMode::None });
                 SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningItemHeader"), .layout = { .sizing = {.height = SEClay_SizingFixed(SECLAY__DEBUGVIEW_ROW_HEIGHT)}, .padding = {SECLAY__DEBUGVIEW_OUTER_PADDING, SECLAY__DEBUGVIEW_OUTER_PADDING, 0, 0 }, .childGap = 8, .childAlignment = {.y = SEClay_LayoutAlignmentY::Center} } }) {
                     SECLAY_TEXT(SECLAY_STRING("Warnings"), warningConfig);
                 }
-                SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsTopBorder"), .layout = { .sizing = { .width = SEClay_SizingGrow(0), .height = SEClay_SizingFixed(1)} }, .backgroundColor = {0.7843f, 0.7843f, 0.7843f, 1.0f} }) {}
+                SECLAY({ .id = SECLAY_ID("SEClay__DebugViewWarningsTopBorder"), .layout = { .sizing = { .width = SEClay_SizingGrow(0), .height = SEClay_SizingFixed(1)} }, .backgroundColor = SECLAY__DEBUGVIEW_COLOR_3 }) {}
                 int32_t previousWarningsLength = context->warnings.length;
                 for (int32_t i = 0; i < previousWarningsLength; i++) {
                     SEClay__Warning warning = context->warnings.internalArray[i];
@@ -4906,6 +4937,47 @@ void SEClay__RenderDebugView(void) {
 
 uint32_t SEClay__debugViewWidth = 400;
 SEClay_Color SEClay__debugViewHighlightColor = {0.6588f, 0.2588f, 0.1098f, 0.3922f};
+SEClay_Color SEClay__debugViewCloseColor = {0.851f, 0.3569f, 0.2627f, 1.0f};
+SEClay_Color SEClay__debugViewWarningColor = {0.9529f, 0.5255f, 0.1882f, 1.0f};
+// By SEClay__ElementConfigType: none, border, floating, scroll, aspect, image, text, custom, shared.
+SEClay_Color SEClay__debugViewTagColors[9] = {
+    {0.0f, 0.0f, 0.0f, 1.0f},          {0.4235f, 0.3569f, 0.4824f, 1.0f}, {0.9804f, 0.4118f, 0.0f, 1.0f},
+    {0.949f, 0.7686f, 0.3529f, 1.0f},  {0.3961f, 0.5843f, 0.7608f, 1.0f}, {0.4745f, 0.7412f, 0.6039f, 1.0f},
+    {0.4118f, 0.8235f, 0.9059f, 1.0f}, {0.0431f, 0.2824f, 0.4196f, 1.0f}, {0.9529f, 0.5255f, 0.1882f, 1.0f},
+};
+
+void SEClay_SetDebugViewTheme(const SEClay_DebugViewTheme *theme) {
+    if (theme == NULL) {
+        return;
+    }
+    SECLAY__DEBUGVIEW_COLOR_1 = theme->surface;
+    SECLAY__DEBUGVIEW_COLOR_2 = theme->surfaceAlt;
+    SECLAY__DEBUGVIEW_COLOR_3 = theme->muted;
+    SECLAY__DEBUGVIEW_COLOR_4 = theme->text;
+    SECLAY__DEBUGVIEW_COLOR_SELECTED_ROW = theme->selectedRow;
+    SEClay__debugViewHighlightColor = theme->highlight;
+    SEClay__debugViewCloseColor = theme->close;
+    SEClay__debugViewWarningColor = theme->warning;
+    for (int i = 0; i < 9; ++i) {
+        SEClay__debugViewTagColors[i] = theme->tags[i];
+    }
+}
+
+SEClay_DebugViewTheme SEClay_GetDebugViewTheme(void) {
+    SEClay_DebugViewTheme theme;
+    theme.surface = SECLAY__DEBUGVIEW_COLOR_1;
+    theme.surfaceAlt = SECLAY__DEBUGVIEW_COLOR_2;
+    theme.muted = SECLAY__DEBUGVIEW_COLOR_3;
+    theme.text = SECLAY__DEBUGVIEW_COLOR_4;
+    theme.selectedRow = SECLAY__DEBUGVIEW_COLOR_SELECTED_ROW;
+    theme.highlight = SEClay__debugViewHighlightColor;
+    theme.close = SEClay__debugViewCloseColor;
+    theme.warning = SEClay__debugViewWarningColor;
+    for (int i = 0; i < 9; ++i) {
+        theme.tags[i] = SEClay__debugViewTagColors[i];
+    }
+    return theme;
+}
 
 // HARDENING: reports an error through the current context's handler. Safe when there is no current context (the
 // failure paths below can run before one exists, or after it was cleared) and when the handler is somehow unset.
@@ -5335,6 +5407,15 @@ void SEClay_SetCurrentContext(SEClay_Context* context) {
 }
 
 SECLAY_WASM_EXPORT("SEClay_GetScrollOffset")
+SEClay_Vector2 SEClay_GetScrollOffsetForId(SEClay_ElementId id) {
+    SEClay_Context* context = SEClay_GetCurrentContext();
+    if (context->ghostDepth > 0) {
+        return SEClay_Vector2 SECLAY__DEFAULT_STRUCT;
+    }
+    SEClay__ScrollContainerDataInternal *mapping = SEClay__FindScrollContainer(context, id.id);
+    return mapping ? mapping->scrollPosition : SEClay_Vector2 SECLAY__DEFAULT_STRUCT;
+}
+
 SEClay_Vector2 SEClay_GetScrollOffset(void) {
     SEClay_Context* context = SEClay_GetCurrentContext();
     if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {

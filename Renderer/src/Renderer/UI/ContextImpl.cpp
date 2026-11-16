@@ -781,6 +781,61 @@ namespace SFT::UI {
 
     u32 Context::debug_view_width() noexcept { return SEClay__debugViewWidth; }
 
+    namespace {
+        [[nodiscard]] SEClay_Color to_debug_clay_color(const Color &color) noexcept {
+            return SEClay_Color{static_cast<f32>(color.r), static_cast<f32>(color.g), static_cast<f32>(color.b), static_cast<f32>(color.a)};
+        }
+        [[nodiscard]] Color from_debug_clay_color(const SEClay_Color &color) noexcept {
+            return Color{color.r, color.g, color.b, color.a};
+        }
+    } // namespace
+
+    void Context::set_debug_view_theme(const DebugViewTheme &theme) noexcept {
+        SEClay_DebugViewTheme native{};
+        native.surface = to_debug_clay_color(theme.surface);
+        native.surfaceAlt = to_debug_clay_color(theme.surface_alt);
+        native.muted = to_debug_clay_color(theme.muted);
+        native.text = to_debug_clay_color(theme.text);
+        native.selectedRow = to_debug_clay_color(theme.selected_row);
+        native.highlight = to_debug_clay_color(theme.highlight);
+        native.close = to_debug_clay_color(theme.close);
+        native.warning = to_debug_clay_color(theme.warning);
+        // By element configuration kind: none, border, floating, scroll, aspect, image, text, custom, shared.
+        native.tags[0] = to_debug_clay_color(Color{0.0, 0.0, 0.0, 1.0});
+        native.tags[1] = to_debug_clay_color(theme.tag_border);
+        native.tags[2] = to_debug_clay_color(theme.tag_floating);
+        native.tags[3] = to_debug_clay_color(theme.tag_scroll);
+        native.tags[4] = to_debug_clay_color(theme.tag_aspect);
+        native.tags[5] = to_debug_clay_color(theme.tag_image);
+        native.tags[6] = to_debug_clay_color(theme.tag_text);
+        native.tags[7] = to_debug_clay_color(theme.tag_custom);
+        native.tags[8] = to_debug_clay_color(theme.tag_shared);
+        SEClay_SetDebugViewTheme(&native);
+    }
+
+    DebugViewTheme Context::debug_view_theme() noexcept {
+        const SEClay_DebugViewTheme native = SEClay_GetDebugViewTheme();
+        DebugViewTheme theme;
+        theme.surface = from_debug_clay_color(native.surface);
+        theme.surface_alt = from_debug_clay_color(native.surfaceAlt);
+        theme.muted = from_debug_clay_color(native.muted);
+        theme.text = from_debug_clay_color(native.text);
+        theme.selected_row = from_debug_clay_color(native.selectedRow);
+        theme.highlight = from_debug_clay_color(native.highlight);
+        theme.close = from_debug_clay_color(native.close);
+        theme.warning = from_debug_clay_color(native.warning);
+        theme.tag_border = from_debug_clay_color(native.tags[1]);
+        theme.tag_floating = from_debug_clay_color(native.tags[2]);
+        theme.tag_scroll = from_debug_clay_color(native.tags[3]);
+        theme.tag_aspect = from_debug_clay_color(native.tags[4]);
+        theme.tag_image = from_debug_clay_color(native.tags[5]);
+        theme.tag_text = from_debug_clay_color(native.tags[6]);
+        theme.tag_custom = from_debug_clay_color(native.tags[7]);
+        theme.tag_shared = from_debug_clay_color(native.tags[8]);
+        return theme;
+    }
+
+
     Context::MemoryStats Context::memory_stats() const noexcept {
         MemoryStats out;
         if (context_ == nullptr) {

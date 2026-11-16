@@ -1626,6 +1626,95 @@ pub fn set_debug_view(enabled: bool) {
     ffi::ui_set_debug_view(enabled);
 }
 
+/// The colours of the layout inspector ([`set_debug_view`]), straight-alpha sRGB. The defaults are the inspector's own dark theme; set these
+/// from the application's palette so it matches.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DebugViewTheme {
+    /// The element list's background (alternating rows with `surface_alt`) and the panels.
+    pub surface: glam::Vec4,
+    pub surface_alt: glam::Vec4,
+    /// Lines, borders and secondary text.
+    pub muted: glam::Vec4,
+    pub text: glam::Vec4,
+    /// The row of the selected element.
+    pub selected_row: glam::Vec4,
+    /// Laid over the element the pointer is on in the list; give it some transparency.
+    pub highlight: glam::Vec4,
+    pub close: glam::Vec4,
+    /// Notes about an element (offscreen, duplicate id).
+    pub warning: glam::Vec4,
+    /// The tags naming what an element has.
+    pub tag_border: glam::Vec4,
+    pub tag_floating: glam::Vec4,
+    pub tag_scroll: glam::Vec4,
+    pub tag_aspect: glam::Vec4,
+    pub tag_image: glam::Vec4,
+    pub tag_text: glam::Vec4,
+    pub tag_custom: glam::Vec4,
+    pub tag_shared: glam::Vec4,
+}
+
+impl Default for DebugViewTheme {
+    fn default() -> Self {
+        let c = glam::Vec4::new;
+        Self {
+            surface: c(0.2275, 0.2196, 0.2039, 1.0),
+            surface_alt: c(0.2431, 0.2353, 0.2275, 1.0),
+            muted: c(0.5529, 0.5216, 0.5294, 1.0),
+            text: c(0.9333, 0.8863, 0.9059, 1.0),
+            selected_row: c(0.4, 0.3137, 0.3059, 1.0),
+            highlight: c(0.6588, 0.2588, 0.1098, 0.3922),
+            close: c(0.851, 0.3569, 0.2627, 1.0),
+            warning: c(0.9529, 0.5255, 0.1882, 1.0),
+            tag_border: c(0.4235, 0.3569, 0.4824, 1.0),
+            tag_floating: c(0.9804, 0.4118, 0.0, 1.0),
+            tag_scroll: c(0.949, 0.7686, 0.3529, 1.0),
+            tag_aspect: c(0.3961, 0.5843, 0.7608, 1.0),
+            tag_image: c(0.4745, 0.7412, 0.6039, 1.0),
+            tag_text: c(0.4118, 0.8235, 0.9059, 1.0),
+            tag_custom: c(0.0431, 0.2824, 0.4196, 1.0),
+            tag_shared: c(0.9529, 0.5255, 0.1882, 1.0),
+        }
+    }
+}
+
+impl DebugViewTheme {
+    fn colors(&self) -> [glam::Vec4; 16] {
+        [
+            self.surface, self.surface_alt, self.muted, self.text, self.selected_row, self.highlight, self.close, self.warning,
+            self.tag_border, self.tag_floating, self.tag_scroll, self.tag_aspect, self.tag_image, self.tag_text, self.tag_custom, self.tag_shared,
+        ]
+    }
+
+    fn from_colors(colors: [glam::Vec4; 16]) -> Self {
+        let [surface, surface_alt, muted, text, selected_row, highlight, close, warning, tag_border, tag_floating, tag_scroll, tag_aspect, tag_image, tag_text, tag_custom, tag_shared] =
+            colors;
+        Self {
+            surface, surface_alt, muted, text, selected_row, highlight, close, warning, tag_border, tag_floating, tag_scroll, tag_aspect, tag_image,
+            tag_text, tag_custom, tag_shared,
+        }
+    }
+}
+
+/// Sets the layout inspector's colours (see [`DebugViewTheme`]); they apply from the next layout. Call it from game logic, between layouts.
+pub fn set_debug_view_theme(theme: &DebugViewTheme) {
+    let mut colors = [0.0_f32; 64];
+    for (i, color) in theme.colors().iter().enumerate() {
+        colors[i * 4..i * 4 + 4].copy_from_slice(&color.to_array());
+    }
+    ffi::ui_set_debug_view_theme(&ffi::UiDebugViewTheme { colors });
+}
+
+/// The colours the inspector is using now.
+pub fn debug_view_theme() -> DebugViewTheme {
+    let native = ffi::ui_debug_view_theme();
+    let mut colors = [glam::Vec4::ZERO; 16];
+    for (i, color) in colors.iter_mut().enumerate() {
+        *color = glam::Vec4::from_slice(&native.colors[i * 4..i * 4 + 4]);
+    }
+    DebugViewTheme::from_colors(colors)
+}
+
 /// Installs (or replaces) the process-wide per-frame UI draw closure. Called once per frame once
 /// the engine-loop wiring described in this module's doc comment exists; `draw` builds the whole
 /// UI tree for that frame through the [`Ui`] it's given.

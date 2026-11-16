@@ -674,6 +674,46 @@ namespace sturdy_rs::ui {
     void ui_set_hit_test_fixed(bool fixed) noexcept { g_hit_test_fixed.store(fixed); }
     void ui_set_debug_view(bool enabled) noexcept { g_debug_view.store(enabled); }
 
+    void ui_set_debug_view_theme(const UiDebugViewTheme &theme) noexcept {
+        const auto color = [&](usize index) {
+            return SFT::UI::Color{theme.colors[index * 4], theme.colors[index * 4 + 1], theme.colors[index * 4 + 2], theme.colors[index * 4 + 3]};
+        };
+        SFT::UI::DebugViewTheme native;
+        native.surface = color(0);
+        native.surface_alt = color(1);
+        native.muted = color(2);
+        native.text = color(3);
+        native.selected_row = color(4);
+        native.highlight = color(5);
+        native.close = color(6);
+        native.warning = color(7);
+        native.tag_border = color(8);
+        native.tag_floating = color(9);
+        native.tag_scroll = color(10);
+        native.tag_aspect = color(11);
+        native.tag_image = color(12);
+        native.tag_text = color(13);
+        native.tag_custom = color(14);
+        native.tag_shared = color(15);
+        SFT::UI::Context::set_debug_view_theme(native);
+    }
+
+    UiDebugViewTheme ui_debug_view_theme() noexcept {
+        const SFT::UI::DebugViewTheme native = SFT::UI::Context::debug_view_theme();
+        const SFT::UI::Color colors[16] = {native.surface,      native.surface_alt,  native.muted,      native.text,
+                                           native.selected_row, native.highlight,    native.close,      native.warning,
+                                           native.tag_border,   native.tag_floating, native.tag_scroll, native.tag_aspect,
+                                           native.tag_image,    native.tag_text,     native.tag_custom, native.tag_shared};
+        UiDebugViewTheme out{};
+        for (usize i = 0; i < 16; ++i) {
+            out.colors[i * 4] = static_cast<float>(colors[i].r);
+            out.colors[i * 4 + 1] = static_cast<float>(colors[i].g);
+            out.colors[i * 4 + 2] = static_cast<float>(colors[i].b);
+            out.colors[i * 4 + 3] = static_cast<float>(colors[i].a);
+        }
+        return out;
+    }
+
     std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content) {
         if (!g_session.open) {
             return {0.0f, 0.0f};

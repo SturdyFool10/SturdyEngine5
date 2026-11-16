@@ -347,6 +347,34 @@ namespace SFT::UI {
     };
 
 
+    /// The colours of the layout engine's debug view (see `Context::set_debug_view_theme`). Straight-alpha sRGB like every colour here.
+    /// The defaults are the view's own dark theme; an application sets these from its own palette so the inspector matches it.
+    struct DebugViewTheme {
+        /// The element list's background (alternating rows with `surface_alt`) and the panels.
+        Color surface{0.2275, 0.2196, 0.2039, 1.0};
+        Color surface_alt{0.2431, 0.2353, 0.2275, 1.0};
+        /// Lines, borders and secondary text.
+        Color muted{0.5529, 0.5216, 0.5294, 1.0};
+        Color text{0.9333, 0.8863, 0.9059, 1.0};
+        /// The row of the selected element.
+        Color selected_row{0.4, 0.3137, 0.3059, 1.0};
+        /// Laid over the element the pointer is on in the list. Give it some transparency.
+        Color highlight{0.6588, 0.2588, 0.1098, 0.3922};
+        Color close{0.851, 0.3569, 0.2627, 1.0};
+        /// Notes about an element (offscreen, duplicate id).
+        Color warning{0.9529, 0.5255, 0.1882, 1.0};
+        /// The tags naming what an element has: a border, a floating placement, scrolling, an aspect ratio, an image, text, a custom
+        /// element, shared settings (colour, radius, ...).
+        Color tag_border{0.4235, 0.3569, 0.4824, 1.0};
+        Color tag_floating{0.9804, 0.4118, 0.0, 1.0};
+        Color tag_scroll{0.949, 0.7686, 0.3529, 1.0};
+        Color tag_aspect{0.3961, 0.5843, 0.7608, 1.0};
+        Color tag_image{0.4745, 0.7412, 0.6039, 1.0};
+        Color tag_text{0.4118, 0.8235, 0.9059, 1.0};
+        Color tag_custom{0.0431, 0.2824, 0.4196, 1.0};
+        Color tag_shared{0.9529, 0.5255, 0.1882, 1.0};
+    };
+
     class Context {
       public:
         /// Constructs a `Context` in its default state.
@@ -419,6 +447,10 @@ namespace SFT::UI {
         /// Width in layout units of the strip the view takes from the right of the layout while it is on (the layout area, `viewport_size()`
         /// less this, is what is left for the application's own UI).
         [[nodiscard]] static u32 debug_view_width() noexcept;
+        /// Sets the debug view's colours for every context in the process; they apply from the next layout. Call it from the thread that
+        /// builds the UI, between layouts.
+        static void set_debug_view_theme(const DebugViewTheme &theme) noexcept;
+        [[nodiscard]] static DebugViewTheme debug_view_theme() noexcept;
 
         // ---- diagnostics ----------------------------------------------------------------------------------------------------------------
 

@@ -318,6 +318,14 @@ pub mod ffi {
         parent_generation: u32,
     }
 
+    /// The debug view's colours (`SFT::UI::DebugViewTheme`), sixteen straight-alpha sRGB colours of four floats each, in this order: surface,
+    /// surface_alt, muted, text, selected_row, highlight, close, warning, then the tags: border, floating, scroll, aspect, image, text,
+    /// custom, shared.
+    #[derive(Debug, Clone)]
+    struct UiDebugViewTheme {
+        colors: [f32; 64],
+    }
+
     /// A UI tree's description (`SFT::Engine::UiTreeDesc` without the builder). `target_kind`: 0 a window (`window` 0 = the primary
     /// one), 1 an off-screen render target (`offscreen_target`), 2 headless (laid out at `headless_width` x `headless_height`).
     /// `rebuild`: 0 every update, 1 only when dirty, 2 at `rebuild_hz`.
@@ -968,6 +976,9 @@ pub mod ffi {
         fn ui_set_hit_test_fixed(fixed: bool);
         /// Shows or hides the layout engine's inspector over the UI (element tree, sizes, configs). Takes effect at the next frame.
         fn ui_set_debug_view(enabled: bool);
+        /// Sets the debug view's colours; they apply from the next layout.
+        fn ui_set_debug_view_theme(theme: &UiDebugViewTheme);
+        fn ui_debug_view_theme() -> UiDebugViewTheme;
         /// Bounds (position and size, in layout pixels) of the element with this id as of the last
         /// finished layout; `found == false` if no such element was laid out.
         fn ui_element_bounds(id: &str) -> UiBounds;

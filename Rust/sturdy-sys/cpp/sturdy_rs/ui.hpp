@@ -30,6 +30,7 @@ namespace sturdy_rs::ui {
     using EngineView = sturdy_rs::EngineView;
 
     struct UiDrawHandle;
+    struct UiDebugViewTheme;
     struct UiTreeBuilderHandle;
     struct UiTreeDirtyHandle;
     struct UiTreeDescInfo;
@@ -108,6 +109,8 @@ namespace sturdy_rs::ui {
     void ui_set_raw_pixel_layout(bool raw) noexcept;
     void ui_set_hit_test_fixed(bool fixed) noexcept;
     void ui_set_debug_view(bool enabled) noexcept;
+    void ui_set_debug_view_theme(const UiDebugViewTheme &theme) noexcept;
+    UiDebugViewTheme ui_debug_view_theme() noexcept;
 
     bool ui_begin_element(const UiElementDesc &desc);
     UiEffectOutcome ui_effect_create(const UiEffectSpec &spec, const UiEffectOptions &options);
