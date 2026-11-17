@@ -250,6 +250,7 @@ function(sturdy_add_package package_name)
   if(_compile_sources OR _all_modules)
     if(STURDY_PACKAGE_EXECUTABLE)
       add_executable("${package_name}" ${_all_sources})
+      sturdy_apply_self_contained("${package_name}")
     elseif(STURDY_BUILD_SHARED_LIBS)
       add_library("${package_name}" SHARED ${_all_sources})
     else()
@@ -507,10 +508,10 @@ function(sturdy_configure_package_target target_name)
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEFINES}
             ${_sturdy_debug_definition}
-            # DIST marks a shipping build (Release-optimized, no console). It is defined ONLY for the
-            # Dist configuration — a plain Release build is optimized but keeps DIST undefined, so it
+            # STURDY_DIST marks a shipping build (Release-optimized, no console). It is defined ONLY for the
+            # Dist configuration — a plain Release build is optimized but keeps STURDY_DIST undefined, so it
             # still gets the console main(). On Windows this gates the WinMain entry point.
-            "$<$<CONFIG:Dist>:DIST>"
+            "$<$<CONFIG:Dist>:STURDY_DIST>"
             # Forces the Windows GUI (WinMain) entry point regardless of configuration.
             "$<$<BOOL:${SFT_USE_WINMAIN}>:SFT_USE_WINMAIN>"
         ${_private_scope}

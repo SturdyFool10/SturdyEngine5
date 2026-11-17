@@ -5,6 +5,8 @@
 #include <Async/NetInternal.hpp>
 
 #include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/rand.h>
@@ -197,6 +199,39 @@ namespace SFT::Async::Detail {
 
         int accept_any_certificate(int, X509_STORE_CTX *) { return 1; }
 
+        /// Trusts the operating system's CA certificates.
+        ///
+        /// OpenSSL's `set_default_verify_paths()` looks where the library was *built* to look (its OPENSSLDIR), which is right for a
+        /// distribution's own package and wrong for a statically linked copy that runs on any machine: there the directory does not exist
+        /// and every HTTPS request would fail verification. It still honours SSL_CERT_FILE / SSL_CERT_DIR, so those stay the override;
+        /// after that the places distributions actually keep their bundle are tried, first hit wins.
+        void load_system_trust_store(SSL_CTX *context) {
+            ERR_set_mark();
+            SSL_CTX_set_default_verify_paths(context);
+            ERR_pop_to_mark();
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+            static constexpr const char *bundle_files[] = {
+                "/etc/ssl/certs/ca-certificates.crt",                  // Debian, Ubuntu, Arch, Gentoo, Alpine
+                "/etc/pki/tls/certs/ca-bundle.crt",                    // Fedora, RHEL, CentOS
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",   // Fedora, RHEL (extracted store)
+                "/var/lib/ca-certificates/ca-bundle.pem",              // openSUSE
+                "/etc/ssl/ca-bundle.pem",                              // openSUSE (legacy)
+                "/etc/ssl/cert.pem",                                   // Alpine, OpenBSD, macOS-style
+                "/usr/local/share/certs/ca-root-nss.crt",              // FreeBSD
+                "/etc/pki/tls/cert.pem",                               // old RHEL
+            };
+            for (const char *file : bundle_files) {
+                if (std::ifstream(file).good() && SSL_CTX_load_verify_locations(context, file, nullptr) == 1) {
+                    break;
+                }
+                ERR_clear_error();
+            }
+            // The hashed directory covers systems that ship certificates one per file only.
+            SSL_CTX_load_verify_locations(context, nullptr, "/etc/ssl/certs");
+            ERR_clear_error();
+#endif
+        }
+
     } // namespace
 
     // ---------------------------------------------------------------------------------------------
@@ -217,7 +252,7 @@ namespace SFT::Async::Detail {
                 SSL_CTX_set_verify(context->native_handle(), SSL_VERIFY_PEER, accept_any_certificate);
             } else {
                 if (options.use_system_roots) {
-                    context->set_default_verify_paths();
+                    load_system_trust_store(context->native_handle());
                 }
                 if (!options.ca_certificates_pem.empty()) {
                     context->add_certificate_authority(asio::buffer(options.ca_certificates_pem));

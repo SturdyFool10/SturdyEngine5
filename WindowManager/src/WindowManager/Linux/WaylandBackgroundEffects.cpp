@@ -18,6 +18,7 @@
 #pragma endregion
 
 #include <WindowManager/Linux/WaylandBackgroundEffects.hpp>
+#include <WindowManager/Linux/WaylandClientLoader.hpp>
 #include <WindowManager/WindowEffects.hpp>
 #include <WindowManager/WindowLog.hpp>
 
@@ -420,7 +421,8 @@ namespace SFT::WindowManager::Detail {
     WindowEffectResult set_wayland_background_blur(
         NativeWindowHandle handle, WindowEffect effect) noexcept {
         ZoneScopedN("Windowing::set_wayland_background_blur");
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr ||
+            !wayland_client_available()) {
             return WindowEffectResult::failed("Wayland background blur requires a wl_display and wl_surface.");
         }
 
@@ -475,7 +477,8 @@ namespace SFT::WindowManager::Detail {
 
     WindowEffectResult set_wayland_window_opacity(NativeWindowHandle handle, WindowEffect effect) noexcept {
         ZoneScopedN("Windowing::set_wayland_window_opacity");
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr ||
+            !wayland_client_available()) {
             return WindowEffectResult::failed("Wayland opacity requires a wl_display and wl_surface.");
         }
         auto *display = static_cast<wl_display *>(handle.display);
@@ -513,7 +516,8 @@ namespace SFT::WindowManager::Detail {
 
     WindowEffectResult set_wayland_window_transparency(NativeWindowHandle handle, bool transparent) noexcept {
         ZoneScopedN("Windowing::set_wayland_window_transparency");
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr ||
+            !wayland_client_available()) {
             return WindowEffectResult::failed("Wayland transparency requires a wl_display and wl_surface.");
         }
         auto *display = static_cast<wl_display *>(handle.display);
@@ -542,7 +546,8 @@ namespace SFT::WindowManager::Detail {
 
     WindowEffectResult set_wayland_mouse_passthrough(NativeWindowHandle handle, bool enabled) noexcept {
         ZoneScopedN("Windowing::set_wayland_mouse_passthrough");
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr ||
+            !wayland_client_available()) {
             return WindowEffectResult::failed("Wayland click-through requires a wl_display and wl_surface.");
         }
         auto *display = static_cast<wl_display *>(handle.display);
@@ -570,7 +575,7 @@ namespace SFT::WindowManager::Detail {
 
     WindowEffectSupport query_wayland_opacity_support(NativeWindowHandle handle) noexcept {
         WindowEffectSupport support;
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || !wayland_client_available()) {
             support.add("wp_alpha_modifier_v1", EffectAvailability::Unavailable, "not a Wayland window");
             return support;
         }
@@ -600,7 +605,7 @@ namespace SFT::WindowManager::Detail {
     WindowEffectSupport query_wayland_background_support(NativeWindowHandle handle) noexcept {
         ZoneScopedN("Windowing::query_wayland_background_support");
         WindowEffectSupport support;
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || !wayland_client_available()) {
             support.add("ext-background-effect-v1", EffectAvailability::Unavailable, "not a Wayland window");
             support.add("org_kde_kwin_blur", EffectAvailability::Unavailable, "not a Wayland window");
             return support;
@@ -635,7 +640,7 @@ namespace SFT::WindowManager::Detail {
 
     void release_wayland_background_effects(
         NativeWindowHandle handle, bool release_display) noexcept {
-        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || !wayland_client_available()) {
             return;
         }
         const std::lock_guard lock{connection_mutex()};

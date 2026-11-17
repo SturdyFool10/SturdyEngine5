@@ -52,12 +52,20 @@ namespace SFT::Audio {
 
         /// Devices actually running (outputs without one are skipped).
         [[nodiscard]] u32 device_count() const noexcept;
+        /// The audio system the devices run on, as miniaudio names it: "PulseAudio" (also what PipeWire's Pulse server answers),
+        /// "ALSA", "JACK", "PipeWire", "WASAPI", "Core Audio", ... Show it in a settings screen or a bug report.
+        [[nodiscard]] const char *backend_name() const noexcept;
+        /// True when no audio system could be opened and the sink fell back to the Null backend: the engine runs and its clock
+        /// advances, but nothing is audible. Worth telling the player.
+        [[nodiscard]] bool is_silent() const noexcept;
         /// Seconds between the engine producing a sample on the primary output and it leaving the speakers (the device's buffer);
         /// give it to `MediaAudioStream::set_output_latency` so video lines up with what is heard.
         [[nodiscard]] f64 output_latency_seconds() const noexcept;
 
-      private:
+        /// Opaque; named here (not defined) so the implementation's helpers can build one.
         struct Impl;
+
+      private:
         explicit DeviceSink(std::unique_ptr<Impl> impl);
         std::unique_ptr<Impl> impl_;
     };

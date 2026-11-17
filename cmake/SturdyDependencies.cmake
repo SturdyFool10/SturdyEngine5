@@ -366,7 +366,7 @@ endfunction()
 # Boost (Asio, Beast, Process) for Async. The official CMake release archive carries every Boost library plus a superproject
 # CMakeLists, so nothing needs to be installed by hand (the Windows pain point): a system Boost is used when find_package finds
 # one, otherwise this archive is downloaded and only the libraries Async needs (and their dependencies) are built.
-set(STURDY_BOOST_VERSION "1.86.0" CACHE STRING "Boost release to download when no suitable system Boost is found.")
+set(STURDY_BOOST_VERSION "1.92.0" CACHE STRING "Boost release to download when no suitable system Boost is found.")
 function(sturdy_fetch_boost)
     set(BOOST_INCLUDE_LIBRARIES "asio;beast;process" CACHE STRING "" FORCE)
     set(BOOST_ENABLE_MPI OFF CACHE BOOL "" FORCE)
@@ -698,7 +698,15 @@ function(sturdy_configure_dependencies)
     if(STURDY_FETCH_DEPENDENCIES)
         if(NOT STURDY_OS STREQUAL "Web")
             sturdy_fetch_boost()
-            sturdy_fetch_openssl()
+            if(STURDY_SELF_CONTAINED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                # OpenSSL, zlib, HTTP/2, HTTP/3, QUIC and io_uring as static libraries, built once into the shared dependency cache
+                # (cmake/SturdyNetLibs.cmake) instead of once per build tree.
+                sturdy_fetch_net_libs()
+            else()
+                sturdy_fetch_openssl()
+            endif()
+            # Client headers for the native PipeWire audio output (the library itself is opened at run time).
+            sturdy_fetch_pipewire_headers()
         endif()
         sturdy_fetch_glm()
         sturdy_fetch_vma()
@@ -840,7 +848,9 @@ function(sturdy_find_vulkan)
     # /usr/include, and there is no loader for the target anyway), and neither does a machine without an SDK (a
     # minimal build container). Those fetch the matching Khronos headers instead.
     set(_sturdy_vulkan_from_headers OFF)
-    if(CMAKE_CROSSCOMPILING AND NOT STURDY_VULKAN_LIBRARY)
+    if((CMAKE_CROSSCOMPILING OR STURDY_SELF_CONTAINED) AND NOT STURDY_VULKAN_LIBRARY)
+        # Self-contained builds never link the Vulkan loader (volk opens it at run time; linking it would add a NEEDED entry
+        # whenever the linker is not run with --as-needed).
         set(_sturdy_vulkan_from_headers ON)
     elseif(NOT STURDY_VULKAN_LIBRARY)
         # Probed with find_library rather than find_package(Vulkan): FindVulkan defines Vulkan::Headers even when it
@@ -852,6 +862,11 @@ function(sturdy_find_vulkan)
         endif()
     endif()
     if(_sturdy_vulkan_from_headers)
+        # Vulkan-Headers builds a Vulkan-Hpp C++ named module (with a synthesized `import std`) by default whenever the compiler
+        # allows it. Nothing here imports it, and it only costs build time (and needs the standard library's module sources).
+        set(VULKAN_HEADERS_ENABLE_MODULE OFF CACHE BOOL "" FORCE)
+        set(VULKAN_HEADERS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+        set(VULKAN_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
         sturdy_fetchcontent_declare(vulkan_headers
             GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
             GIT_TAG ${STURDY_VULKAN_HEADERS_TAG}
@@ -2680,6 +2695,13 @@ function(sturdy_fetch_libtiff)
     set(tiff-contrib OFF CACHE BOOL "" FORCE)
     set(tiff-docs OFF CACHE BOOL "" FORCE)
     set(tiff-install OFF CACHE BOOL "" FORCE)
+    # libtiff's optional codecs default to ON whenever find_package() finds the library, so a machine with zlib/libjpeg/JBIG-KIT/
+    # liblzma/zstd/libdeflate/libwebp/LERC installed silently made the engine's executables depend on them at run time. The
+    # engine decodes the built-in codecs only (see STURDY_LIBTIFF_TAG's comment); pin the rest off so the result is the same
+    # on every machine.
+    foreach(_tiff_codec zlib libdeflate pixarlog jpeg old-jpeg jpeg12 jbig lerc lzma zstd webp)
+        set(${_tiff_codec} OFF CACHE BOOL "" FORCE)
+    endforeach()
 
     # libtiff's own cmake/LinkerChecks.cmake probes for GNU-ld-style --version-script support via
     # check_c_source_compiles(), which on this Clang+LLD-on-Windows toolchain fails outright --
@@ -2733,6 +2755,13 @@ function(sturdy_fetch_openexr)
     # of compiling its own copy -- one real libdeflate in the whole build, matching the "don't
     # duplicate logic" convention used elsewhere for shared dependencies.
     set(OPENEXR_FORCE_INTERNAL_DEFLATE ON CACHE BOOL "" FORCE)
+    # Same reason as the libtiff codecs: OpenEXR otherwise links an installed OpenJPH / Imath when it finds one.
+    # OpenEXR still uses std::wstring_convert / <codecvt>, which libc++ removes from C++26 (the engine's own standard). Build the
+    # library, and the Imath/OpenJPH it brings, as C++17 (its own default); this function's variables never leak to the engine.
+    set(OPENEXR_CXX_STANDARD 17 CACHE STRING "" FORCE)
+    set(CMAKE_CXX_STANDARD 17)
+    set(OPENEXR_FORCE_INTERNAL_OPENJPH ON CACHE BOOL "" FORCE)
+    set(OPENEXR_FORCE_INTERNAL_IMATH ON CACHE BOOL "" FORCE)
     set(EXR_DEFLATE_LIB libdeflate_static)
 
     # OpenJPH (bundled in OpenEXR for HTJ2K) builds one source file per SIMD level and gives the AVX/AVX2/AVX-512 ones /arch:AVX..
@@ -3104,7 +3133,13 @@ function(sturdy_normalize_dependency_targets)
     endif()
 
     if(STURDY_IMAGE_JXL)
+        # The engine only decodes JPEG XL: link libjxl's decoder library, which leaves the encoder (about half of libjxl's compile time and
+        # all of brotli's encoder) out. Sturdy::libjxl_full is the whole library, for the one test that encodes files itself.
         sturdy_alias_existing_target(Sturdy::libjxl
+            jxl_dec
+            jxl
+        )
+        sturdy_alias_existing_target(Sturdy::libjxl_full
             jxl
         )
     endif()

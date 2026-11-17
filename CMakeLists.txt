@@ -171,6 +171,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(SturdyMatrix)
 sturdy_apply_matrix()
 
+# Linux executables that need only the C library (see cmake/SturdySelfContained.cmake). Must run before any dependency is configured:
+# it turns off system-package lookup and rewrites the compile/link flags every dependency inherits.
+include(SturdySelfContained)
+sturdy_self_contained_configure()
+sturdy_self_contained_verify()
+include(SturdyNetLibs)
+include(SturdyPipeWire)
+
 if(APPLE)
     # SDL3 enables Objective-C from inside the sturdy_fetch_* functions. CMake keeps a language's rule variables
     # (CMAKE_OBJC_COMPILE_OBJECT, ...) in the calling scope, so they are gone once that function returns and the

@@ -87,7 +87,7 @@ namespace {
 } // namespace
 
 
-#if defined(STURDY_PLATFORM_WINDOWS) && (defined(DIST) || defined(SFT_USE_WINMAIN))
+#if defined(STURDY_PLATFORM_WINDOWS) && (defined(STURDY_DIST) || defined(SFT_USE_WINMAIN))
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

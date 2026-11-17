@@ -65,7 +65,9 @@ def compile_flags(compile_commands: Path):
             flags += [w, words[i + 1]]
             i += 2
             continue
-        if w.startswith(("-I", "-D", "-std=")):
+        # -nostdinc++ belongs with the -isystem above: a build that supplies its own C++ standard library headers (the self-contained
+        # libc++, cmake/SturdySelfContained.cmake) must not also see the toolchain's.
+        if w.startswith(("-I", "-D", "-std=")) or w == "-nostdinc++":
             flags.append(w)
         i += 1
     return flags

@@ -65,7 +65,7 @@ sturdy_add_tests(Engine
 
 if(STURDY_IMAGE_JXL)
     # Encodes real multi-group JPEG XL files with libjxl itself, so it links the codec directly.
-    sturdy_add_test(Engine tests/JxlProgressiveDecodeTest.cpp KEEP_ASSERTS LINK Sturdy::libjxl)
+    sturdy_add_test(Engine tests/JxlProgressiveDecodeTest.cpp KEEP_ASSERTS LINK Sturdy::libjxl_full)
 endif()
 
 if(STURDY_TESTS_ENABLED)

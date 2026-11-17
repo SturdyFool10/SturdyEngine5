@@ -13,6 +13,7 @@
 #pragma endregion
 
 #include <WindowManager/Linux/WaylandColorManagement.hpp>
+#include <WindowManager/Linux/WaylandClientLoader.hpp>
 #include <WindowManager/WindowLog.hpp>
 
 #include <tracy/Tracy.hpp>
@@ -294,7 +295,7 @@ namespace SFT::WindowManager::Detail {
         NativeWindowHandle handle) noexcept {
         ZoneScopedN("Windowing::query_wayland_surface_reference_white");
         if (handle.system != NativeWindowSystem::Wayland ||
-            handle.display == nullptr || handle.window == nullptr) {
+            handle.display == nullptr || handle.window == nullptr || !wayland_client_available()) {
             return std::nullopt;
         }
 

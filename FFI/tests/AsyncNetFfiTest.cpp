@@ -2,6 +2,7 @@
 /// through the public header only, the way a foreign-language binding does: handles, buffer conventions, error codes, callbacks.
 /// Needs no engine session and no GPU.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>

@@ -339,6 +339,9 @@ fn configure(
         .arg("-DCMAKE_POSITION_INDEPENDENT_CODE=ON")
         // Rust's linker cannot consume clang's ThinLTO bitcode unless its LLVM matches exactly.
         .arg("-DSTURDY_ENABLE_LTO=OFF")
+        // rustc links the engine's static archives itself, against the system C++ runtime, so the C++-runtime and system-library
+        // policy of a self-contained C++ build (cmake/SturdySelfContained.cmake) does not apply here.
+        .arg("-DSTURDY_SELF_CONTAINED=OFF")
         .arg("-DSTURDY_BUILD_SHARED_LIBS=OFF")
         .arg("-DSTURDY_BUILD_RUNTIME_DEMO=OFF")
         .arg("-DSTURDY_USE_COMPILER_LAUNCHER=OFF")

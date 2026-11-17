@@ -1,4 +1,6 @@
 #include <Audio/DeviceSink.hpp>
+#include <Audio/PipeWireOutput.hpp>
+#include <Foundation/Log.hpp>
 #include <Foundation/Iter.hpp>
 #include <Audio/Text.hpp>
 
@@ -11,8 +13,12 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <format>
+#include <string>
+#include <string_view>
 
 namespace SFT::Audio {
 
@@ -69,38 +75,154 @@ namespace SFT::Audio {
 
     namespace {
 
-        // Both directions list the same way; `capture` picks which side of the context's device table to read.
-        std::vector<AudioDeviceInfo> enumerate_devices(bool capture) {
-            std::vector<AudioDeviceInfo> devices;
-            ma_context context;
-            if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS) {
-                return devices;
+        // ---- which audio system ---------------------------------------------------------------------------------------
+        //
+        // A Linux machine can have PipeWire, PulseAudio, JACK, bare ALSA, or any mix, and a library being installed says little about
+        // whether its server is there (a PipeWire-only box often has libasound but no sound card; a JACK box too). So the sink walks an
+        // ordered list and keeps the first system that really produces a device: PulseAudio (which PipeWire's own Pulse server answers as
+        // well), native PipeWire, ALSA, JACK, and last the Null backend, which plays nothing. Each system's library is opened only when
+        // its turn comes, and a missing one is just a failed candidate. STURDY_AUDIO_BACKEND=pipewire|pulse|alsa|jack|null (a comma
+        // separated list is tried in order) overrides the list, for a player to work around a broken setup or for a bug report.
+        // Other platforms keep miniaudio's own choice (WASAPI, Core Audio, Web Audio, ...).
+        struct Candidate {
+            const char *label = "";
+            bool pipewire = false;     // the native PipeWire client rather than miniaudio
+            bool automatic = false;    // miniaudio picks (non-Linux platforms)
+            ma_backend backend = ma_backend_null;
+        };
+
+        std::vector<Candidate> backend_candidates() {
+#if defined(__linux__)
+            static const Candidate all[] = {
+                {"PipeWire", true, false, ma_backend_null}, {"PulseAudio", false, false, ma_backend_pulseaudio},
+                {"ALSA", false, false, ma_backend_alsa},    {"JACK", false, false, ma_backend_jack},
+                {"Null", false, false, ma_backend_null},
+            };
+            std::vector<Candidate> chosen;
+            if (const char *requested = std::getenv("STURDY_AUDIO_BACKEND"); requested != nullptr && *requested != '\0') {
+                const std::string_view list{requested};
+                usize begin = 0;
+                while (begin <= list.size()) {
+                    const usize end = std::min(list.find(',', begin), list.size());
+                    std::string word{list.substr(begin, end - begin)};
+                    std::transform(word.begin(), word.end(), word.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    if (word == "pipewire") chosen.push_back(all[0]);
+                    else if (word == "pulse" || word == "pulseaudio") chosen.push_back(all[1]);
+                    else if (word == "alsa") chosen.push_back(all[2]);
+                    else if (word == "jack") chosen.push_back(all[3]);
+                    else if (word == "null") chosen.push_back(all[4]);
+                    begin = end + 1;
+                }
+                if (!chosen.empty()) {
+                    return chosen;
+                }
+                Foundation::log_warn("audio: STURDY_AUDIO_BACKEND='{}' names no known audio system; using the default order", requested);
             }
+            // PulseAudio first: it is what every desktop (PipeWire's Pulse server included) answers and what has been run the most. Native
+            // PipeWire takes over exactly where that is absent -- a PipeWire install without its Pulse server, or without libpulse.
+            return {all[1], all[0], all[2], all[3], all[4]};
+#else
+            return {Candidate{"default", false, true, ma_backend_null}};
+#endif
+        }
+
+        ma_result init_context(ma_context &context, const Candidate &candidate) {
+            if (candidate.automatic) {
+                return ma_context_init(nullptr, 0, nullptr, &context);
+            }
+            return ma_context_init(&candidate.backend, 1, nullptr, &context);
+        }
+
+        /// A miniaudio context on the first system that lists at least one device in the wanted direction (the Null backend lists a
+        /// fake one and only counts as a last resort). Used where nothing is being opened yet: listing devices and microphone capture.
+        ma_result init_context_with_devices(ma_context &context, bool capture, const char **label = nullptr) {
+            std::vector<Candidate> candidates = backend_candidates();
+            candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [](const Candidate &c) { return c.pipewire; }), candidates.end());
+            for (const Candidate &candidate : candidates) {
+                if (init_context(context, candidate) != MA_SUCCESS) {
+                    continue;
+                }
+                ma_device_info *list = nullptr;
+                ma_uint32 count = 0;
+                const ma_result listed = capture ? ma_context_get_devices(&context, nullptr, nullptr, &list, &count)
+                                                 : ma_context_get_devices(&context, &list, &count, nullptr, nullptr);
+                if (listed == MA_SUCCESS && count > 0 && context.backend != ma_backend_null) {
+                    if (label != nullptr) *label = candidate.label;
+                    return MA_SUCCESS;
+                }
+                ma_context_uninit(&context);
+            }
+            // Nothing lists a device: the last resort, whatever starts.
+            for (const Candidate &candidate : candidates) {
+                if (init_context(context, candidate) == MA_SUCCESS) {
+                    if (label != nullptr) *label = candidate.label;
+                    return MA_SUCCESS;
+                }
+            }
+            return MA_NO_BACKEND;
+        }
+
+        /// The devices of a context in one direction, with the capabilities each backend can report.
+        std::vector<AudioDeviceInfo> list_context_devices(ma_context &context, bool capture) {
+            std::vector<AudioDeviceInfo> devices;
             ma_device_info *list = nullptr;
             ma_uint32 count = 0;
             const ma_result result = capture ? ma_context_get_devices(&context, nullptr, nullptr, &list, &count)
                                              : ma_context_get_devices(&context, &list, &count, nullptr, nullptr);
-            if (result == MA_SUCCESS) {
-                for (ma_uint32 i = 0; i < count; ++i) {
-                    AudioDeviceInfo info;
-                    info.name = list[i].name;
-                    info.is_default = list[i].isDefault != 0;
-                    // Capabilities need a second query per device; not every backend can answer it.
-                    ma_device_info detail{};
-                    if (ma_context_get_device_info(&context, capture ? ma_device_type_capture : ma_device_type_playback, &list[i].id, &detail) == MA_SUCCESS) {
-                        for (ma_uint32 f = 0; f < detail.nativeDataFormatCount; ++f) {
-                            info.max_channels = std::max<u32>(info.max_channels, detail.nativeDataFormats[f].channels);
-                            const u32 rate = detail.nativeDataFormats[f].sampleRate;
-                            if (rate != 0 && !Foundation::iter(info.sample_rates).any(
-                                                 [rate](u32 existing) { return existing == rate; })) {
-                                info.sample_rates.push_back(rate);
-                            }
+            if (result != MA_SUCCESS) {
+                return devices;
+            }
+            for (ma_uint32 i = 0; i < count; ++i) {
+                AudioDeviceInfo info;
+                info.name = list[i].name;
+                info.is_default = list[i].isDefault != 0;
+                // Capabilities need a second query per device; not every backend can answer it.
+                ma_device_info detail{};
+                if (ma_context_get_device_info(&context, capture ? ma_device_type_capture : ma_device_type_playback, &list[i].id, &detail) == MA_SUCCESS) {
+                    for (ma_uint32 f = 0; f < detail.nativeDataFormatCount; ++f) {
+                        info.max_channels = std::max<u32>(info.max_channels, detail.nativeDataFormats[f].channels);
+                        const u32 rate = detail.nativeDataFormats[f].sampleRate;
+                        if (rate != 0 && !Foundation::iter(info.sample_rates).any([rate](u32 existing) { return existing == rate; })) {
+                            info.sample_rates.push_back(rate);
                         }
-                        std::sort(info.sample_rates.begin(), info.sample_rates.end());
                     }
-                    devices.push_back(std::move(info));
+                    std::sort(info.sample_rates.begin(), info.sample_rates.end());
+                }
+                devices.push_back(std::move(info));
+            }
+            return devices;
+        }
+
+        // Both directions list the same way. The names come from the first system, in the order DeviceSink::start tries them, that has any
+        // device: a name from this list is then one that system accepts when the sink opens it.
+        std::vector<AudioDeviceInfo> enumerate_devices(bool capture) {
+            for (const Candidate &candidate : backend_candidates()) {
+                if (candidate.pipewire) {
+                    if (!capture) {
+                        std::vector<AudioDeviceInfo> devices = pipewire_playback_devices();
+                        if (!devices.empty()) {
+                            return devices;
+                        }
+                    }
+                    continue;
+                }
+                ma_context context;
+                if (init_context(context, candidate) != MA_SUCCESS) {
+                    continue;
+                }
+                std::vector<AudioDeviceInfo> devices = list_context_devices(context, capture);
+                const bool silent = context.backend == ma_backend_null;
+                ma_context_uninit(&context);
+                if (!devices.empty() && !silent) {
+                    return devices;
                 }
             }
+            // Nothing real lists a device: whatever starts (the Null backend's one placeholder), as before.
+            ma_context context;
+            if (init_context_with_devices(context, capture) != MA_SUCCESS) {
+                return {};
+            }
+            std::vector<AudioDeviceInfo> devices = list_context_devices(context, capture);
             ma_context_uninit(&context);
             return devices;
         }
@@ -115,102 +237,157 @@ namespace SFT::Audio {
             ma_device device{};
             Callback callback;
             std::vector<ma_channel> channel_map;
+            std::unique_ptr<PipeWireOutput> pipewire; // set instead of `device` for the native PipeWire system
             bool started = false;
         };
         ma_context context{};
         bool context_ready = false;
+        std::string backend = "none";
+        bool silent = false;
         std::vector<std::unique_ptr<Running>> devices;
+
+        // Also runs for an attempt that failed half way (the sink tries the next audio system), so nothing is left open behind it.
+        ~Impl() {
+            for (auto &running : devices) {
+                if (running->pipewire) {
+                    running->pipewire.reset(); // stops its process callback
+                } else {
+                    ma_device_uninit(&running->device); // stops the callback before the engine can go away
+                }
+            }
+            devices.clear();
+            if (context_ready) {
+                ma_context_uninit(&context);
+            }
+        }
     };
 
     DeviceSink::DeviceSink(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
-    DeviceSink::~DeviceSink() {
-        if (!impl_) {
-            return;
-        }
-        for (auto &running : impl_->devices) {
-            ma_device_uninit(&running->device); // stops the callback before the engine can go away
-        }
-        impl_->devices.clear();
-        if (impl_->context_ready) {
-            ma_context_uninit(&impl_->context);
-        }
-    }
+    DeviceSink::~DeviceSink() = default;
 
     u32 DeviceSink::device_count() const noexcept { return static_cast<u32>(impl_->devices.size()); }
+
+    const char *DeviceSink::backend_name() const noexcept { return impl_->backend.c_str(); }
+
+    bool DeviceSink::is_silent() const noexcept { return impl_->silent; }
 
     f64 DeviceSink::output_latency_seconds() const noexcept {
         if (impl_->devices.empty()) {
             return 0.0;
+        }
+        if (impl_->devices.front()->pipewire) {
+            return impl_->devices.front()->pipewire->latency_seconds();
         }
         const ma_device &device = impl_->devices.front()->device;
         const f64 frames = static_cast<f64>(device.playback.internalPeriodSizeInFrames) * static_cast<f64>(device.playback.internalPeriods);
         return device.playback.internalSampleRate > 0 ? frames / static_cast<f64>(device.playback.internalSampleRate) : 0.0;
     }
 
-    std::expected<std::unique_ptr<DeviceSink>, UString> DeviceSink::start(AudioEngine &engine, const DeviceSinkConfig &config) {
-        auto impl = std::make_unique<Impl>();
-        if (ma_context_init(nullptr, 0, nullptr, &impl->context) != MA_SUCCESS) {
-            return std::unexpected("audio: could not initialise the audio backend");
-        }
-        impl->context_ready = true;
+    namespace {
 
-        ma_device_info *playback = nullptr;
-        ma_uint32 playback_count = 0;
-        if (ma_context_get_devices(&impl->context, &playback, &playback_count, nullptr, nullptr) != MA_SUCCESS) {
-            playback_count = 0;
-        }
+        /// Opens every output on one audio system. Any failure leaves nothing behind and is returned for the caller to try the next.
+        std::expected<std::unique_ptr<DeviceSink::Impl>, UString> open_on(const Candidate &candidate, AudioEngine &engine,
+                                                                           const DeviceSinkConfig &config) {
+            auto impl = std::make_unique<DeviceSink::Impl>();
+            impl->backend = candidate.label;
 
-        for (OutputId output = 0; output < engine.output_count(); ++output) {
-            const UString name = output < config.device_names.size() ? config.device_names[output] : UString{};
-            if (name.empty() && output != primary_output) {
-                continue;
+            ma_device_info *playback = nullptr;
+            ma_uint32 playback_count = 0;
+            if (!candidate.pipewire) {
+                if (const ma_result result = init_context(impl->context, candidate); result != MA_SUCCESS) {
+                    return std::unexpected(UString{std::format("{}: could not be opened (miniaudio error {})", candidate.label, static_cast<int>(result))});
+                }
+                impl->context_ready = true;
+                impl->backend = ma_get_backend_name(impl->context.backend);
+                impl->silent = impl->context.backend == ma_backend_null;
+                if (ma_context_get_devices(&impl->context, &playback, &playback_count, nullptr, nullptr) != MA_SUCCESS) {
+                    playback_count = 0;
+                }
             }
-            const ma_device_id *device_id = nullptr;
-            if (!name.empty()) {
-                for (ma_uint32 i = 0; i < playback_count; ++i) {
-                    if (name == text_from_bytes(playback[i].name)) {
-                        device_id = &playback[i].id;
-                        break;
+
+            for (OutputId output = 0; output < engine.output_count(); ++output) {
+                const UString name = output < config.device_names.size() ? config.device_names[output] : UString{};
+                if (name.empty() && output != primary_output) {
+                    continue;
+                }
+                const OutputDesc &desc = engine.config().outputs[output];
+                const SpeakerLayout layout = desc.kind == OutputDesc::Kind::Binaural ? SpeakerLayout::stereo() : desc.layout;
+                auto running = std::make_unique<DeviceSink::Impl::Running>();
+
+#if defined(__linux__)
+                if (candidate.pipewire) {
+                    auto opened = PipeWireOutput::open(engine, output, layout, name);
+                    if (!opened) {
+                        return std::unexpected(opened.error());
+                    }
+                    running->pipewire = std::move(*opened);
+                    impl->devices.push_back(std::move(running));
+                    continue;
+                }
+#endif
+                const ma_device_id *device_id = nullptr;
+                if (!name.empty()) {
+                    for (ma_uint32 i = 0; i < playback_count; ++i) {
+                        if (name == text_from_bytes(playback[i].name)) {
+                            device_id = &playback[i].id;
+                            break;
+                        }
+                    }
+                    if (device_id == nullptr) {
+                        return std::unexpected(UString{std::format("{}: no playback device named '{}'", candidate.label, name)});
                     }
                 }
-                if (device_id == nullptr) {
-                    return std::unexpected(UString{std::format("audio: no playback device named '{}'", name)});
+                running->callback = Callback{&engine, output, layout.channel_count()};
+                for (const Speaker &s : layout.speakers) {
+                    running->channel_map.push_back(to_miniaudio(s.role));
                 }
+
+                ma_device_config device_config = ma_device_config_init(ma_device_type_playback);
+                device_config.playback.pDeviceID = device_id;
+                device_config.playback.format = ma_format_f32;
+                device_config.playback.channels = layout.channel_count();
+                device_config.playback.pChannelMap = running->channel_map.data();
+                device_config.sampleRate = engine.config().sample_rate;
+                device_config.periodSizeInFrames = engine.config().block_frames;
+                device_config.performanceProfile = ma_performance_profile_low_latency;
+                device_config.dataCallback = data_callback;
+                device_config.pUserData = &running->callback;
+                if (ma_device_init(&impl->context, &device_config, &running->device) != MA_SUCCESS) {
+                    return std::unexpected(UString{std::format("{}: could not open the playback device for output '{}'", candidate.label, desc.name)});
+                }
+                impl->devices.push_back(std::move(running));
             }
 
-            const OutputDesc &desc = engine.config().outputs[output];
-            const SpeakerLayout layout = desc.kind == OutputDesc::Kind::Binaural ? SpeakerLayout::stereo() : desc.layout;
-            auto running = std::make_unique<Impl::Running>();
-            running->callback = Callback{&engine, output, layout.channel_count()};
-            for (const Speaker &s : layout.speakers) {
-                running->channel_map.push_back(to_miniaudio(s.role));
+            // Start the secondaries first so their FIFOs are being drained by the time the primary begins feeding them.
+            for (usize i = impl->devices.size(); i-- > 0;) {
+                auto &running = *impl->devices[i];
+                const bool started = running.pipewire ? running.pipewire->start() : ma_device_start(&running.device) == MA_SUCCESS;
+                if (!started) {
+                    return std::unexpected(UString{std::format("{}: could not start a playback device", candidate.label)});
+                }
+                running.started = true;
             }
-
-            ma_device_config device_config = ma_device_config_init(ma_device_type_playback);
-            device_config.playback.pDeviceID = device_id;
-            device_config.playback.format = ma_format_f32;
-            device_config.playback.channels = layout.channel_count();
-            device_config.playback.pChannelMap = running->channel_map.data();
-            device_config.sampleRate = engine.config().sample_rate;
-            device_config.periodSizeInFrames = engine.config().block_frames;
-            device_config.performanceProfile = ma_performance_profile_low_latency;
-            device_config.dataCallback = data_callback;
-            device_config.pUserData = &running->callback;
-            if (ma_device_init(&impl->context, &device_config, &running->device) != MA_SUCCESS) {
-                return std::unexpected(UString{std::format("audio: could not open the playback device for output '{}'", desc.name)});
-            }
-            impl->devices.push_back(std::move(running));
+            return impl;
         }
 
-        // Start the secondaries first so their FIFOs are being drained by the time the primary begins feeding them.
-        for (usize i = impl->devices.size(); i-- > 0;) {
-            if (ma_device_start(&impl->devices[i]->device) != MA_SUCCESS) {
-                return std::unexpected("audio: could not start a playback device");
+    } // namespace
+
+    std::expected<std::unique_ptr<DeviceSink>, UString> DeviceSink::start(AudioEngine &engine, const DeviceSinkConfig &config) {
+        std::string failures;
+        for (const Candidate &candidate : backend_candidates()) {
+            auto opened = open_on(candidate, engine, config);
+            if (opened) {
+                if ((*opened)->silent) {
+                    Foundation::log_warn("audio: no audio system was found ({}); output is silent", failures.empty() ? "none installed" : failures);
+                } else {
+                    Foundation::log_info("audio: using the {} backend{}", (*opened)->backend, failures.empty() ? "" : std::format(" (after {})", failures));
+                }
+                return std::unique_ptr<DeviceSink>(new DeviceSink(std::move(*opened)));
             }
-            impl->devices[i]->started = true;
+            failures += (failures.empty() ? "" : "; ") + std::string(opened.error().c_str());
         }
-        return std::unique_ptr<DeviceSink>(new DeviceSink(std::move(impl)));
+        return std::unexpected(UString{std::format("audio: no audio system could be opened ({})", failures)});
     }
 
     // ---- capture --------------------------------------------------------------------------------------------------
@@ -314,7 +491,7 @@ namespace SFT::Audio {
 
     std::expected<std::unique_ptr<CaptureDevice>, UString> CaptureDevice::start(const CaptureConfig &requested) {
         auto impl = std::make_unique<Impl>();
-        if (ma_context_init(nullptr, 0, nullptr, &impl->context) != MA_SUCCESS) {
+        if (init_context_with_devices(impl->context, true) != MA_SUCCESS) {
             return std::unexpected("audio: could not initialise the audio backend");
         }
         impl->context_ready = true;

@@ -84,10 +84,16 @@ if(STURDY_OS STREQUAL "Linux")
 
     target_sources(WindowManager PRIVATE ${_sturdy_wayland_protocol_sources})
     target_include_directories(WindowManager PRIVATE "${_sturdy_wayland_generated_dir}")
-    target_link_libraries(WindowManager PRIVATE PkgConfig::STURDY_WAYLAND_CLIENT)
+    # Headers only. libwayland-client is opened at run time (Linux/WaylandClientLoader.cpp defines the wl_* symbols this code calls),
+    # so a machine without it can still start the program; SDL3 does the same for its own Wayland driver.
+    target_include_directories(WindowManager PRIVATE ${STURDY_WAYLAND_CLIENT_INCLUDE_DIRS})
 endif()
 
 sturdy_add_tests(WindowManager TIMEOUTS WindowManagerHighRateInputTest=30)
+if(STURDY_OS STREQUAL "Linux" AND TARGET WindowManagerWaylandClientLoaderTest)
+    # The test calls the wl_* functions the loader binds, so it needs the same headers as the library.
+    target_include_directories(WindowManagerWaylandClientLoaderTest PRIVATE ${STURDY_WAYLAND_CLIENT_INCLUDE_DIRS})
+endif()
 
 get_target_property(_sturdy_window_manager_sources WindowManager SOURCES)
 foreach(_sturdy_window_manager_source IN LISTS _sturdy_window_manager_sources)

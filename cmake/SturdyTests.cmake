@@ -61,6 +61,8 @@ function(sturdy_add_test package source)
   add_executable("${_name}" "${_source}")
   # Named frames in the traces tests print (and a failing test's trace is far easier to read).
   sturdy_export_symbols("${_name}")
+  # Same glibc pinning and post-link check as the shipped executables, so a test binary can be copied to another machine and run there.
+  sturdy_apply_self_contained("${_name}")
   # LINK first: static link order follows argument order.
   target_link_libraries("${_name}" PRIVATE ${TEST_LINK} "Sturdy::${package}")
   if(TEST_DEFINES)

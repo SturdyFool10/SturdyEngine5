@@ -14,6 +14,10 @@ sturdy_inactive_os_dirs(_sturdy_audio_platform_dirs
 # define; the sources check the defines, so a disabled codec is recognised but reports itself as not built.
 set(_sturdy_audio_private_deps Sturdy::miniaudio Sturdy::StbImage Sturdy::Json)
 set(_sturdy_audio_private_defines)
+# Headers for the native PipeWire output (cmake/SturdyPipeWire.cmake); without them that file compiles to stubs.
+if(TARGET Sturdy::PipeWireHeaders)
+    list(APPEND _sturdy_audio_private_deps Sturdy::PipeWireHeaders)
+endif()
 foreach(_codec IN LISTS STURDY_AUDIO_CODEC_LIST)
     if(STURDY_AUDIO_${_codec})
         list(APPEND _sturdy_audio_private_defines STURDY_AUDIO_${_codec}=1)
