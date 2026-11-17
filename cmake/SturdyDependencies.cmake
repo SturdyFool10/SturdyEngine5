@@ -2057,10 +2057,16 @@ function(sturdy_fetch_msdfgen)
     set(MSDFGEN_USE_OPENMP OFF CACHE BOOL "" FORCE)
     set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
     set(MSDFGEN_INSTALL OFF CACHE BOOL "" FORCE)
-    # Must match the rest of the project's (default, dynamic) MSVC runtime library on Windows —
-    # msdfgen otherwise self-selects the static CRT (/MT[d]), which fails to link against every
-    # other target here built with the dynamic CRT (/MD[d]).
-    set(MSDFGEN_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
+    # Must match the rest of the project's MSVC runtime library on Windows — msdfgen otherwise
+    # self-selects the static CRT (/MT[d]), which fails to link against every other target here
+    # built with the dynamic CRT (/MD[d]). The runtime is dynamic by default; a build that asks for
+    # the static one (CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded, so the executable needs no Visual C++
+    # redistributable) gets msdfgen's own static choice.
+    if(CMAKE_MSVC_RUNTIME_LIBRARY AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+        set(MSDFGEN_DYNAMIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    else()
+        set(MSDFGEN_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
+    endif()
 
     sturdy_fetchcontent_declare(msdfgen
         GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git

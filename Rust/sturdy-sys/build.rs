@@ -85,6 +85,19 @@ fn target_os() -> String {
     env::var("CARGO_CFG_TARGET_OS").unwrap_or_default()
 }
 
+/// The executable's C runtime is static (`-C target-feature=+crt-static`): no Visual C++ redistributable is needed on the machine it runs on.
+/// Everything the engine builds has to use the same runtime as the Rust link, so this decides `CMAKE_MSVC_RUNTIME_LIBRARY` below.
+fn crt_static() -> bool {
+    env::var("CARGO_CFG_TARGET_FEATURE").is_ok_and(|features| features.split(',').any(|f| f == "crt-static"))
+}
+
+/// The import libraries of the dynamic C and C++ runtimes. CMake puts `msvcprt.lib` on every Clang-for-Windows link line whatever runtime the
+/// objects use; with a static runtime it must stay off the Rust link, where the static one (`libcpmt.lib`) already provides the same symbols
+/// and both together fail with duplicate definitions.
+fn is_dynamic_crt_lib(name: &str) -> bool {
+    ["msvcprt", "msvcrt", "vcruntime", "ucrt", "msvcp140"].iter().any(|crt| name.eq_ignore_ascii_case(crt))
+}
+
 fn target_is_msvc() -> bool {
     target_os() == "windows" && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
 }
@@ -342,6 +355,14 @@ fn configure(
             cmd.arg("-DCMAKE_C_COMPILER=clang").arg("-DCMAKE_CXX_COMPILER=clang++");
         }
     }
+    if target_is_msvc() && crt_static() {
+        // The static runtime (/MT) for the engine and every dependency, so the executable needs no Visual C++ runtime DLLs. The policy default makes
+        // third-party projects that ask for an old CMake version honour the variable too. Prebuilt libraries are built against the dynamic runtime;
+        // `sturdy_prebuilt_crt_compatible` sees this variable and builds them from source instead.
+        cmd.arg("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded").arg("-DCMAKE_POLICY_DEFAULT_CMP0091=NEW");
+        // Dawn's bundled Abseil overrides the variable above with the dynamic runtime unless told otherwise (its own switch for this).
+        cmd.arg("-DABSL_MSVC_STATIC_RUNTIME=ON");
+    }
     cmd.arg(format!("-DCMAKE_BUILD_TYPE={build_type}"))
         .arg(format!("-DCMAKE_C_FLAGS={cxx_flags}"))
         .arg(format!("-DCMAKE_CXX_FLAGS={cxx_flags}"))
@@ -411,11 +432,12 @@ fn msvc_toolchain_wrapper(out: &Path, toolchain: &Path) -> PathBuf {
     let aliases = aliases.display().to_string().replace('\\', "/");
     let find_root = out.join("msvc-cross-find-root");
     fs::create_dir_all(&find_root).unwrap();
+    let runtime = if crt_static() { "MultiThreaded" } else { "MultiThreadedDLL" };
     let body = format!(
         "include(\"{}\")\n\
          set(CMAKE_C_STANDARD_LIBRARIES \"{libraries}\" CACHE STRING \"\" FORCE)\n\
          set(CMAKE_CXX_STANDARD_LIBRARIES \"{libraries}\" CACHE STRING \"\" FORCE)\n\
-         set(CMAKE_MSVC_RUNTIME_LIBRARY \"MultiThreadedDLL\" CACHE STRING \"\" FORCE)\n\
+         set(CMAKE_MSVC_RUNTIME_LIBRARY \"{runtime}\" CACHE STRING \"\" FORCE)\n\
          set(CMAKE_FIND_ROOT_PATH \"{}\")\n\
          set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n\
          set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\n\
@@ -512,7 +534,7 @@ fn emit_link_directives(build_dir: &Path, out: &Path) {
             .strip_prefix("-l")
             .and_then(|name| name.strip_suffix(".lib").or_else(|| name.strip_suffix(".LIB")))
         {
-            if !system_libs.contains(&name.to_owned()) {
+            if !system_libs.contains(&name.to_owned()) && !(crt_static() && is_dynamic_crt_lib(name)) {
                 system_libs.push(name.to_owned());
             }
             continue;
@@ -552,7 +574,7 @@ fn emit_link_directives(build_dir: &Path, out: &Path) {
                     }
                     directives.push(format!("cargo:rustc-link-lib=static={file}"));
                 }
-            } else if !system_libs.contains(&file) {
+            } else if !system_libs.contains(&file) && !(crt_static() && is_dynamic_crt_lib(&file)) {
                 system_libs.push(file);
             }
             continue;
@@ -615,6 +637,13 @@ fn emit_link_directives(build_dir: &Path, out: &Path) {
 
     for framework in frameworks {
         directives.push(format!("cargo:rustc-link-lib=framework={framework}"));
+    }
+
+    if target_is_msvc() {
+        // The engine's objects use the MSVC STL's separately compiled helpers (`__std_rotate`, `__std_unique_*`, `__std_min_element_*`, the
+        // vectorized algorithms), which live in the C++ runtime library. rustc links only the C runtime, so name the C++ one here: the
+        // static library when the executable's C runtime is static (`-C target-feature=+crt-static`), the import library otherwise.
+        directives.push(format!("cargo:rustc-link-lib={}", if crt_static() { "libcpmt" } else { "msvcprt" }));
     }
 
     if target_os == "macos" {
