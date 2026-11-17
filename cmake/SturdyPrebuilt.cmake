@@ -431,6 +431,18 @@ function(sturdy_prebuilt_dawn out_used)
         return()
     endif()
 
+    # Upstream builds Dawn for Windows with MSVC-style tools, so its CMake package lists `-ignore:4221` (silences "object file defines no
+    # public symbols") as a link library. clang++ with the GNU-style driver does not know that as a linker option and rejects it
+    # ("unknown argument: '-ignore:4221'"), failing the final link. Hand it to the linker explicitly instead; the MSVC-style driver
+    # (clang-cl, link.exe) understands the original spelling, so it is left alone there.
+    if(STURDY_OS STREQUAL "Windows" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        get_target_property(_dawn_link_libraries dawn::webgpu_dawn INTERFACE_LINK_LIBRARIES)
+        if(_dawn_link_libraries)
+            string(REPLACE "-ignore:4221" "-Wl,/ignore:4221" _dawn_link_libraries "${_dawn_link_libraries}")
+            set_target_properties(dawn::webgpu_dawn PROPERTIES INTERFACE_LINK_LIBRARIES "${_dawn_link_libraries}")
+        endif()
+    endif()
+
     if(NOT TARGET Sturdy::WebGPU)
         add_library(Sturdy::WebGPU INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Sturdy::WebGPU INTERFACE dawn::webgpu_dawn)
