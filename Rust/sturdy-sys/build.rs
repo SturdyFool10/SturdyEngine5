@@ -166,6 +166,9 @@ fn main() {
         "keeprsp".as_ref(),
     ]));
     emit_link_directives(&build_dir, &out);
+    // The glibc version-pinning shim (cmake/linux/glibc_compat.c; see cmake/SturdySelfContained.cmake). A Rust program that wants a binary
+    // running on older glibc than the machine that built it compiles this file into its own link (see `sturdy-sys`'s `Cargo.toml`).
+    println!("cargo:glibc_compat_source={}", engine_src.join("cmake/linux/glibc_compat.c").display());
 }
 
 /// Runs `cxx-gen` over every `src/*.rs` file that contains a `#[cxx::bridge]` module — one engine
@@ -247,6 +250,12 @@ fn feature_cmake_args() -> Vec<&'static str> {
         "-DSTURDY_EXPORT_SYMBOLS=ON"
     } else {
         "-DSTURDY_EXPORT_SYMBOLS=OFF"
+    });
+    // Passed both ways, like the prebuilt-dependencies switch: flipping the feature reconfigures an existing build directory.
+    args.push(if env::var_os("CARGO_FEATURE_BUNDLED_OPENSSL").is_some() {
+        "-DSTURDY_BUNDLE_OPENSSL=ON"
+    } else {
+        "-DSTURDY_BUNDLE_OPENSSL=OFF"
     });
     if env::var_os("CARGO_FEATURE_GLFW").is_some() {
         args.push("-DSTURDY_BUILD_GLFW_WINDOW_PROVIDER=ON");

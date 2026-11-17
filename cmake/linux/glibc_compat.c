@@ -45,6 +45,12 @@ STURDY_PIN_LIBM(float, fmodf, (float x, float y), (x, y))
 STURDY_PIN_LIBM(double, fmod, (double x, double y), (x, y))
 STURDY_PIN_LIBM(float, hypotf, (float x, float y), (x, y))
 STURDY_PIN_LIBM(double, hypot, (double x, double y), (x, y))
+STURDY_PIN_LIBM(float, acoshf, (float x), (x))
+STURDY_PIN_LIBM(float, atanhf, (float x), (x))
+STURDY_PIN_LIBM(float, coshf, (float x), (x))
+STURDY_PIN_LIBM(float, sinhf, (float x), (x))
+STURDY_PIN_LIBM(double, cosh, (double x), (x))
+STURDY_PIN_LIBM(double, sinh, (double x), (x))
 
 // C23 string-to-integer entry points (glibc 2.38). The only behavioural difference from the originals is the C23
 // "0b" binary prefix for base 0/2, which nothing in the engine or its dependencies parses.
@@ -171,6 +177,99 @@ STURDY_HIDDEN uint32_t arc4random_uniform(uint32_t upper_bound) {
         value = arc4random();
     } while (value < min);
     return value % upper_bound;
+}
+
+
+// _dl_find_object (glibc 2.35): the fast "which loaded object holds this code address" lookup that libgcc's unwinder (libgcc_eh.a, when
+// it is linked into the program statically) calls on every frame it unwinds. Older glibc has only dl_iterate_phdr, which is what libgcc
+// itself uses when it was built without _dl_find_object, so that is what this is built on. The result carries the object's mapping and
+// its PT_GNU_EH_FRAME; the link map is an object of ours holding the load address (libgcc reads no other field of it on x86-64).
+#include <elf.h>
+#include <stdint.h>
+
+// <link.h> declares these only under _GNU_SOURCE, which would also turn on glibc's C23 strtol redirection that this file exists to
+// undo, so the one structure and function needed are declared here (the layout is glibc's, stable since 2.4).
+struct sturdy_phdr_info {
+    Elf64_Addr dlpi_addr;
+    const char *dlpi_name;
+    const Elf64_Phdr *dlpi_phdr;
+    Elf64_Half dlpi_phnum;
+    unsigned long long dlpi_adds;
+    unsigned long long dlpi_subs;
+    size_t dlpi_tls_modid;
+    void *dlpi_tls_data;
+};
+extern int dl_iterate_phdr(int (*callback)(struct sturdy_phdr_info *info, size_t size, void *data), void *data);
+
+struct sturdy_dl_find_object {
+    unsigned long long dlfo_flags;
+    void *dlfo_map_start;
+    void *dlfo_map_end;
+    void *dlfo_link_map;
+    void *dlfo_eh_frame;
+};
+
+struct sturdy_fake_link_map {
+    Elf64_Addr l_addr;
+};
+
+struct sturdy_find_state {
+    uintptr_t address;
+    struct sturdy_dl_find_object *result;
+    int found;
+};
+
+// Called by dl_iterate_phdr with the loader lock held, so the pool needs no lock of its own.
+static int sturdy_find_object_callback(struct sturdy_phdr_info *info, size_t size, void *data) {
+    (void)size;
+    struct sturdy_find_state *state = (struct sturdy_find_state *)data;
+    uintptr_t low = UINTPTR_MAX;
+    uintptr_t high = 0;
+    const Elf64_Phdr *eh_frame = NULL;
+    for (Elf64_Half i = 0; i < info->dlpi_phnum; ++i) {
+        const Elf64_Phdr *header = &info->dlpi_phdr[i];
+        if (header->p_type == PT_LOAD) {
+            const uintptr_t start = (uintptr_t)(info->dlpi_addr + header->p_vaddr);
+            const uintptr_t end = start + header->p_memsz;
+            if (start < low) {
+                low = start;
+            }
+            if (end > high) {
+                high = end;
+            }
+        } else if (header->p_type == PT_GNU_EH_FRAME) {
+            eh_frame = header;
+        }
+    }
+    if (eh_frame == NULL || state->address < low || state->address >= high) {
+        return 0;
+    }
+    static struct sturdy_fake_link_map pool[128];
+    static unsigned used;
+    struct sturdy_fake_link_map *map = NULL;
+    for (unsigned i = 0; i < used; ++i) {
+        if (pool[i].l_addr == info->dlpi_addr) {
+            map = &pool[i];
+            break;
+        }
+    }
+    if (map == NULL) {
+        map = &pool[used < sizeof pool / sizeof pool[0] ? used++ : 0];
+        map->l_addr = info->dlpi_addr;
+    }
+    state->result->dlfo_flags = 0;
+    state->result->dlfo_map_start = (void *)low;
+    state->result->dlfo_map_end = (void *)high;
+    state->result->dlfo_link_map = map;
+    state->result->dlfo_eh_frame = (void *)(info->dlpi_addr + eh_frame->p_vaddr);
+    state->found = 1;
+    return 1;
+}
+
+STURDY_HIDDEN int _dl_find_object(void *address, struct sturdy_dl_find_object *result) {
+    struct sturdy_find_state state = {(uintptr_t)address, result, 0};
+    dl_iterate_phdr(sturdy_find_object_callback, &state);
+    return state.found ? 0 : -1;
 }
 
 #endif

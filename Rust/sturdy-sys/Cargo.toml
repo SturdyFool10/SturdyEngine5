@@ -40,6 +40,10 @@ export-symbols = []
 ## Builds the WebGPU (Dawn) RHI backend alongside Vulkan (STURDY_ENABLE_WEBGPU). Roughly doubles
 ## engine build time (Dawn vendors Abseil/SPIRV-Tools/Tint).
 webgpu = []
+## Builds OpenSSL from source and links it statically (STURDY_BUNDLE_OPENSSL) instead of linking the system's libssl/libcrypto, so the
+## finished program does not need OpenSSL on the machine it runs on. Costs a few minutes of the first engine build; the TLS library then
+## stops following the operating system's security updates, so a program that ships this way has to ship its own.
+bundled-openssl = []
 ## Builds the optional GLFW desktop window provider alongside the default SDL3 one
 ## (STURDY_BUILD_GLFW_WINDOW_PROVIDER).
 glfw = []

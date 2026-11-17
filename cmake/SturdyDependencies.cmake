@@ -420,6 +420,7 @@ endfunction()
 
 # OpenSSL for Async's TLS. OpenSSL has no CMake build of its own, so when no system copy is found it is built from source through
 # jimmy-park/openssl-cmake, which needs Perl (Windows: also NASM unless assembly is disabled, done below; Git for Windows ships a Perl).
+option(STURDY_BUNDLE_OPENSSL "Always build OpenSSL from source (static) instead of linking the system's, so the executable carries its own TLS library." OFF)
 set(STURDY_OPENSSL_CMAKE_TAG "4.1.0" CACHE STRING "jimmy-park/openssl-cmake tag used to build OpenSSL when no system OpenSSL is found.")
 set(STURDY_OPENSSL_ROOT "" CACHE PATH "A prebuilt static Windows OpenSSL (include/ and lib/libssl.lib, lib/libcrypto.lib), used instead of building one; required when cross-compiling to Windows.")
 set(STURDY_OPENSSL_VERSION "3.5.4" CACHE STRING "OpenSSL release built when no system OpenSSL is found (3.5 is the current LTS; Async needs 3.0+).")
@@ -629,8 +630,8 @@ function(sturdy_fetch_openssl)
         endif()
     endif()
     # Probe only when a system copy is acceptable: a found system OpenSSL defines imported OpenSSL:: targets, which would clash with
-    # the ones openssl-cmake defines if both ran.
-    if(STURDY_PREFER_SYSTEM_DEPENDENCIES)
+    # the ones openssl-cmake defines if both ran. STURDY_BUNDLE_OPENSSL says it is not (the executable must carry its own).
+    if(STURDY_PREFER_SYSTEM_DEPENDENCIES AND NOT STURDY_BUNDLE_OPENSSL)
         find_package(OpenSSL 3.0 QUIET)
         if(OpenSSL_FOUND)
             return()
