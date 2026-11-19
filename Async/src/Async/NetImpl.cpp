@@ -750,7 +750,7 @@ namespace SFT::Async {
                     }
                 }
             }
-            if (!bound) return std::unexpected(to_io_error(("listen on " + host + ":" + std::to_string(port)).c_str(), ec));
+            if (!bound) return std::unexpected(to_bind_error(("listen on " + host + ":" + std::to_string(port)).c_str(), ec, port));
             core->local = to_address(core->acceptor.local_endpoint(ec));
             return core;
         }
@@ -905,7 +905,7 @@ namespace SFT::Async {
                 }
             }
         }
-        if (!bound) return failed<UdpSocket>(to_io_error(("bind " + host + ":" + std::to_string(port)).c_str(), ec));
+        if (!bound) return failed<UdpSocket>(to_bind_error(("bind " + host + ":" + std::to_string(port)).c_str(), ec, port));
         core->local = to_address(core->socket.local_endpoint(ec));
         Promise<Result<UdpSocket>> promise;
         (void)promise.set_value(Result<UdpSocket>(UdpCore::wrap(std::move(core))));

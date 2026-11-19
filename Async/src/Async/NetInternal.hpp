@@ -35,6 +35,10 @@ namespace SFT::Async::Detail {
 
     [[nodiscard]] IoError to_io_error(const char *operation, const ErrorCode &error);
 
+    /// `to_io_error` for a failed bind/listen on `port`. When the cause is the operating system keeping low ports for privileged
+    /// processes (Linux), the error says so -- reason `PrivilegedPort`, the port and the system's threshold, and the ways around it.
+    [[nodiscard]] IoError to_bind_error(const char *operation, const ErrorCode &error, std::uint16_t port);
+
     template <typename T>
     using Result = std::expected<T, IoError>;
 

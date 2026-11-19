@@ -14,6 +14,7 @@
 #include <openssl/x509v3.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <atomic>
 #include <cctype>
 #include <fstream>
@@ -111,6 +112,53 @@ namespace SFT::Async::Detail {
         else if (error == asio::error::operation_not_supported || error == asio::error::address_family_not_supported) code = IoErrorCode::Unsupported;
         else if (error.category() == asio::error::get_ssl_category() || error == asio::ssl::error::stream_truncated) code = IoErrorCode::TlsFailure;
         return IoError{code, std::string(operation) + ": " + error.message()};
+    }
+
+    namespace {
+#if defined(__linux__)
+        /// Ports below this need root or CAP_NET_BIND_SERVICE. 1024 unless an administrator (or a container runtime) changed it.
+        [[nodiscard]] unsigned unprivileged_port_start() {
+            if (std::ifstream file{"/proc/sys/net/ipv4/ip_unprivileged_port_start"}) {
+                unsigned value = 0;
+                if (file >> value) return value;
+            }
+            return 1024;
+        }
+
+        [[nodiscard]] std::string own_executable_path() {
+            std::error_code ec;
+            const auto path = std::filesystem::read_symlink("/proc/self/exe", ec);
+            return ec ? std::string{"/path/to/your/executable"} : path.string();
+        }
+#endif
+    } // namespace
+
+    IoError to_bind_error(const char *operation, const ErrorCode &error, std::uint16_t port) {
+        IoError result = to_io_error(operation, error);
+#if defined(__linux__)
+        if (error == asio::error::access_denied && port != 0 && port < unprivileged_port_start()) {
+            const unsigned threshold = unprivileged_port_start();
+            const std::string number = std::to_string(port);
+            result.code = IoErrorCode::PermissionDenied;
+            result.reason = IoErrorReason::PrivilegedPort;
+            result.remedy =
+                "1. Listen on a port of " + std::to_string(threshold) + " or above (for example 8080, or 8443 for TLS) and let a reverse proxy, or an "
+                "nftables/iptables REDIRECT rule from port " + number + " to that port, answer on " + number + ". The program itself then needs no privileges, "
+                "which is the recommended route.\n"
+                "2. Give this executable the right to bind low ports: `sudo setcap cap_net_bind_service=+ep " + own_executable_path() + "`. "
+                "It must be repeated after every rebuild, and it does not work for a script or through an interpreter.\n"
+                "3. Under systemd, add `AmbientCapabilities=CAP_NET_BIND_SERVICE` to the service's [Service] section, or use socket activation so systemd opens the port.\n"
+                "4. Lower the threshold for the whole machine: `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=" + number + "` "
+                "(persist it in /etc/sysctl.d/). This lets every program on the machine bind those ports.\n"
+                "5. In a container, add `--cap-add NET_BIND_SERVICE` or `--sysctl net.ipv4.ip_unprivileged_port_start=0` to its run options.";
+            result.message += ". Port " + number + " is below " + std::to_string(threshold) +
+                              ", which Linux reserves for root and for processes with the CAP_NET_BIND_SERVICE capability "
+                              "(the system's `net.ipv4.ip_unprivileged_port_start` setting). Ways around it:\n" + result.remedy;
+        }
+#else
+        (void)port;
+#endif
+        return result;
     }
 
     // ---------------------------------------------------------------------------------------------

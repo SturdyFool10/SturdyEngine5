@@ -630,7 +630,7 @@ namespace SFT::Async::Detail {
         endpoint->socket_.set_option(asio::socket_base::receive_buffer_size(4 * 1024 * 1024), ignored);
         endpoint->socket_.set_option(asio::socket_base::send_buffer_size(4 * 1024 * 1024), ignored);
         endpoint->socket_.bind(bind_to, ec);
-        if (ec) return std::unexpected(to_io_error("bind QUIC socket", ec));
+        if (ec) return std::unexpected(to_bind_error("bind QUIC socket", ec, bind_to.port()));
         // Asio's reactor path sends synchronously and so needs a non-blocking socket; with io_uring every transfer is asynchronous.
         if (!net_uring()) endpoint->socket_.non_blocking(true, ec);
         endpoint->local_ = endpoint->socket_.local_endpoint(ec);

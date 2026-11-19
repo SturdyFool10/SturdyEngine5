@@ -244,7 +244,7 @@ namespace SFT::Async::Detail {
                 acceptor.set_option(asio::socket_base::reuse_address(true), error);
                 if (error) return std::unexpected(make_io_error("HTTP acceptor option failed", error));
                 acceptor.bind(endpoint, error);
-                if (error) return std::unexpected(make_io_error("HTTP bind failed", error));
+                if (error) return std::unexpected(to_bind_error(("HTTP bind to " + options.bind_address + ":" + std::to_string(options.port)).c_str(), error, options.port));
                 acceptor.listen(asio::socket_base::max_listen_connections, error);
                 if (error) return std::unexpected(make_io_error("HTTP listen failed", error));
 
