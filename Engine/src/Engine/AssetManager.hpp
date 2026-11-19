@@ -435,6 +435,11 @@ namespace SFT::Engine {
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
         [[nodiscard]] AssetExpected<Asset> load_sound(const std::filesystem::path &source,
                                                       UString label = {});
+        /// `load_sound` without blocking the caller: the file is read on the IO lane (io_uring / DirectStorage / overlapped IO /
+        /// GCD for big files) and decoded as a heavy task on the scheduler, so any number of sounds load in parallel with each other
+        /// and with rendering. The handle resolves to the asset once it is registered. The manager waits for loads in flight when it
+        /// is destroyed.
+        [[nodiscard]] Async::TaskHandle<AssetExpected<Asset>> load_sound_async(std::filesystem::path source, UString label = {});
         /// Loads file.
         ///
         /// @param source Source value or resource.

@@ -137,3 +137,18 @@ if(STURDY_OS STREQUAL "Web")
 else()
     sturdy_add_tests(Async TIMEOUTS SpscRingBufferTest=30 ParallelTest=60)
 endif()
+
+# Sockets use io_uring by default where the machine has it, so the default test run covers that backend. These repeat the network
+# tests on the Asio/epoll path (STURDY_ASYNC_NET_IO_URING=0), which is what machines without a ring run, so it stays correct too.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT STURDY_OS STREQUAL "Web")
+    foreach(_net_test NetServerTest NetTlsTest NetBenchTest WebSocketTest Http2Test Http3Test QuicTest)
+        if(TEST Async${_net_test})
+            get_test_property(Async${_net_test} TIMEOUT _net_timeout)
+            add_test(NAME Async${_net_test}Epoll COMMAND Async${_net_test})
+            # Locked against the default run of the same test: several of them build fixtures at a fixed temp path.
+            set_tests_properties(Async${_net_test}Epoll PROPERTIES TIMEOUT ${_net_timeout} ENVIRONMENT "STURDY_ASYNC_NET_IO_URING=0"
+                                 RESOURCE_LOCK Async${_net_test})
+            set_tests_properties(Async${_net_test} PROPERTIES RESOURCE_LOCK Async${_net_test})
+        endif()
+    endforeach()
+endif()

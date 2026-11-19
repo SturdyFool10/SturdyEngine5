@@ -5,6 +5,7 @@
 
 #include <Async/Affinity.hpp>
 #include <Async/Mutex.hpp>
+#include <Async/Scheduler.hpp>
 #include <Renderer/Renderer.hpp>
 
 
@@ -178,76 +179,110 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    namespace {
+
+        /// Everything about streaming a texture that needs only the CPU: read, decode, mip chain, block compression. Safe on any
+        /// thread, so many of these can run at once; `allow_bc` is the device's answer, asked on the renderer's thread.
+        [[nodiscard]] AssetExpected<PreparedStreamedTexture> prepare_streamed_texture(const std::filesystem::path &source,
+                                                                                      TextureColorSpace color_space, TextureKind kind,
+                                                                                      bool allow_bc) {
+            ZoneScopedN("TextureStreamer::prepare");
+            auto encoded = read_binary_file_streamed(source);
+            if (!encoded) {
+                return std::unexpected(std::move(encoded.error()));
+            }
+            auto decoded = Detail::decode_image_rgba8(*encoded, source);
+            if (!decoded) {
+                return std::unexpected(std::move(decoded.error()));
+            }
+            vector<std::byte>{}.swap(*encoded);
+
+            const bool srgb = color_space == TextureColorSpace::Srgb;
+            RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
+            auto generated_mips = Detail::generate_rgba8_mip_chain(decoded->pixels(), decoded->width, decoded->height, srgb);
+            if (!generated_mips) {
+                return std::unexpected(AssetError{AssetErrorCode::DecodeFailure, UString{"Could not generate the mip chain."_ustr}, source});
+            }
+            Detail::TextureMipChain mip_chain = std::move(*generated_mips);
+            vector<std::byte>{}.swap(decoded->pixels());
+            const u32 mip_levels = mip_chain.mip_levels;
+            span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
+
+            vector<std::byte> compressed_storage;
+            // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
+            if (allow_bc && decoded->width >= 4 && decoded->height >= 4 && decoded->width % 4 == 0 && decoded->height % 4 == 0) {
+                std::optional<vector<std::byte>> compressed;
+                switch (kind) {
+                    case TextureKind::ColorOpaque:
+                        compressed = Detail::compress_bc1_mip_chain(upload_bytes, decoded->width, decoded->height, mip_levels, srgb);
+                        break;
+                    case TextureKind::Mask:
+                        compressed = Detail::compress_bc4_mip_chain(upload_bytes, decoded->width, decoded->height, mip_levels);
+                        break;
+                    case TextureKind::NormalMap:
+                    case TextureKind::MetallicRoughness:
+                        compressed = Detail::compress_bc5_mip_chain(upload_bytes, decoded->width, decoded->height, mip_levels);
+                        break;
+                    case TextureKind::ColorAlpha:
+                    default:
+                        compressed = Detail::compress_bc7_mip_chain(upload_bytes, decoded->width, decoded->height, mip_levels, srgb);
+                        break;
+                }
+                if (compressed) {
+                    format = Detail::choose_bc_format(kind, srgb);
+                    compressed_storage = std::move(*compressed);
+                    vector<std::byte>{}.swap(mip_chain.data);
+                }
+            }
+            return PreparedStreamedTexture{.width = decoded->width,
+                                           .height = decoded->height,
+                                           .format = format,
+                                           .mip_levels = mip_levels,
+                                           .pixels = compressed_storage.empty() ? std::move(mip_chain.data) : std::move(compressed_storage),
+                                           .source = source};
+        }
+
+    } // namespace
+
+    Async::TaskHandle<AssetExpected<PreparedStreamedTexture>> TextureStreamer::prepare_texture_load(
+        std::filesystem::path source, TextureColorSpace color_space, TextureKind kind) {
+        RHI::RhiDevice *device = impl_->renderer.rhi_device();
+        const bool allow_bc = device != nullptr && device->limits().supports_bc_texture_compression;
+        // One heavy task per texture: the scheduler spreads them over its workers, so a level's worth of textures decodes in
+        // parallel and the caller is never blocked. (The file read inside goes through Foundation::Io, i.e. io_uring /
+        // DirectStorage / overlapped reads for big files.)
+        return Async::Scheduler::spawn(
+            [source = std::move(source), color_space, kind, allow_bc]() { return prepare_streamed_texture(source, color_space, kind, allow_bc); },
+            Async::TaskWeight::Heavy);
+    }
+
     StreamedTextureHandle TextureStreamer::request_texture_load(
         std::filesystem::path source, TextureColorSpace color_space, TextureKind kind,
         RHI::ClearColor placeholder, UString label) {
         ZoneScopedN("TextureStreamer::request_texture_load");
-        auto encoded = read_binary_file_streamed(source);
-        if (!encoded) {
-            Foundation::log_error("TextureStreamer: failed to read '{}': {}", source.string(), encoded.error().message.cpp_string());
+        auto prepared = prepare_texture_load(std::move(source), color_space, kind).wait();
+        if (!prepared) {
+            Foundation::log_error("TextureStreamer: failed to load texture: {}", prepared.error().message.cpp_string());
             return {};
         }
-        auto decoded = Detail::decode_image_rgba8(*encoded, source);
-        if (!decoded) {
-            Foundation::log_error("TextureStreamer: failed to decode '{}': {}", source.string(), decoded.error().message.cpp_string());
-            return {};
-        }
+        return request_prepared_texture(std::move(*prepared), placeholder, std::move(label));
+    }
 
-        const bool srgb = color_space == TextureColorSpace::Srgb;
-        RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
-        auto generated_mips = Detail::generate_rgba8_mip_chain(
-            decoded->pixels(), decoded->width, decoded->height, srgb);
-        if (!generated_mips) {
-            Foundation::log_error("TextureStreamer: failed to generate mip levels for '{}'.", source.string());
-            return {};
-        }
-        Detail::TextureMipChain mip_chain = std::move(*generated_mips);
-        vector<std::byte>{}.swap(decoded->pixels());
-        const u32 mip_levels = mip_chain.mip_levels;
-        span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
-
-
-        vector<std::byte> compressed_storage;
-        RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
-        if (decoded->width >= 4 && decoded->height >= 4 && decoded->width % 4 == 0 && decoded->height % 4 == 0 && device != nullptr &&
-            device->limits().supports_bc_texture_compression) {
-            std::optional<vector<std::byte>> compressed;
-            switch (kind) {
-                case TextureKind::ColorOpaque:
-                    compressed = Detail::compress_bc1_mip_chain(upload_bytes, decoded->width, decoded->height,
-                        mip_levels, srgb);
-                    break;
-                case TextureKind::Mask:
-                    compressed = Detail::compress_bc4_mip_chain(upload_bytes, decoded->width, decoded->height,
-                        mip_levels);
-                    break;
-                case TextureKind::NormalMap:
-                case TextureKind::MetallicRoughness:
-
-
-                    compressed = Detail::compress_bc5_mip_chain(upload_bytes, decoded->width, decoded->height,
-                        mip_levels);
-                    break;
-                case TextureKind::ColorAlpha:
-                default:
-                    compressed = Detail::compress_bc7_mip_chain(upload_bytes, decoded->width, decoded->height,
-                        mip_levels, srgb);
-                    break;
-            }
-            if (compressed) {
-                format = Detail::choose_bc_format(kind, srgb);
-                compressed_storage = std::move(*compressed);
-                upload_bytes = span<const std::byte>{compressed_storage.data(), compressed_storage.size()};
-                vector<std::byte>{}.swap(mip_chain.data);
-            }
-        }
+    StreamedTextureHandle TextureStreamer::request_prepared_texture(PreparedStreamedTexture prepared, RHI::ClearColor placeholder,
+                                                                    UString label) {
+        ZoneScopedN("TextureStreamer::request_prepared_texture");
+        const std::filesystem::path &source = prepared.source;
+        const RHI::Format format = prepared.format;
+        const u32 mip_levels = prepared.mip_levels;
+        const u32 width = prepared.width;
+        const u32 height = prepared.height;
+        span<const std::byte> upload_bytes{prepared.pixels.data(), prepared.pixels.size()};
 
         const string label_c = label.empty() ? std::string{"streamed texture"} : label.cpp_string();
 
 
         static constexpr array<RHI::QueueClass, 2> streamed_queue_classes{RHI::QueueClass::Graphics, RHI::QueueClass::Transfer};
-        auto texture = impl_->renderer.create_texture(decoded->width, decoded->height, format, {}, label_c.c_str(),
+        auto texture = impl_->renderer.create_texture(width, height, format, {}, label_c.c_str(),
                                                        span<const RHI::QueueClass>{streamed_queue_classes}, mip_levels);
         if (!texture) {
             Foundation::log_error("TextureStreamer: failed to create GPU texture for '{}': {}", source.string(), texture.error().message);
@@ -271,19 +306,17 @@ namespace SFT::Engine {
         const u64 byte_count = static_cast<u64>(upload_bytes.size());
         {
             auto guard = impl_->entries.lock();
-            (*guard)[id] = Impl::Entry{.state = StreamingState::Pending, .texture = *texture, .width = decoded->width,
-                                       .height = decoded->height, .byte_count = byte_count};
+            (*guard)[id] = Impl::Entry{.state = StreamingState::Pending, .texture = *texture, .width = width,
+                                       .height = height, .byte_count = byte_count};
         }
         TracyPlot("texture_streaming.queue_depth", impl_->queue_depth.fetch_add(1, std::memory_order_relaxed) + 1);
         TracyPlot("texture_streaming.in_flight_bytes",
                   impl_->in_flight_bytes.fetch_add(static_cast<i64>(byte_count), std::memory_order_relaxed) + static_cast<i64>(byte_count));
 
-        const u32 width = decoded->width;
-        const u32 height = decoded->height;
 
 
         (void)impl_->thread.run([this, id, width, height, format, mip_levels,
-                            pixels = compressed_storage.empty() ? std::move(mip_chain.data) : std::move(compressed_storage)]() mutable {
+                            pixels = std::move(prepared.pixels)]() mutable {
             ZoneScopedN("TextureStreamer::upload_worker");
             RHI::RhiDevice *worker_device = impl_->renderer.rhi_device();
             SFT::Renderer::TextureHandle texture_handle{};

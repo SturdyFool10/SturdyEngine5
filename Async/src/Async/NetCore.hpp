@@ -5,8 +5,11 @@
 
 #include <Async/Net.hpp>
 #include <Async/NetInternal.hpp>
+#include <Async/NetRing.hpp>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdlib>
 #include <atomic>
 #include <deque>
 #include <map>
@@ -20,6 +23,9 @@ namespace SFT::Async {
 
         constexpr std::size_t kReadChunk = 64 * 1024;
         constexpr std::size_t kWriteChunk = 64 * 1024;
+        /// Each io_uring operation costs a hand-off to the ring thread, so it carries more bytes than a readiness-driven one.
+        constexpr std::size_t kRingReadChunk = 256 * 1024;
+        constexpr std::size_t kRingWriteChunk = 256 * 1024;
         constexpr auto kDefaultConnectTimeout = std::chrono::seconds(30);
 
         inline IoError closed_error(const char *what = "operation on a closed object") { return IoError{IoErrorCode::Closed, what}; }
@@ -66,6 +72,109 @@ namespace SFT::Async {
         }
 
         // =========================================================================================
+        // The byte stream under a connection: io_uring where the machine has it, Asio's reactor otherwise
+        // =========================================================================================
+        /// Whether sockets use io_uring: yes wherever the machine has a usable ring, decided once. STURDY_ASYNC_NET_IO_URING=0 (or
+        /// STURDY_ASYNC_NO_IO_URING) selects the Asio/epoll path instead, which is also what a machine without a ring gets.
+        /// Measured on loopback, the two are level on small-message round trips and within ~8% on one bulk flow, with io_uring using
+        /// ~30% more CPU (the same work per call plus a hand-off to the ring's thread); see NetBenchTest.
+        [[nodiscard]] inline bool net_uring() noexcept {
+            static const bool enabled = [] {
+                const char *choice = std::getenv("STURDY_ASYNC_NET_IO_URING");
+                const bool declined = choice != nullptr && (choice[0] == '0' || choice[0] == '\0');
+                return !declined && netring::available();
+            }();
+            return enabled;
+        }
+
+        /// `ErrorCode` for a negative errno from the ring. ECANCELED is Asio's "operation aborted", so the existing handlers that
+        /// tell "closed under us" from "failed" keep working unchanged.
+        [[nodiscard]] inline ErrorCode ring_error(int negative_errno) noexcept {
+            if (negative_errno == -ECANCELED) return asio::error::operation_aborted;
+            return ErrorCode(-negative_errno, boost::system::system_category());
+        }
+
+        /// Stands in for `tcp::socket&` as the stream layer of a connection (and under `asio::ssl::stream`): same concepts
+        /// (AsyncReadStream / AsyncWriteStream), but with io_uring doing the transfers when `net_uring()` is true. Completions are
+        /// posted to the handler's own executor, i.e. the connection's strand, so the code above sees exactly what it saw before.
+        class StreamIo {
+          public:
+            using executor_type = tcp::socket::executor_type;
+            using lowest_layer_type = tcp::socket::lowest_layer_type;
+
+            explicit StreamIo(tcp::socket &socket) noexcept : socket_(&socket) {}
+
+            executor_type get_executor() noexcept { return socket_->get_executor(); }
+            lowest_layer_type &lowest_layer() noexcept { return socket_->lowest_layer(); }
+            const lowest_layer_type &lowest_layer() const noexcept { return socket_->lowest_layer(); }
+
+            template <typename MutableBuffers, typename Token>
+            auto async_read_some(const MutableBuffers &buffers, Token &&token) {
+                return asio::async_initiate<Token, void(ErrorCode, std::size_t)>(
+                    [](auto handler, tcp::socket *socket, const MutableBuffers &buffers) {
+                        if (!net_uring()) {
+                            socket->async_read_some(buffers, std::move(handler));
+                            return;
+                        }
+                        const auto begin = asio::buffer_sequence_begin(buffers);
+                        const asio::mutable_buffer first = begin == asio::buffer_sequence_end(buffers) ? asio::mutable_buffer{} : asio::mutable_buffer(*begin);
+                        const auto executor = asio::get_associated_executor(handler, socket->get_executor());
+                        if (first.size() == 0) {
+                            asio::post(executor, [handler = std::move(handler)]() mutable { handler(ErrorCode{}, std::size_t{0}); });
+                            return;
+                        }
+                        // The ring's callback type is copyable; the handler need not be, so it travels boxed.
+                        auto boxed = std::make_shared<std::decay_t<decltype(handler)>>(std::move(handler));
+                        netring::recv(socket->native_handle(), first.data(), first.size(), [boxed, executor](int result) {
+                            ErrorCode ec;
+                            std::size_t transferred = 0;
+                            if (result < 0) ec = ring_error(result);
+                            else if (result == 0) ec = asio::error::eof;
+                            else transferred = static_cast<std::size_t>(result);
+                            asio::dispatch(executor, [boxed, ec, transferred]() mutable { (*boxed)(ec, transferred); });
+                        });
+                    },
+                    token, socket_, buffers);
+            }
+
+            template <typename ConstBuffers, typename Token>
+            auto async_write_some(const ConstBuffers &buffers, Token &&token) {
+                return asio::async_initiate<Token, void(ErrorCode, std::size_t)>(
+                    [](auto handler, tcp::socket *socket, const ConstBuffers &buffers) {
+                        if (!net_uring()) {
+                            socket->async_write_some(buffers, std::move(handler));
+                            return;
+                        }
+                        const auto begin = asio::buffer_sequence_begin(buffers);
+                        const asio::const_buffer first = begin == asio::buffer_sequence_end(buffers) ? asio::const_buffer{} : asio::const_buffer(*begin);
+                        const auto executor = asio::get_associated_executor(handler, socket->get_executor());
+                        if (first.size() == 0) {
+                            asio::post(executor, [handler = std::move(handler)]() mutable { handler(ErrorCode{}, std::size_t{0}); });
+                            return;
+                        }
+                        auto boxed = std::make_shared<std::decay_t<decltype(handler)>>(std::move(handler));
+                        netring::send(socket->native_handle(), first.data(), first.size(), [boxed, executor](int result) {
+                            ErrorCode ec;
+                            std::size_t transferred = 0;
+                            if (result < 0) ec = ring_error(result);
+                            else transferred = static_cast<std::size_t>(result);
+                            asio::dispatch(executor, [boxed, ec, transferred]() mutable { (*boxed)(ec, transferred); });
+                        });
+                    },
+                    token, socket_, buffers);
+            }
+
+          private:
+            tcp::socket *socket_;
+        };
+
+        using TlsStream = asio::ssl::stream<StreamIo>;
+
+        [[nodiscard]] inline std::unique_ptr<TlsStream> make_tls_stream(tcp::socket &socket, asio::ssl::context &context) {
+            return std::make_unique<TlsStream>(StreamIo{socket}, context);
+        }
+
+        // =========================================================================================
         // TCP stream core
         // =========================================================================================
         struct ReadWaiter {
@@ -106,7 +215,7 @@ namespace SFT::Async {
             Strand strand{asio::make_strand(reactor())};
             tcp::socket socket{reactor()};
             std::shared_ptr<asio::ssl::context> tls_context;
-            std::unique_ptr<asio::ssl::stream<tcp::socket &>> tls;
+            std::unique_ptr<TlsStream> tls;
             std::atomic<bool> open{true};
             SocketAddress local;
             SocketAddress peer;
@@ -240,14 +349,14 @@ namespace SFT::Async {
 
             void start_read() {
                 read_in_flight = true;
-                read_chunk.resize(kReadChunk);
+                read_chunk.resize(net_uring() ? kRingReadChunk : kReadChunk);
                 auto handler = asio::bind_executor(strand, [self = shared_from_this()](const ErrorCode &ec, std::size_t n) {
                     self->on_read(ec, n);
                 });
                 if (tls) {
                     tls->async_read_some(asio::buffer(read_chunk), std::move(handler));
                 } else {
-                    socket.async_read_some(asio::buffer(read_chunk), std::move(handler));
+                    StreamIo{socket}.async_read_some(asio::buffer(read_chunk), std::move(handler));
                 }
             }
 
@@ -326,14 +435,14 @@ namespace SFT::Async {
             }
 
             void write_chunk(const std::shared_ptr<WriteOp> &op) {
-                const std::size_t count = (std::min)(op->data.size() - op->offset, kWriteChunk);
+                const std::size_t count = (std::min)(op->data.size() - op->offset, net_uring() ? kRingWriteChunk : kWriteChunk);
                 auto handler = asio::bind_executor(strand, [self = shared_from_this(), op](const ErrorCode &ec, std::size_t written) {
                     self->on_write(op, ec, written);
                 });
                 if (tls) {
                     tls->async_write_some(asio::buffer(op->data.data() + op->offset, count), std::move(handler));
                 } else {
-                    socket.async_write_some(asio::buffer(op->data.data() + op->offset, count), std::move(handler));
+                    StreamIo{socket}.async_write_some(asio::buffer(op->data.data() + op->offset, count), std::move(handler));
                 }
             }
 
@@ -425,6 +534,8 @@ namespace SFT::Async {
             void close_now() {
                 if (!open.exchange(false, std::memory_order_acq_rel)) return;
                 ErrorCode ec;
+                // Closing a descriptor does not end io_uring operations already on it: cancel them first, while the number is still ours.
+                if (net_uring() && socket.is_open()) netring::cancel(socket.native_handle());
                 socket.shutdown(tcp::socket::shutdown_both, ec);
                 socket.close(ec);
                 terminal_error = closed_error();

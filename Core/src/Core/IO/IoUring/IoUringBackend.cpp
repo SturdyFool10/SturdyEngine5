@@ -34,34 +34,25 @@ namespace SFT::Core {
 
     namespace {
 
-        /// Performs the sys I/O uring setup operation for `Core` using the supplied arguments.
-        ///
-        /// @param entries `entries` value used by the operation.
-        /// @param params `params` value used by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] int sys_io_uring_setup(unsigned entries, io_uring_params *params) {
             return static_cast<int>(syscall(SYS_io_uring_setup, entries, params));
         }
 
-        /// Performs the sys I/O uring enter operation for `Core` using the supplied arguments.
-        ///
-        /// @param ring_fd `ring_fd` value used by the operation.
-        /// @param to_submit `to_submit` value used by the operation.
-        /// @param min_complete `min_complete` value used by the operation.
-        /// @param flags Flags controlling optional behavior.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] int sys_io_uring_enter(int ring_fd, unsigned to_submit, unsigned min_complete, unsigned flags) {
             return static_cast<int>(syscall(SYS_io_uring_enter, ring_fd, to_submit, min_complete, flags, nullptr, 0));
         }
 
+        /// Reads go out as this many bytes per request, `kQueueDepth` of them in flight at once: that is what keeps an NVMe
+        /// drive's queues full (one huge request is one queue slot) and lets the kernel copy cached pages on several cores.
+        constexpr usize kChunkBytes = 1u << 20;
+        constexpr unsigned kQueueDepth = 16;
+        constexpr unsigned kRingEntries = 32;
 
-        struct IoUringState {
+        /// One ring per calling thread. Loads come from many threads at once (asset decode workers, the streamer, the IO
+        /// pool), and a shared ring behind a mutex would serialize them -- the opposite of what a fast path is for. A ring costs
+        /// three small mappings, created on a thread's first accelerated read and released when the thread exits.
+        struct Ring {
             int ring_fd = -1;
-
             void *sq_ring_ptr = nullptr;
             usize sq_ring_size = 0;
             void *cq_ring_ptr = nullptr;
@@ -69,6 +60,7 @@ namespace SFT::Core {
             io_uring_sqe *sqes = nullptr;
             usize sqes_size = 0;
 
+            unsigned *sq_head = nullptr;
             unsigned *sq_tail = nullptr;
             unsigned *sq_ring_mask = nullptr;
             unsigned *sq_array = nullptr;
@@ -78,217 +70,243 @@ namespace SFT::Core {
             unsigned *cq_ring_mask = nullptr;
             io_uring_cqe *cqes = nullptr;
 
-            bool init_attempted = false;
-            bool available = false;
+            bool attempted = false;
+            bool ready = false;
+
+            Ring() = default;
+            Ring(const Ring &) = delete;
+            Ring &operator=(const Ring &) = delete;
+            ~Ring() { teardown(); }
+
+            void teardown() noexcept {
+                if (sqes != nullptr) {
+                    munmap(sqes, sqes_size);
+                    sqes = nullptr;
+                }
+                if (cq_ring_ptr != nullptr && cq_ring_ptr != sq_ring_ptr) {
+                    munmap(cq_ring_ptr, cq_ring_size);
+                }
+                cq_ring_ptr = nullptr;
+                if (sq_ring_ptr != nullptr) {
+                    munmap(sq_ring_ptr, sq_ring_size);
+                    sq_ring_ptr = nullptr;
+                }
+                if (ring_fd >= 0) {
+                    close(ring_fd);
+                    ring_fd = -1;
+                }
+                ready = false;
+            }
         };
 
-        /// Returns the current or globally available state value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        IoUringState &state() {
-            static IoUringState instance;
-            return instance;
-        }
+        /// -1 until a ring has been tried, then 1 (rings work) or 0 (the kernel refuses: old kernel, seccomp, container
+        /// policy). One refusal turns the path off for every thread and is logged once, not once per thread.
+        std::atomic<int> g_ring_support{-1};
 
-        /// Returns the current or globally available state mutex value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        std::mutex &state_mutex() {
-            static std::mutex instance;
-            return instance;
-        }
-
-        /// Performs the teardown partial locked operation for `Core` using the supplied arguments.
-        ///
-        /// @param s `s` value used by the operation.
-        ///
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void teardown_partial_locked(IoUringState &s) {
-            if (s.sqes != nullptr) {
-                munmap(s.sqes, s.sqes_size);
-                s.sqes = nullptr;
-            }
-            if (s.cq_ring_ptr != nullptr && s.cq_ring_ptr != s.sq_ring_ptr) {
-                munmap(s.cq_ring_ptr, s.cq_ring_size);
-            }
-            s.cq_ring_ptr = nullptr;
-            if (s.sq_ring_ptr != nullptr) {
-                munmap(s.sq_ring_ptr, s.sq_ring_size);
-                s.sq_ring_ptr = nullptr;
-            }
-            if (s.ring_fd >= 0) {
-                close(s.ring_fd);
-                s.ring_fd = -1;
-            }
-        }
-
-
-        /// Finds or creates the initialized locked required by the operation.
-        ///
-        /// @return Returns the boolean result of the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] bool ensure_initialized_locked() {
-            IoUringState &s = state();
-            if (s.init_attempted) {
-                return s.available;
-            }
-            s.init_attempted = true;
-
+        /// Sets the ring up; false (with the ring torn down) when anything fails.
+        [[nodiscard]] bool setup_ring(Ring &r) noexcept {
             io_uring_params params{};
-            s.ring_fd = sys_io_uring_setup(8, &params);
-            if (s.ring_fd < 0) {
-                Foundation::log_warn("io_uring: io_uring_setup failed (errno={}); falling back to standard file I/O.", errno);
+            r.ring_fd = sys_io_uring_setup(kRingEntries, &params);
+            if (r.ring_fd < 0) {
+                const int error = errno;
+                int expected = -1;
+                if (g_ring_support.compare_exchange_strong(expected, 0)) {
+                    Foundation::log_warn("io_uring: io_uring_setup failed (errno={}); using standard file I/O.", error);
+                }
                 return false;
             }
 
-            s.sq_ring_size = params.sq_off.array + static_cast<usize>(params.sq_entries) * sizeof(unsigned);
-            s.cq_ring_size = params.cq_off.cqes + static_cast<usize>(params.cq_entries) * sizeof(io_uring_cqe);
+            r.sq_ring_size = params.sq_off.array + static_cast<usize>(params.sq_entries) * sizeof(unsigned);
+            r.cq_ring_size = params.cq_off.cqes + static_cast<usize>(params.cq_entries) * sizeof(io_uring_cqe);
             const bool single_mmap = (params.features & IORING_FEAT_SINGLE_MMAP) != 0;
             if (single_mmap) {
-                s.sq_ring_size = s.cq_ring_size = std::max(s.sq_ring_size, s.cq_ring_size);
+                r.sq_ring_size = r.cq_ring_size = std::max(r.sq_ring_size, r.cq_ring_size);
             }
 
-            s.sq_ring_ptr = mmap(nullptr, s.sq_ring_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, s.ring_fd,
-                                  IORING_OFF_SQ_RING);
-            if (s.sq_ring_ptr == MAP_FAILED) {
-                Foundation::log_warn("io_uring: mmap(SQ ring) failed; falling back to standard file I/O.");
-                s.sq_ring_ptr = nullptr;
-                teardown_partial_locked(s);
+            r.sq_ring_ptr = mmap(nullptr, r.sq_ring_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, r.ring_fd, IORING_OFF_SQ_RING);
+            if (r.sq_ring_ptr == MAP_FAILED) {
+                r.sq_ring_ptr = nullptr;
+                r.teardown();
                 return false;
             }
-
             if (single_mmap) {
-                s.cq_ring_ptr = s.sq_ring_ptr;
+                r.cq_ring_ptr = r.sq_ring_ptr;
             } else {
-                s.cq_ring_ptr = mmap(nullptr, s.cq_ring_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, s.ring_fd,
-                                      IORING_OFF_CQ_RING);
-                if (s.cq_ring_ptr == MAP_FAILED) {
-                    Foundation::log_warn("io_uring: mmap(CQ ring) failed; falling back to standard file I/O.");
-                    s.cq_ring_ptr = nullptr;
-                    teardown_partial_locked(s);
+                r.cq_ring_ptr = mmap(nullptr, r.cq_ring_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, r.ring_fd, IORING_OFF_CQ_RING);
+                if (r.cq_ring_ptr == MAP_FAILED) {
+                    r.cq_ring_ptr = nullptr;
+                    r.teardown();
                     return false;
                 }
             }
-
-            s.sqes_size = static_cast<usize>(params.sq_entries) * sizeof(io_uring_sqe);
-            s.sqes = static_cast<io_uring_sqe *>(
-                mmap(nullptr, s.sqes_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, s.ring_fd, IORING_OFF_SQES));
-            if (s.sqes == MAP_FAILED) {
-                Foundation::log_warn("io_uring: mmap(SQEs) failed; falling back to standard file I/O.");
-                s.sqes = nullptr;
-                teardown_partial_locked(s);
+            r.sqes_size = static_cast<usize>(params.sq_entries) * sizeof(io_uring_sqe);
+            r.sqes = static_cast<io_uring_sqe *>(mmap(nullptr, r.sqes_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, r.ring_fd, IORING_OFF_SQES));
+            if (r.sqes == MAP_FAILED) {
+                r.sqes = nullptr;
+                r.teardown();
                 return false;
             }
 
-            auto *sq_base = static_cast<std::byte *>(s.sq_ring_ptr);
-            s.sq_tail = reinterpret_cast<unsigned *>(sq_base + params.sq_off.tail);
-            s.sq_ring_mask = reinterpret_cast<unsigned *>(sq_base + params.sq_off.ring_mask);
-            s.sq_array = reinterpret_cast<unsigned *>(sq_base + params.sq_off.array);
+            auto *sq_base = static_cast<std::byte *>(r.sq_ring_ptr);
+            r.sq_head = reinterpret_cast<unsigned *>(sq_base + params.sq_off.head);
+            r.sq_tail = reinterpret_cast<unsigned *>(sq_base + params.sq_off.tail);
+            r.sq_ring_mask = reinterpret_cast<unsigned *>(sq_base + params.sq_off.ring_mask);
+            r.sq_array = reinterpret_cast<unsigned *>(sq_base + params.sq_off.array);
 
-            auto *cq_base = static_cast<std::byte *>(s.cq_ring_ptr);
-            s.cq_head = reinterpret_cast<unsigned *>(cq_base + params.cq_off.head);
-            s.cq_tail = reinterpret_cast<unsigned *>(cq_base + params.cq_off.tail);
-            s.cq_ring_mask = reinterpret_cast<unsigned *>(cq_base + params.cq_off.ring_mask);
-            s.cqes = reinterpret_cast<io_uring_cqe *>(cq_base + params.cq_off.cqes);
+            auto *cq_base = static_cast<std::byte *>(r.cq_ring_ptr);
+            r.cq_head = reinterpret_cast<unsigned *>(cq_base + params.cq_off.head);
+            r.cq_tail = reinterpret_cast<unsigned *>(cq_base + params.cq_off.tail);
+            r.cq_ring_mask = reinterpret_cast<unsigned *>(cq_base + params.cq_off.ring_mask);
+            r.cqes = reinterpret_cast<io_uring_cqe *>(cq_base + params.cq_off.cqes);
 
-            s.available = true;
+            r.ready = true;
+            int expected = -1;
+            g_ring_support.compare_exchange_strong(expected, 1);
             return true;
+        }
+
+        /// The calling thread's ring, or nullptr when io_uring is not usable here.
+        [[nodiscard]] Ring *thread_ring() noexcept {
+            thread_local Ring ring;
+            if (!ring.attempted) {
+                if (g_ring_support.load(std::memory_order_acquire) == 0) {
+                    return nullptr;
+                }
+                ring.attempted = true;
+                (void)setup_ring(ring);
+            }
+            return ring.ready ? &ring : nullptr;
+        }
+
+        /// One chunk of the file in flight (or waiting to be retried after a short read).
+        struct Slot {
+            u64 offset = 0;
+            usize length = 0;
+        };
+
+        void queue_read(Ring &r, int fd, std::byte *base, const Slot &slot, unsigned slot_index) noexcept {
+            std::atomic_ref<unsigned> tail_ref(*r.sq_tail);
+            const unsigned tail = tail_ref.load(std::memory_order_relaxed);
+            const unsigned index = tail & *r.sq_ring_mask;
+            io_uring_sqe &sqe = r.sqes[index];
+            std::memset(&sqe, 0, sizeof(sqe));
+            sqe.opcode = IORING_OP_READ;
+            sqe.fd = fd;
+            sqe.off = slot.offset;
+            sqe.addr = static_cast<__u64>(reinterpret_cast<std::uintptr_t>(base + slot.offset));
+            sqe.len = static_cast<unsigned>(slot.length);
+            sqe.user_data = slot_index;
+            r.sq_array[index] = index;
+            tail_ref.store(tail + 1, std::memory_order_release);
         }
 
     } // namespace
 
-    /// Returns the current or globally available I/O uring available value.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function does not throw exceptions.
     bool io_uring_available() noexcept {
-        std::lock_guard<std::mutex> lock(state_mutex());
-        return ensure_initialized_locked();
+        return thread_ring() != nullptr;
     }
 
-    /// Reads file I/O uring from the associated source.
-    ///
-    /// @param path Filesystem path identifying the target resource.
-    ///
-    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::OperationFailed`.
     RHI::RhiExpected<std::vector<std::byte>> read_file_io_uring(const std::filesystem::path &path) {
         ZoneScopedN("Core::read_file_io_uring");
 
-        std::lock_guard<std::mutex> lock(state_mutex());
-        if (!ensure_initialized_locked()) {
+        Ring *ring = thread_ring();
+        if (ring == nullptr) {
             return unexpected(
                 RHI::rhi_error(RHI::RhiErrorCode::Unsupported, "read_file_io_uring: io_uring is unavailable on this system."));
         }
-        IoUringState &s = state();
+        Ring &r = *ring;
 
-        const int fd = open(path.c_str(), O_RDONLY);
+        const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) {
             return unexpected(
                 RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "read_file_io_uring: could not open '" + path.string() + "'."));
         }
-
         struct stat file_stat {};
         if (fstat(fd, &file_stat) != 0 || file_stat.st_size <= 0) {
             close(fd);
             return unexpected(
                 RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "read_file_io_uring: could not stat '" + path.string() + "'."));
         }
+        const u64 file_size = static_cast<u64>(file_stat.st_size);
+        posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 
+        std::vector<std::byte> bytes(static_cast<usize>(file_size));
+        std::byte *const base = bytes.data();
 
-        if (static_cast<u64>(file_stat.st_size) > std::numeric_limits<unsigned>::max()) {
-            close(fd);
-            return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                              "read_file_io_uring: '" + path.string() + "' exceeds the 4GiB per-request limit."));
+        // Chunks go out `kQueueDepth` at a time; a chunk that comes back short (a signal, the kernel's per-request cap) is
+        // resubmitted for the rest. There is no per-file size limit: the 4 GiB cap of a single request does not apply.
+        Slot slots[kQueueDepth];
+        unsigned free_slots[kQueueDepth];
+        unsigned free_count = kQueueDepth;
+        for (unsigned i = 0; i < kQueueDepth; ++i) {
+            free_slots[i] = i;
         }
-        const usize file_size = static_cast<usize>(file_stat.st_size);
+        u64 next_offset = 0;
+        unsigned inflight = 0;
+        bool failed = false;
 
-        std::vector<std::byte> bytes(file_size);
+        std::atomic_ref<unsigned> cq_tail_ref(*r.cq_tail);
+        std::atomic_ref<unsigned> cq_head_ref(*r.cq_head);
 
+        while (inflight > 0 || (!failed && next_offset < file_size)) {
+            while (!failed && free_count > 0 && next_offset < file_size) {
+                const unsigned slot_index = free_slots[--free_count];
+                Slot &slot = slots[slot_index];
+                slot.offset = next_offset;
+                slot.length = static_cast<usize>(std::min<u64>(kChunkBytes, file_size - next_offset));
+                next_offset += slot.length;
+                queue_read(r, fd, base, slot, slot_index);
+                ++inflight;
+            }
 
-        std::atomic_ref<unsigned> sq_tail_ref(*s.sq_tail);
-        const unsigned tail = sq_tail_ref.load(std::memory_order_relaxed);
-        const unsigned index = tail & *s.sq_ring_mask;
+            // Everything the kernel has not consumed yet, counted from the ring itself: an enter interrupted by a signal may have
+            // consumed some entries and not others, and a stale count would strand the rest.
+            const unsigned pending = std::atomic_ref<unsigned>(*r.sq_tail).load(std::memory_order_relaxed) -
+                                     std::atomic_ref<unsigned>(*r.sq_head).load(std::memory_order_acquire);
+            const int entered = sys_io_uring_enter(r.ring_fd, pending, 1, IORING_ENTER_GETEVENTS);
+            if (entered < 0 && errno != EINTR && errno != EAGAIN && errno != EBUSY) {
+                // The ring is unusable. Requests already queued may still complete into `bytes`, so give up on this thread's
+                // ring for good rather than return a buffer the kernel might still write to.
+                r.teardown();
+                close(fd);
+                return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
+                                                  "read_file_io_uring: io_uring_enter failed for '" + path.string() + "'."));
+            }
 
-        io_uring_sqe &sqe = s.sqes[index];
-        std::memset(&sqe, 0, sizeof(sqe));
-        sqe.opcode = IORING_OP_READ;
-        sqe.fd = fd;
-        sqe.off = 0;
-        sqe.addr = static_cast<__u64>(reinterpret_cast<std::uintptr_t>(bytes.data()));
-        sqe.len = static_cast<unsigned>(file_size);
-        sqe.user_data = 1;
-
-        s.sq_array[index] = index;
-
-
-        sq_tail_ref.store(tail + 1, std::memory_order_release);
-
-        const int enter_result = sys_io_uring_enter(s.ring_fd, 1, 1, IORING_ENTER_GETEVENTS);
-        if (enter_result < 0) {
-            close(fd);
-            return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                              "read_file_io_uring: io_uring_enter failed for '" + path.string() + "'."));
+            unsigned head = cq_head_ref.load(std::memory_order_relaxed);
+            const unsigned tail = cq_tail_ref.load(std::memory_order_acquire);
+            while (head != tail) {
+                const io_uring_cqe cqe = r.cqes[head & *r.cq_ring_mask];
+                ++head;
+                --inflight;
+                const unsigned slot_index = static_cast<unsigned>(cqe.user_data);
+                Slot &slot = slots[slot_index];
+                if (cqe.res < 0) {
+                    if (cqe.res == -EINTR || cqe.res == -EAGAIN) {
+                        queue_read(r, fd, base, slot, slot_index);
+                        ++inflight; // submitted by the next enter, which counts what the ring still holds
+                        continue;
+                    }
+                    failed = true;
+                } else if (cqe.res == 0) {
+                    failed = true; // the file is shorter than it was a moment ago
+                } else if (static_cast<usize>(cqe.res) < slot.length) {
+                    slot.offset += static_cast<u64>(cqe.res);
+                    slot.length -= static_cast<usize>(cqe.res);
+                    queue_read(r, fd, base, slot, slot_index);
+                    ++inflight;
+                    continue;
+                }
+                free_slots[free_count++] = slot_index;
+            }
+            cq_head_ref.store(head, std::memory_order_release);
         }
-
-
-        std::atomic_ref<unsigned> cq_tail_ref(*s.cq_tail);
-        std::atomic_ref<unsigned> cq_head_ref(*s.cq_head);
-        (void)cq_tail_ref.load(std::memory_order_acquire);
-        const unsigned head = cq_head_ref.load(std::memory_order_relaxed);
-        const io_uring_cqe cqe = s.cqes[head & *s.cq_ring_mask];
-        cq_head_ref.store(head + 1, std::memory_order_release);
 
         close(fd);
-
-        if (cqe.res < 0 || static_cast<usize>(cqe.res) != file_size) {
+        if (failed) {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_io_uring: short or failed read for '" + path.string() + "'."));
         }
-
         return bytes;
     }
 

@@ -6,6 +6,9 @@
 
 #if defined(_WIN32)
 #include <Core/IO/DirectStorage/DirectStorageBackend.hpp>
+#include <Core/IO/Win32/OverlappedRead.hpp>
+#elif defined(__APPLE__)
+#include <Core/IO/Dispatch/DispatchRead.hpp>
 #elif defined(__linux__)
 #include <Core/IO/IoUring/IoUringBackend.hpp>
 #endif
@@ -16,6 +19,14 @@ namespace SFT::Core {
 #if defined(_WIN32)
         if (auto bytes = read_file_direct_storage(path)) {
             return std::move(*bytes);
+        }
+        // No DirectStorage (no dstorage.dll, or a volume it cannot serve): overlapped reads through a completion port.
+        if (auto bytes = read_file_overlapped(path)) {
+            return bytes;
+        }
+#elif defined(__APPLE__)
+        if (auto bytes = read_file_dispatch(path)) {
+            return bytes;
         }
 #elif defined(__linux__)
         if (auto bytes = read_file_io_uring(path)) {

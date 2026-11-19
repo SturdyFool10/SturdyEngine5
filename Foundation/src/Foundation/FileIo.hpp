@@ -93,6 +93,11 @@ namespace SFT::Foundation::Io {
         u64 size_ = 0;
     };
 
+    /// Asks the OS to bring a whole file into its cache so a later read of it is fast. On Linux and macOS this only queues kernel
+    /// read-ahead and returns at once; on Windows it reads the file through, so call it from an IO or worker thread, not a
+    /// latency-sensitive one. Failure is silent: it is only a hint.
+    void prefetch_file(const std::filesystem::path &path) noexcept;
+
     struct WriteOptions {
         /// Write to a sibling temporary file and rename it over `path` in `commit()`. A crash or an abandoned writer then
         /// never leaves a truncated file behind. Strongly recommended for exports.

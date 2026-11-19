@@ -11,6 +11,9 @@
 
 #include <Audio/Decoder.hpp>
 #include <Async/Affinity.hpp>
+#include <Async/IoHandler.hpp>
+#include <Async/Promise.hpp>
+#include <Async/Scheduler.hpp>
 #include <Renderer/UI/Svg/SvgIcon.hpp>
 
 
@@ -27,6 +30,7 @@
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -551,6 +555,47 @@ namespace SFT::Engine {
             push(std::move(update));
         }
 
+        /// Starts a progressive load on the engine's async runtime instead of one shared thread, so loads overlap: the file read
+        /// goes to the IO lane (io_uring / DirectStorage / overlapped reads inside `Foundation::Io::read_file`), and the decode, mip
+        /// chain and block compression run as heavy tasks on the scheduler, one per image, in parallel. Nothing here touches the
+        /// asset manager, only the load's shared state, so a task outliving the manager is harmless.
+        void schedule_progressive_load(const std::shared_ptr<ProgressiveLoad> &load, const std::filesystem::path &source,
+                                       std::vector<std::byte> encoded_bytes, TextureColorSpace color_space, TextureKind kind,
+                                       bool allow_bc, u32 max_dimension = 0) {
+            const auto decode = [load, source, color_space, kind, allow_bc, max_dimension](std::vector<std::byte> bytes) {
+                (void)Async::Scheduler::spawn(
+                    [load, source, color_space, kind, allow_bc, max_dimension, bytes = std::move(bytes)]() mutable {
+                        run_progressive_load(load, source, std::move(bytes), color_space, kind, allow_bc, max_dimension);
+                    },
+                    Async::TaskWeight::Heavy);
+            };
+            if (!encoded_bytes.empty()) {
+                decode(std::move(encoded_bytes));
+                return;
+            }
+            const auto read_then_decode = [load, source, decode]() {
+                if (load->cancel.load(std::memory_order_acquire)) {
+                    return;
+                }
+                auto bytes = read_binary_file(source);
+                if (!bytes || bytes->empty()) {
+                    ProgressiveUpdate update;
+                    update.kind = ProgressiveUpdate::Kind::Failed;
+                    update.message = bytes ? "The image file is empty." : std::string{bytes.error().message.c_str()};
+                    std::lock_guard lock{load->mutex};
+                    load->updates.push_back(std::move(update));
+                    return;
+                }
+                decode(std::move(*bytes));
+            };
+            try {
+                (void)Async::IoHandler::submit(read_then_decode);
+            } catch (...) {
+                // The IO queue is full (a big batch): read on a scheduler worker rather than drop the load.
+                (void)Async::Scheduler::spawn(read_then_decode, Async::TaskWeight::Heavy);
+            }
+        }
+
 
         /// Performs the combine stable ID operation for `Engine` using the supplied arguments.
         ///
@@ -903,8 +948,8 @@ namespace SFT::Engine {
         std::chrono::steady_clock::time_point last_watch{};
         /// Renderer texture handle -> record index, for the SVG textures (so the UI's drawn sizes can find them).
         std::unordered_map<u64, usize> svg_records;
-        /// Declared last: destroyed first, so its worker has stopped before anything the worker's jobs touch goes away.
-        Async::DedicatedThread decode_thread{"AssetDecode"};
+        /// Async loads (`load_sound_async`) that still reference this manager; the destructor waits for them.
+        std::atomic<u32> async_loads{0};
     };
 
     /// Performs the asset manager operation for `Engine` using the supplied arguments.
@@ -919,6 +964,9 @@ namespace SFT::Engine {
     ///
     /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     AssetManager::~AssetManager() {
+        while (impl_ && impl_->async_loads.load(std::memory_order_acquire) != 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         clear();
     }
 
@@ -1444,10 +1492,8 @@ namespace SFT::Engine {
             bytes = *managed.bytes;
         }
         const bool allow_bc = device_allows_bc(renderer);
-        (void)decode_thread.run([load, path = managed.path, bytes = std::move(bytes), cs = managed.color_space,
-                                 kind = managed.kind, allow_bc, max = managed.max_dimension]() mutable {
-            run_progressive_load(load, path, std::move(bytes), cs, kind, allow_bc, max);
-        });
+        schedule_progressive_load(load, managed.path, std::move(bytes), managed.color_space, managed.kind, allow_bc,
+                                  managed.max_dimension);
     }
 
     void AssetManager::Impl::watch_sources() {
@@ -1729,9 +1775,7 @@ namespace SFT::Engine {
             }
             impl_->path_cache.emplace(key, *placeholder);
         }
-        (void)impl_->decode_thread.run([load, source, color_space, kind, allow_bc] {
-            run_progressive_load(load, source, {}, color_space, kind, allow_bc);
-        });
+        schedule_progressive_load(load, source, {}, color_space, kind, allow_bc);
         return placeholder;
     }
 
@@ -1771,9 +1815,7 @@ namespace SFT::Engine {
                 impl_->active_progressive.push_back(static_cast<usize>(placeholder->id_ - 1));
             }
         }
-        (void)impl_->decode_thread.run([load, bytes = std::move(encoded), color_space, kind, allow_bc]() mutable {
-            run_progressive_load(load, {}, std::move(bytes), color_space, kind, allow_bc);
-        });
+        schedule_progressive_load(load, {}, std::move(encoded), color_space, kind, allow_bc);
         return placeholder;
     }
 
@@ -2205,6 +2247,96 @@ namespace SFT::Engine {
         });
         impl_->path_cache.emplace(dedup_key, asset);
         return asset;
+    }
+
+    namespace {
+        struct DecodedSound {
+            std::shared_ptr<const Audio::SampleBuffer> buffer;
+            SoundAssetInfo info;
+        };
+
+        AssetExpected<DecodedSound> decode_sound_bytes(std::vector<std::byte> encoded, std::string_view extension_hint) {
+            auto decoded = Audio::load_sound_memory(Foundation::Io::ByteBlob::from_vector(std::move(encoded)),
+                                                    UString{std::string{extension_hint}});
+            if (!decoded) {
+                return std::unexpected(AssetError{AssetErrorCode::DecodeFailure,
+                                                  UString{"Could not decode sound data: " + decoded.error().cpp_string()}, {}});
+            }
+            DecodedSound out;
+            out.buffer = *decoded;
+            out.info = SoundAssetInfo{
+                .channels = out.buffer->channels,
+                .sample_rate = out.buffer->sample_rate,
+                .frame_count = out.buffer->frames(),
+                .duration_seconds = out.buffer->sample_rate != 0
+                                        ? static_cast<f64>(out.buffer->frames()) / out.buffer->sample_rate
+                                        : 0.0,
+            };
+            return out;
+        }
+    } // namespace
+
+    Async::TaskHandle<AssetExpected<Asset>> AssetManager::load_sound_async(std::filesystem::path source, UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_sound_async");
+        Async::Promise<AssetExpected<Asset>> promise;
+        auto handle = promise.handle();
+        const std::string dedup_key = source.string();
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(dedup_key); it != impl_->path_cache.end()) {
+                (void)promise.set_value(AssetExpected<Asset>{it->second});
+                return handle;
+            }
+        }
+        Impl *const impl = impl_.get();
+        impl->async_loads.fetch_add(1, std::memory_order_acq_rel);
+        // Resolves the handle and releases the manager, whichever stage ends the load.
+        auto finish = [impl, promise](AssetExpected<Asset> result) mutable {
+            (void)promise.set_value(std::move(result));
+            impl->async_loads.fetch_sub(1, std::memory_order_acq_rel);
+        };
+        auto decode_and_register = [impl, finish, source, dedup_key, label = std::move(label)](std::vector<std::byte> encoded) mutable {
+            const Foundation::Stopwatch stopwatch;
+            auto decoded = decode_sound_bytes(std::move(encoded), source.extension().string());
+            if (!decoded) {
+                return finish(std::unexpected(error(AssetErrorCode::DecodeFailure,
+                                                     "Could not decode sound '" + source.string() + "': " + decoded.error().message.cpp_string(),
+                                                     source)));
+            }
+            if (label.empty()) {
+                label = path_label(source, "sound");
+            }
+            Foundation::log_info("AssetManager: loaded sound '{}' ({} frames, {}ch @ {}Hz) in {}", source.string(),
+                                 decoded->info.frame_count, decoded->info.channels, decoded->info.sample_rate, stopwatch.elapsed_human());
+            std::unique_lock lock{impl->mutex};
+            if (const auto it = impl->path_cache.find(dedup_key); it != impl->path_cache.end()) {
+                return finish(AssetExpected<Asset>{it->second}); // another caller finished the same sound first
+            }
+            const Asset asset = impl->insert(Impl::Record{
+                .type = AssetType::Sound,
+                .label = std::move(label),
+                .source = source,
+                .memory_bytes = decoded->buffer->samples->size() * sizeof(f32),
+                .data = Impl::SoundData{.buffer = std::move(decoded->buffer), .info = decoded->info},
+            });
+            impl->path_cache.emplace(dedup_key, asset);
+            lock.unlock();
+            finish(AssetExpected<Asset>{asset});
+        };
+        auto read_then_decode = [source, finish, decode_and_register]() mutable {
+            auto bytes = read_binary_file(source);
+            if (!bytes) {
+                return finish(std::unexpected(bytes.error()));
+            }
+            (void)Async::Scheduler::spawn([decode = decode_and_register, bytes = std::move(*bytes)]() mutable { decode(std::move(bytes)); },
+                                          Async::TaskWeight::Heavy);
+        };
+        try {
+            (void)Async::IoHandler::submit(read_then_decode);
+        } catch (...) {
+            (void)Async::Scheduler::spawn(read_then_decode, Async::TaskWeight::Heavy); // IO queue full: read on a worker instead
+        }
+        return handle;
     }
 
     /// Loads file.
@@ -2884,32 +3016,6 @@ namespace SFT::Engine {
         return {};
     }
 
-    namespace {
-        struct DecodedSound {
-            std::shared_ptr<const Audio::SampleBuffer> buffer;
-            SoundAssetInfo info;
-        };
-
-        AssetExpected<DecodedSound> decode_sound_bytes(std::vector<std::byte> encoded, std::string_view extension_hint) {
-            auto decoded = Audio::load_sound_memory(Foundation::Io::ByteBlob::from_vector(std::move(encoded)),
-                                                    UString{std::string{extension_hint}});
-            if (!decoded) {
-                return std::unexpected(AssetError{AssetErrorCode::DecodeFailure,
-                                                  UString{"Could not decode sound data: " + decoded.error().cpp_string()}, {}});
-            }
-            DecodedSound out;
-            out.buffer = *decoded;
-            out.info = SoundAssetInfo{
-                .channels = out.buffer->channels,
-                .sample_rate = out.buffer->sample_rate,
-                .frame_count = out.buffer->frames(),
-                .duration_seconds = out.buffer->sample_rate != 0
-                                        ? static_cast<f64>(out.buffer->frames()) / out.buffer->sample_rate
-                                        : 0.0,
-            };
-            return out;
-        }
-    } // namespace
 
     AssetExpected<Asset> AssetManager::create_sound_from_bytes(std::string_view name, std::vector<std::byte> encoded,
                                                                std::string_view extension_hint, UString label) {

@@ -4,6 +4,9 @@
 #if !defined(STURDY_PLATFORM_WEB)
 
 #include <Async/NetCore.hpp>
+#include <Async/NetUdp.hpp>
+
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -62,6 +65,10 @@ namespace SFT::Async {
                                        asio::bind_executor(core->strand, [self = shared_from_this()](const ErrorCode &ec, tcp::resolver::results_type results) {
                                            if (self->finished) return;
                                            if (ec) return self->fail(to_io_error(("resolve '" + self->host + "'").c_str(), ec));
+                                           if (net_uring()) {
+                                               self->endpoints.assign(results.begin(), results.end());
+                                               return self->connect_next();
+                                           }
                                            asio::async_connect(self->core->socket, results,
                                                                asio::bind_executor(self->core->strand, [self](const ErrorCode &error, const tcp::endpoint &) {
                                                                    if (self->finished) return;
@@ -71,12 +78,41 @@ namespace SFT::Async {
                                        }));
             }
 
+            // io_uring connect, trying each resolved address in turn like asio::async_connect does.
+            std::vector<tcp::endpoint> endpoints;
+            std::size_t next_endpoint = 0;
+            ErrorCode last_connect_error = asio::error::host_not_found;
+
+            void connect_next() {
+                if (finished) return;
+                if (next_endpoint >= endpoints.size()) return fail(to_io_error("connect", last_connect_error));
+                const tcp::endpoint &endpoint = endpoints[next_endpoint++];
+                ErrorCode ec;
+                core->socket.close(ec);
+                core->socket.open(endpoint.protocol(), ec);
+                if (ec) {
+                    last_connect_error = ec;
+                    return connect_next();
+                }
+                netring::connect(core->socket.native_handle(), endpoint.data(), static_cast<unsigned>(endpoint.size()),
+                                 [self = shared_from_this()](int result) {
+                                     asio::dispatch(self->core->strand, [self, result] {
+                                         if (self->finished) return;
+                                         if (result < 0) {
+                                             self->last_connect_error = ring_error(result);
+                                             return self->connect_next();
+                                         }
+                                         self->connected();
+                                     });
+                                 });
+            }
+
             void connected() {
                 ErrorCode ignored;
                 core->socket.set_option(tcp::no_delay(true), ignored);
                 core->capture_addresses();
                 if (!use_tls) return succeed();
-                core->tls = std::make_unique<asio::ssl::stream<tcp::socket &>>(core->socket, *core->tls_context);
+                core->tls = make_tls_stream(core->socket, *core->tls_context);
                 if (auto prepared = prepare_tls_client(core->tls->native_handle(), tls_options, host); !prepared) {
                     return fail(prepared.error());
                 }
@@ -169,22 +205,44 @@ namespace SFT::Async {
                 if (!open.load(std::memory_order_acquire) || accepting) return;
                 if (ready.size() + handshaking >= kReadyCap || handshaking >= kHandshakeCap) return;
                 accepting = true;
+                if (net_uring()) {
+                    ErrorCode local_error;
+                    const auto protocol = acceptor.local_endpoint(local_error).protocol();
+                    netring::accept(acceptor.native_handle(), nullptr, nullptr, [self = shared_from_this(), protocol](int result) {
+                        asio::dispatch(self->strand, [self, protocol, result] {
+                            tcp::socket socket{reactor()};
+                            ErrorCode ec;
+                            if (result < 0) {
+                                ec = ring_error(result);
+                            } else {
+                                socket.assign(protocol, result, ec); // adopts the descriptor, closing it on failure
+                                if (ec) ::close(result);
+                            }
+                            self->handle_accept(ec, std::move(socket));
+                        });
+                    });
+                    return;
+                }
                 acceptor.async_accept(reactor(), asio::bind_executor(strand, [self = shared_from_this()](const ErrorCode &ec, tcp::socket socket) {
-                    self->accepting = false;
-                    if (!self->open.load(std::memory_order_acquire)) return;
-                    if (ec) {
-                        // Transient failures (EMFILE, ECONNABORTED...) are retried after a pause; waiters learn of them.
-                        if (ec != asio::error::operation_aborted) {
-                            self->accept_error = to_io_error("accept", ec);
-                            self->deliver();
-                            auto timer = std::make_shared<asio::steady_timer>(self->strand, std::chrono::milliseconds(50));
-                            timer->async_wait([self, timer](const ErrorCode &) { self->accept_loop(); });
-                        }
-                        return;
-                    }
-                    self->on_accepted(std::move(socket));
-                    self->accept_loop();
+                    self->handle_accept(ec, std::move(socket));
                 }));
+            }
+
+            void handle_accept(const ErrorCode &ec, tcp::socket socket) {
+                accepting = false;
+                if (!open.load(std::memory_order_acquire)) return;
+                if (ec) {
+                    // Transient failures (EMFILE, ECONNABORTED...) are retried after a pause; waiters learn of them.
+                    if (ec != asio::error::operation_aborted) {
+                        accept_error = to_io_error("accept", ec);
+                        deliver();
+                        auto timer = std::make_shared<asio::steady_timer>(strand, std::chrono::milliseconds(50));
+                        timer->async_wait([self = shared_from_this(), timer](const ErrorCode &) { self->accept_loop(); });
+                    }
+                    return;
+                }
+                on_accepted(std::move(socket));
+                accept_loop();
             }
 
             void on_accepted(tcp::socket socket) {
@@ -199,7 +257,7 @@ namespace SFT::Async {
                 }
                 ++handshaking;
                 core->tls_context = tls_context;
-                core->tls = std::make_unique<asio::ssl::stream<tcp::socket &>>(core->socket, *tls_context);
+                core->tls = make_tls_stream(core->socket, *tls_context);
                 auto timer = std::make_shared<asio::steady_timer>(strand, std::chrono::milliseconds(tls_options.handshake_timeout_ms));
                 auto settled = std::make_shared<bool>(false);
                 timer->async_wait([core, settled](const ErrorCode &ec) {
@@ -262,6 +320,7 @@ namespace SFT::Async {
             void close_now() {
                 if (!open.exchange(false, std::memory_order_acq_rel)) return;
                 ErrorCode ec;
+                if (net_uring() && acceptor.is_open()) netring::cancel(acceptor.native_handle());
                 acceptor.close(ec);
                 for (auto &w : waiters) {
                     if (!w->done) {
@@ -320,7 +379,7 @@ namespace SFT::Async {
                 if (!waiters.empty() && !read_in_flight && open.load(std::memory_order_acquire)) {
                     read_in_flight = true;
                     receive_buffer.resize(65536);
-                    socket.async_receive_from(asio::buffer(receive_buffer), sender,
+                    udp_receive_from(socket, asio::buffer(receive_buffer), sender,
                                               asio::bind_executor(strand, [self = shared_from_this()](const ErrorCode &ec, std::size_t n) {
                                                   self->read_in_flight = false;
                                                   if (ec) {
@@ -354,6 +413,7 @@ namespace SFT::Async {
             void close_now() {
                 if (!open.exchange(false, std::memory_order_acq_rel)) return;
                 ErrorCode ec;
+                if (net_uring() && socket.is_open()) netring::cancel(socket.native_handle());
                 socket.close(ec);
                 resolver.cancel();
                 for (auto &w : waiters) {
@@ -533,7 +593,7 @@ namespace SFT::Async {
             if (auto busy = quiet_connection_error(*core)) return (void)promise.set_value(Result<void>(std::unexpected(*busy)));
             if (cancellation.is_cancelled()) return (void)promise.set_exception(std::make_exception_ptr(IoOperationCancelled{}));
             core->tls_context = context;
-            core->tls = std::make_unique<asio::ssl::stream<tcp::socket &>>(core->socket, *context);
+            core->tls = make_tls_stream(core->socket, *context);
             auto abandon = [core, promise](IoError error) mutable {
                 core->tls.reset();
                 core->tls_context.reset();
@@ -567,7 +627,7 @@ namespace SFT::Async {
         asio::post(core_->strand, [core = core_, context = *context, tls = std::move(tls), promise]() mutable {
             if (auto busy = quiet_connection_error(*core)) return (void)promise.set_value(Result<void>(std::unexpected(*busy)));
             core->tls_context = context;
-            core->tls = std::make_unique<asio::ssl::stream<tcp::socket &>>(core->socket, *context);
+            core->tls = make_tls_stream(core->socket, *context);
             auto timer = std::make_shared<asio::steady_timer>(core->strand, std::chrono::milliseconds(tls.handshake_timeout_ms));
             auto settled = std::make_shared<bool>(false);
             timer->async_wait([core, settled](const ErrorCode &ec) {
@@ -913,7 +973,7 @@ namespace SFT::Async {
         asio::post(core_->strand, [core = core_, host = std::move(host), port, data = std::make_shared<Bytes>(std::move(data)), promise]() mutable {
             resolve_udp(core, host, port, [core, data, promise](Result<udp::endpoint> endpoint) mutable {
                 if (!endpoint) return (void)promise.set_value(Result<std::size_t>(std::unexpected(std::move(endpoint.error()))));
-                core->socket.async_send_to(asio::buffer(*data), *endpoint, asio::bind_executor(core->strand, [core, data, promise](const ErrorCode &ec, std::size_t n) mutable {
+                udp_send_to(core->socket, asio::buffer(*data), *endpoint, asio::bind_executor(core->strand, [core, data, promise](const ErrorCode &ec, std::size_t n) mutable {
                     (void)promise.set_value(ec ? Result<std::size_t>(std::unexpected(to_io_error("send_to", ec))) : Result<std::size_t>(n));
                 }));
             });

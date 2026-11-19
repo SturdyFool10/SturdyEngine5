@@ -549,6 +549,31 @@ namespace SFT::Foundation::Io {
         }
     }
 
+    void prefetch_file(const std::filesystem::path &path) noexcept {
+        const intptr_t handle = native_open_read(path, AccessHint::Sequential);
+        if (handle == kInvalidHandle) {
+            return;
+        }
+        u64 size = 0;
+        if (native_size(handle, size) && size > 0) {
+#if defined(_WIN32)
+            // Windows has no "read this ahead" hint for a plain file: reading it is the only way to get it into the cache. Done in
+            // large steps into one scratch buffer, so it is a sequential scan the cache manager follows well.
+            std::vector<std::byte> scratch(static_cast<usize>(std::min<u64>(size, 1u << 20)));
+            for (u64 offset = 0; offset < size;) {
+                const i64 got = native_pread(handle, scratch.data(), scratch.size(), offset);
+                if (got <= 0) {
+                    break;
+                }
+                offset += static_cast<u64>(got);
+            }
+#else
+            native_prefetch(handle, 0, size); // readahead is queued in the kernel; this returns at once
+#endif
+        }
+        native_close(handle);
+    }
+
     // ---- FileWriter ----------------------------------------------------------------------------------------------------
 
     FileWriter::FileWriter() noexcept = default;

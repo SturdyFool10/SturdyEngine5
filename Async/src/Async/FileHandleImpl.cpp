@@ -2,9 +2,10 @@
 #include <Async/Mutex.hpp>
 #include <Async/Promise.hpp>
 #include <Async/Size.hpp>
-#include <Async/Uring.hpp>
+#include <Async/NativeFileIo.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
@@ -322,64 +323,92 @@ namespace SFT::Async::Detail {
         return {};
     }
 
-    // ---- io_uring path (positional operations; no worker thread while the kernel does the IO) ----------------------
-#if defined(__linux__)
+    // ---- native async path (positional operations; no IO-lane thread while the platform does the IO) -----------------
+    // io_uring on Linux, overlapped IO + a completion port on Windows, Grand Central Dispatch on macOS: see NativeFileIo.hpp.
+#if !defined(STURDY_PLATFORM_WEB)
     namespace {
-        constexpr std::size_t uring_max_read = 4 * 1024 * 1024; ///< bigger reads use the lane, whose memory grows with what arrives
-        constexpr std::size_t uring_max_step = std::size_t{1} << 30;
+        /// A big read is cut into chunks of this size, all submitted at once, so the device sees a deep queue and the copies run on
+        /// several cores. Memory is still bounded by the bytes that can actually arrive (the file's size, not the requested ceiling).
+        constexpr std::size_t native_read_chunk = 2 * 1024 * 1024;
+        constexpr std::size_t native_max_step = std::size_t{1} << 30;
 
-        /// A private descriptor for one operation, so `close()` on the File cannot pull it out from under the kernel.
-        int duplicate_fd(const std::shared_ptr<FileState> &state, bool need_write) {
-            if (!state) return -1;
+        /// A private handle for one operation, so `close()` on the File cannot pull it out from under the platform; also reports
+        /// the file's current size when asked (reads are clamped to it).
+        nativeio::Handle duplicate_native(const std::shared_ptr<FileState> &state, bool need_write, std::uint64_t *size = nullptr) {
+            if (!state) return nativeio::kInvalidHandle;
             auto fd = state->fd.lock();
-            if (*fd < 0 || (need_write ? !state->writable || state->append : !state->readable)) return -1;
-            return ::dup(*fd);
+            if (*fd < 0 || (need_write ? !state->writable || state->append : !state->readable)) return nativeio::kInvalidHandle;
+            if (size != nullptr && !sys_size(*fd, *size)) return nativeio::kInvalidHandle;
+            return nativeio::duplicate(*fd, need_write);
         }
 
-        struct UringReadOp {
-            int fd = -1;
+        struct NativeReadOp {
+            struct Chunk {
+                std::size_t begin = 0;
+                std::size_t length = 0;
+                std::size_t filled = 0;
+            };
+
+            nativeio::Handle handle = nativeio::kInvalidHandle;
             std::vector<std::byte> buffer;
-            std::size_t filled = 0;
+            std::vector<Chunk> chunks;
             std::uint64_t offset = 0;
+            std::atomic<std::size_t> pending{0};
+            std::atomic<int> error{0}; ///< first errno seen; 0 while all is well
             Promise<expected<std::vector<std::byte>, IoError>> promise;
 
-            void finish(expected<std::vector<std::byte>, IoError> result) {
-                ::close(fd);
-                (void)promise.set_value(std::move(result));
+            void chunk_done() {
+                if (pending.fetch_sub(1, std::memory_order_acq_rel) != 1) return;
+                nativeio::close(handle);
+                if (const int e = error.load(std::memory_order_acquire); e != 0) {
+                    (void)promise.set_value(unexpected(errno_error("read", e)));
+                    return;
+                }
+                // The result is the contiguous prefix that arrived: a chunk that came back short ended the file.
+                std::size_t total = 0;
+                for (const Chunk &chunk : chunks) {
+                    total += chunk.filled;
+                    if (chunk.filled < chunk.length) break;
+                }
+                buffer.resize(total);
+                (void)promise.set_value(std::move(buffer));
             }
         };
 
-        void step_read(const std::shared_ptr<UringReadOp> &op) {
-            const std::size_t want = (std::min)(op->buffer.size() - op->filled, uring_max_step);
-            uring::read(op->fd, op->buffer.data() + op->filled, want, op->offset + op->filled, [op](long long result) {
-                if (result == -EINTR) return step_read(op);
-                if (result < 0) return op->finish(unexpected(errno_error("read", static_cast<int>(-result))));
-                if (result == 0) {
-                    op->buffer.resize(op->filled);
-                    return op->finish(std::move(op->buffer));
-                }
-                op->filled += static_cast<std::size_t>(result);
-                if (op->filled == op->buffer.size()) return op->finish(std::move(op->buffer));
-                step_read(op);
-            });
+        void step_read(const std::shared_ptr<NativeReadOp> &op, std::size_t index) {
+            NativeReadOp::Chunk &chunk = op->chunks[index];
+            const std::size_t want = (std::min)(chunk.length - chunk.filled, native_max_step);
+            nativeio::read(op->handle, op->buffer.data() + chunk.begin + chunk.filled, want, op->offset + chunk.begin + chunk.filled,
+                           [op, index](long long result) {
+                               NativeReadOp::Chunk &c = op->chunks[index];
+                               if (result == -EINTR) return step_read(op, index);
+                               if (result < 0) {
+                                   int none = 0;
+                                   op->error.compare_exchange_strong(none, static_cast<int>(-result));
+                                   return op->chunk_done();
+                               }
+                               c.filled += static_cast<std::size_t>(result);
+                               if (result == 0 || c.filled == c.length) return op->chunk_done(); // 0 = end of file
+                               step_read(op, index);
+                           });
         }
 
-        struct UringWriteOp {
-            int fd = -1;
+        struct NativeWriteOp {
+            nativeio::Handle handle = nativeio::kInvalidHandle;
             std::vector<std::byte> data;
             std::size_t written = 0;
             std::uint64_t offset = 0;
             Promise<expected<std::size_t, IoError>> promise;
 
             void finish(expected<std::size_t, IoError> result) {
-                ::close(fd);
+                nativeio::close(handle);
                 (void)promise.set_value(std::move(result));
             }
         };
 
-        void step_write(const std::shared_ptr<UringWriteOp> &op) {
-            const std::size_t want = (std::min)(op->data.size() - op->written, uring_max_step);
-            uring::write(op->fd, op->data.data() + op->written, want, op->offset + op->written, [op](long long result) {
+        void step_write(const std::shared_ptr<NativeWriteOp> &op) {
+            const std::size_t want = (std::min)(op->data.size() - op->written, native_max_step);
+            nativeio::write(op->handle, op->data.data() + op->written, want, op->offset + op->written, [op](long long result) {
                 if (result == -EINTR) return step_write(op);
                 if (result < 0) return op->finish(unexpected(errno_error("write", static_cast<int>(-result))));
                 if (result == 0) return op->finish(unexpected(IoError{IoErrorCode::Unknown, "write made no progress"}));
@@ -390,53 +419,70 @@ namespace SFT::Async::Detail {
         }
     } // namespace
 
-    bool file_uring_available() noexcept { return uring::available(); }
+    bool file_uring_available() noexcept { return nativeio::available(); }
 
     TaskHandle<expected<std::vector<std::byte>, IoError>> file_read_at_uring(const std::shared_ptr<FileState> &state, std::uint64_t offset,
                                                                              std::size_t max_bytes, const CancellationToken &cancellation) {
-        if (max_bytes == 0 || max_bytes > uring_max_read || cancellation.is_cancelled() || !uring::available()) return {};
-        const int fd = duplicate_fd(state, false);
-        if (fd < 0) return {};
-        auto op = std::make_shared<UringReadOp>();
-        op->fd = fd;
-        op->buffer.resize(max_bytes);
+        if (max_bytes == 0 || cancellation.is_cancelled() || !nativeio::available()) return {};
+        std::uint64_t size = 0;
+        const nativeio::Handle handle = duplicate_native(state, false, &size);
+        if (handle == nativeio::kInvalidHandle) return {};
+        // Regular files report a size; anything that reports none (a pipe, a device) takes the lane, which reads until it ends.
+        const std::uint64_t available_bytes = size > offset ? size - offset : 0;
+        const std::size_t want = static_cast<std::size_t>((std::min<std::uint64_t>)(max_bytes, available_bytes));
+        if (want == 0) {
+            nativeio::close(handle);
+            return {};
+        }
+        auto op = std::make_shared<NativeReadOp>();
+        op->handle = handle;
         op->offset = offset;
-        auto handle = op->promise.handle();
-        step_read(op);
-        return handle;
+        try {
+            op->buffer.resize(want);
+        } catch (const std::bad_alloc &) {
+            nativeio::close(handle);
+            return {};
+        }
+        for (std::size_t begin = 0; begin < want; begin += native_read_chunk) {
+            op->chunks.push_back({begin, (std::min)(native_read_chunk, want - begin), 0});
+        }
+        op->pending.store(op->chunks.size(), std::memory_order_release);
+        auto result = op->promise.handle();
+        for (std::size_t i = 0; i < op->chunks.size(); ++i) step_read(op, i);
+        return result;
     }
 
     TaskHandle<expected<std::size_t, IoError>> file_write_at_uring(const std::shared_ptr<FileState> &state, std::uint64_t offset,
                                                                    std::vector<std::byte> &data, const CancellationToken &cancellation) {
-        if (data.empty() || cancellation.is_cancelled() || !uring::available()) return {};
-        const int fd = duplicate_fd(state, true);
-        if (fd < 0) return {};
-        auto op = std::make_shared<UringWriteOp>();
-        op->fd = fd;
+        if (data.empty() || cancellation.is_cancelled() || !nativeio::available()) return {};
+        const nativeio::Handle handle = duplicate_native(state, true);
+        if (handle == nativeio::kInvalidHandle) return {};
+        auto op = std::make_shared<NativeWriteOp>();
+        op->handle = handle;
         op->data = std::move(data);
         op->offset = offset;
-        auto handle = op->promise.handle();
+        auto result = op->promise.handle();
         step_write(op);
-        return handle;
+        return result;
     }
 
     TaskHandle<expected<void, IoError>> file_sync_uring(const std::shared_ptr<FileState> &state, bool data_only) {
-        if (!uring::available() || !state) return {};
-        int fd;
+        if (!nativeio::available() || !state) return {};
+        nativeio::Handle handle;
         {
             auto locked = state->fd.lock();
             if (*locked < 0) return {};
-            fd = ::dup(*locked);
+            handle = nativeio::duplicate(*locked, state->writable);
         }
-        if (fd < 0) return {};
+        if (handle == nativeio::kInvalidHandle) return {};
         Promise<expected<void, IoError>> promise;
-        auto handle = promise.handle();
-        uring::fsync(fd, data_only, [fd, promise](long long result) mutable {
-            ::close(fd);
-            if (result < 0) (void)promise.set_value(unexpected(errno_error("fsync", static_cast<int>(-result))));
+        auto result = promise.handle();
+        nativeio::fsync(handle, data_only, [handle, promise](long long status) mutable {
+            nativeio::close(handle);
+            if (status < 0) (void)promise.set_value(unexpected(errno_error("fsync", static_cast<int>(-status))));
             else (void)promise.set_value(expected<void, IoError>{});
         });
-        return handle;
+        return result;
     }
 #else
     bool file_uring_available() noexcept { return false; }

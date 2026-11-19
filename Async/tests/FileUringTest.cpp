@@ -93,9 +93,26 @@ int main() {
     check(file.sync().wait().has_value(), "sync");
     check(file.sync(true).wait().has_value(), "sync (data only)");
 
-    // A big read (over the ring's 4 MiB cap) still works through the lane.
+    // A big read goes out as parallel chunks (there is no size cap) and is clamped to what the file holds: an 8 MiB request on
+    // a ~2 MiB file allocates and returns the file, and the bytes match the writes.
     auto huge = file.read_at(0, 8 * 1024 * 1024).wait();
-    check(huge && huge->size() == 2'000'000 + 64 * 1024, "an 8 MiB request is served (via the lane)");
+    check(huge && huge->size() == 2'000'000 + 64 * 1024, "an 8 MiB request is served and clamped to the file");
+    check(huge && std::equal(block.begin(), block.end(), huge->begin()), "a multi-chunk read keeps the bytes in order");
+
+    // A file spanning many 2 MiB chunks, read from an unaligned offset, comes back exact.
+    {
+        const auto big = pattern(9 * 1024 * 1024 + 4321, 31);
+        auto big_file = File::open((root / "big.bin").string(), OpenMode::Read | OpenMode::Write | OpenMode::Create | OpenMode::Truncate).wait();
+        check(big_file.has_value(), "open big file");
+        if (big_file) {
+            check(big_file->write_at(0, big).wait().has_value(), "write a 9 MiB file");
+            auto middle = big_file->read_at(3'000'001, 5 * 1024 * 1024 + 7).wait();
+            check(middle && middle->size() == 5 * 1024 * 1024 + 7 && std::equal(middle->begin(), middle->end(), big.begin() + 3'000'001),
+                  "an unaligned multi-chunk read returns the right range");
+            auto everything = big_file->read_at(0, big.size() + 1000).wait();
+            check(everything && *everything == big, "reading the whole 9 MiB file returns it exactly");
+        }
+    }
 
     // The cursor is unaffected by positional calls.
     auto cursor_read = file.read(10).wait();

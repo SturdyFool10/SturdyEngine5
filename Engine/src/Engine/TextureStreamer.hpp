@@ -2,6 +2,8 @@
 
 #include <Engine/AssetManager.hpp>
 
+#include <Async/Task.hpp>
+
 #include <Renderer/Handles.hpp>
 #include <RHI/RHI.hpp>
 
@@ -28,6 +30,17 @@ namespace SFT::Engine {
         [[nodiscard]] explicit operator bool() const noexcept;
     };
 
+
+    /// A streamed texture after every CPU step: decoded, mip chain built, block-compressed when the device takes it. Produced
+    /// off the calling thread by `TextureStreamer::prepare_texture_load`; `request_prepared_texture` is the cheap renderer-side half.
+    struct PreparedStreamedTexture {
+        u32 width = 0;
+        u32 height = 0;
+        RHI::Format format = RHI::Format::Undefined;
+        u32 mip_levels = 1;
+        std::vector<std::byte> pixels;
+        std::filesystem::path source;
+    };
 
     class TextureStreamer {
       public:
@@ -83,6 +96,19 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
+        /// The CPU half of `request_texture_load`, run on the engine's async runtime: the file is read with the platform's fast path
+        /// (io_uring / DirectStorage / overlapped reads), then decoded, mipped and compressed as a heavy scheduler task. Returns at once;
+        /// start as many as there are textures and they proceed in parallel. Call from the thread that owns the renderer so the device's
+        /// block-compression support is read there.
+        [[nodiscard]] Async::TaskHandle<AssetExpected<PreparedStreamedTexture>> prepare_texture_load(
+            std::filesystem::path source, TextureColorSpace color_space = TextureColorSpace::Srgb,
+            TextureKind kind = TextureKind::ColorAlpha);
+
+        /// The renderer-side half: creates the GPU texture with its placeholder and queues the upload. Cheap; call it on the
+        /// renderer's thread when a `prepare_texture_load` task finishes.
+        [[nodiscard]] StreamedTextureHandle request_prepared_texture(
+            PreparedStreamedTexture prepared, RHI::ClearColor placeholder = RHI::ClearColor{1.0f, 0.0f, 1.0f, 1.0f}, UString label = {});
+
         [[nodiscard]] StreamingState state(StreamedTextureHandle handle) const noexcept;
         /// Reports whether resident holds for this `TextureStreamer`.
         ///

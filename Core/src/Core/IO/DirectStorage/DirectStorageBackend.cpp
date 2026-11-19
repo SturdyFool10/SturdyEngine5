@@ -11,6 +11,7 @@
 
 #include <dstorage.h>
 
+#include <algorithm>
 #include <limits>
 #include <mutex>
 
@@ -116,25 +117,32 @@ namespace SFT::Core {
         return ensure_initialized_locked();
     }
 
-    /// Reads file direct storage from the associated source.
+    /// Reads a whole file through the DirectStorage queue.
+    ///
+    /// Files are cut into `kRequestBytes` requests (DirectStorage's own sweet spot, and it lifts the 4 GiB per-request limit) and the whole
+    /// batch goes out in one `Submit`, so the drive sees a deep queue. Only the enqueue is serialized: the wait is per call, on a private
+    /// event, so any number of threads can have reads in flight at once.
     ///
     /// @param path Filesystem path identifying the target resource.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::OperationFailed`.
     RHI::RhiExpected<std::vector<std::byte>> read_file_direct_storage(const std::filesystem::path &path) {
         ZoneScopedN("Core::read_file_direct_storage");
 
-        std::lock_guard<std::mutex> lock(state_mutex());
-        if (!ensure_initialized_locked()) {
-            return unexpected(RHI::rhi_error(RHI::RhiErrorCode::Unsupported,
-                                              "read_file_direct_storage: DirectStorage is unavailable on this system."));
+        IDStorageFactory *factory = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex());
+            if (!ensure_initialized_locked()) {
+                return unexpected(RHI::rhi_error(RHI::RhiErrorCode::Unsupported,
+                                                  "read_file_direct_storage: DirectStorage is unavailable on this system."));
+            }
+            factory = state().factory.Get(); // lives for the process once created
         }
         DirectStorageState &s = state();
 
         ComPtr<IDStorageFile> file;
-        if (FAILED(s.factory->OpenFile(path.c_str(), IID_PPV_ARGS(&file)))) {
+        if (FAILED(factory->OpenFile(path.c_str(), IID_PPV_ARGS(&file)))) {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_direct_storage: could not open '" + path.string() + "'."));
         }
@@ -145,53 +153,65 @@ namespace SFT::Core {
                                               "read_file_direct_storage: could not stat '" + path.string() + "'."));
         }
         const u64 file_size = (static_cast<u64>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-
-
-        if (file_size == 0 || file_size > std::numeric_limits<UINT32>::max()) {
+        if (file_size == 0) {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                              "read_file_direct_storage: '" + path.string() + "' is empty or exceeds the 4GiB per-request limit."));
+                                              "read_file_direct_storage: '" + path.string() + "' is empty."));
+        }
+
+        constexpr u64 kRequestBytes = 32ull * 1024 * 1024;
+        const u64 request_count = (file_size + kRequestBytes - 1) / kRequestBytes;
+        if (request_count > DSTORAGE_MAX_QUEUE_CAPACITY) {
+            return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
+                                              "read_file_direct_storage: '" + path.string() + "' is too large for one queue submission."));
         }
 
         std::vector<std::byte> bytes(static_cast<usize>(file_size));
 
-        DSTORAGE_REQUEST request{};
-        request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT_NONE;
-        request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-        request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-        request.Source.File.Source = file.Get();
-        request.Source.File.Offset = 0;
-        request.Source.File.Size = static_cast<UINT32>(file_size);
-        request.Destination.Memory.Buffer = bytes.data();
-        request.Destination.Memory.Size = static_cast<UINT32>(file_size);
-        request.UncompressedSize = 0;
-        request.CancellationTag = 0;
-        request.Name = nullptr;
-
         ComPtr<IDStorageStatusArray> status_array;
-        if (FAILED(s.factory->CreateStatusArray(1, nullptr, IID_PPV_ARGS(&status_array)))) {
+        if (FAILED(factory->CreateStatusArray(static_cast<UINT32>(request_count), nullptr, IID_PPV_ARGS(&status_array)))) {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_direct_storage: CreateStatusArray failed."));
         }
-
-
         HANDLE completion_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (completion_event == nullptr) {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_direct_storage: CreateEventW failed."));
         }
 
-        s.queue->EnqueueRequest(&request);
-        s.queue->EnqueueStatus(status_array.Get(), 0);
-        s.queue1->EnqueueSetEvent(completion_event);
-        s.queue->Submit();
+        {
+            // The queue is shared; its enqueue calls are cheap, and keeping one file's requests together keeps its status
+            // entries and completion event ordered after them.
+            std::lock_guard<std::mutex> lock(state_mutex());
+            for (u64 i = 0; i < request_count; ++i) {
+                const u64 offset = i * kRequestBytes;
+                const u64 size = std::min(kRequestBytes, file_size - offset);
+                DSTORAGE_REQUEST request{};
+                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT_NONE;
+                request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
+                request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
+                request.Source.File.Source = file.Get();
+                request.Source.File.Offset = offset;
+                request.Source.File.Size = static_cast<UINT32>(size);
+                request.Destination.Memory.Buffer = bytes.data() + offset;
+                request.Destination.Memory.Size = static_cast<UINT32>(size);
+                request.UncompressedSize = 0;
+                request.CancellationTag = 0;
+                request.Name = nullptr;
+                s.queue->EnqueueRequest(&request);
+                s.queue->EnqueueStatus(status_array.Get(), static_cast<UINT32>(i));
+            }
+            s.queue1->EnqueueSetEvent(completion_event);
+            s.queue->Submit();
+        }
 
         WaitForSingleObject(completion_event, INFINITE);
         CloseHandle(completion_event);
 
-        const HRESULT result = status_array->GetHResult(0);
-        if (FAILED(result)) {
-            return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                              "read_file_direct_storage: request for '" + path.string() + "' failed."));
+        for (u64 i = 0; i < request_count; ++i) {
+            if (FAILED(status_array->GetHResult(static_cast<UINT32>(i)))) {
+                return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
+                                                  "read_file_direct_storage: request for '" + path.string() + "' failed."));
+            }
         }
 
         file->Close();

@@ -15,6 +15,7 @@
 
 #include <Engine/GltfImport.hpp>
 
+#include <Async/IoHandler.hpp>
 #include <Engine/AssetManager.hpp>
 #include <Engine/ImageDecode.hpp>
 #include <Engine/ImportCommon.hpp>
@@ -582,6 +583,22 @@ namespace SFT::Engine {
         }
 
         const std::filesystem::path base_dir = source.parent_path();
+        // Every external texture file starts coming off the disk now, concurrently, on the IO lane: by the time the material loop
+        // below reaches an image, its bytes are usually already cached. (Decoding stays with the materials, which know each
+        // image's color space and kind.)
+        for (cgltf_size i = 0; i < data.images_count; ++i) {
+            const cgltf_image &image = data.images[i];
+            if (image.buffer_view != nullptr || image.uri == nullptr || std::string_view{image.uri}.starts_with("data:")) {
+                continue;
+            }
+            std::string decoded_uri = image.uri;
+            decoded_uri.resize(cgltf_decode_uri(decoded_uri.data()));
+            try {
+                (void)Async::IoHandler::submit([path = base_dir / decoded_uri] { Foundation::Io::prefetch_file(path); });
+            } catch (...) {
+                break; // the IO queue is full: the rest simply load on demand
+            }
+        }
         ImageCache image_cache{
             .entries = std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>>(data.images_count)};
 

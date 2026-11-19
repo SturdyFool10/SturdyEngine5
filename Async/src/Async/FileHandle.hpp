@@ -44,8 +44,9 @@ namespace SFT::Async {
     namespace Detail {
         struct FileState;
 
-        /// True where no io_uring path can exist (non-Linux, Web), so the fast-path code is not even instantiated.
-#if defined(__linux__) && !defined(STURDY_PLATFORM_WEB)
+        /// True where no native async file path can exist (Web), so the fast-path code is not even instantiated. Elsewhere there is one:
+        /// io_uring on Linux, overlapped IO on Windows, Grand Central Dispatch on macOS (see NativeFileIo.hpp).
+#if !defined(STURDY_PLATFORM_WEB)
         inline constexpr bool kFileUringUnavailable = false;
 #else
         inline constexpr bool kFileUringUnavailable = true;
@@ -64,9 +65,9 @@ namespace SFT::Async {
         [[nodiscard]] std::expected<std::uint64_t, IoError> file_handle_size_blocking(const std::shared_ptr<FileState> &state);
         [[nodiscard]] std::expected<void, IoError> file_set_len_blocking(const std::shared_ptr<FileState> &state, std::uint64_t length);
         [[nodiscard]] std::expected<void, IoError> file_sync_blocking(const std::shared_ptr<FileState> &state, bool data_only);
-        /// io_uring fast paths for positional operations (Linux, when the ring could be created). Each returns an invalid
+        /// Native fast paths for positional operations (io_uring / overlapped IO / GCD, when the platform backend could start). Each returns an invalid
         /// handle when it cannot take the request -- caller falls back to the IO lane. Completion callbacks run on the
-        /// ring's reaper thread, like the network reactor: hop with `then<Rt>` before doing real work.
+        /// backend's own thread, like the network reactor: hop with `then<Rt>` before doing real work.
         [[nodiscard]] bool file_uring_available() noexcept;
         [[nodiscard]] TaskHandle<std::expected<std::vector<std::byte>, IoError>> file_read_at_uring(
             const std::shared_ptr<FileState> &state, std::uint64_t offset, std::size_t max_bytes, const CancellationToken &cancellation);
@@ -116,8 +117,9 @@ namespace SFT::Async {
             });
         }
 
-        /// Reads up to `max_bytes` at `offset` without touching the cursor; short at EOF. On Linux with io_uring, reads of up
-        /// to 4 MiB are submitted to the kernel directly (no thread is occupied; they cannot be cancelled once submitted).
+        /// Reads up to `max_bytes` at `offset` without touching the cursor; short at EOF. Where the platform has native async
+        /// file IO (io_uring, overlapped IO, GCD) the read is submitted directly, split into parallel chunks for big ranges: no IO-lane
+        /// thread is occupied, and it cannot be cancelled once submitted.
         template <AsyncRuntime Rt = DefaultRuntime>
         [[nodiscard]] auto read_at(std::uint64_t offset, std::size_t max_bytes, CancellationToken cancellation = {}) {
             if constexpr (std::same_as<Rt, DefaultRuntime> && !Detail::kFileUringUnavailable) {

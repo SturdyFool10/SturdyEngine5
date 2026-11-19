@@ -1,4 +1,5 @@
 #include <Async/QuicEngine.hpp>
+#include <Async/NetUdp.hpp>
 
 #if defined(STURDY_ASYNC_QUIC) && !defined(STURDY_PLATFORM_WEB)
 
@@ -630,7 +631,8 @@ namespace SFT::Async::Detail {
         endpoint->socket_.set_option(asio::socket_base::send_buffer_size(4 * 1024 * 1024), ignored);
         endpoint->socket_.bind(bind_to, ec);
         if (ec) return std::unexpected(to_io_error("bind QUIC socket", ec));
-        endpoint->socket_.non_blocking(true, ec);
+        // Asio's reactor path sends synchronously and so needs a non-blocking socket; with io_uring every transfer is asynchronous.
+        if (!net_uring()) endpoint->socket_.non_blocking(true, ec);
         endpoint->local_ = endpoint->socket_.local_endpoint(ec);
         if (ec) return std::unexpected(to_io_error("query QUIC socket", ec));
         return endpoint;
@@ -646,7 +648,7 @@ namespace SFT::Async::Detail {
 
     void QuicEndpoint::receive_next() {
         if (stopped_) return;
-        socket_.async_receive_from(asio::buffer(receive_buffer_), sender_, asio::bind_executor(strand_, [self = shared_from_this()](const ErrorCode &ec, std::size_t size) {
+        udp_receive_from(socket_, asio::buffer(receive_buffer_), sender_, asio::bind_executor(strand_, [self = shared_from_this()](const ErrorCode &ec, std::size_t size) {
             if (self->stopped_) return;
             if (ec) {
                 if (ec == asio::error::operation_aborted) return;
@@ -660,8 +662,7 @@ namespace SFT::Async::Detail {
 
     void QuicEndpoint::send_to(const udp::endpoint &to, const std::uint8_t *data, std::size_t size) {
         if (stopped_) return;
-        ErrorCode ec;
-        socket_.send_to(asio::buffer(data, size), to, 0, ec); // a full send buffer just drops the packet; QUIC retransmits
+        udp_send_detached(socket_, data, size, to); // a full send buffer just drops the packet; QUIC retransmits
     }
 
     void QuicEndpoint::stop() {
@@ -675,6 +676,7 @@ namespace SFT::Async::Detail {
             for (auto &conn : all) conn->close_now(0, "endpoint stopped");
             self->stopped_ = true;
             ErrorCode ignored;
+            if (net_uring() && self->socket_.is_open()) netring::cancel(self->socket_.native_handle());
             self->socket_.close(ignored);
             self->by_cid_.clear();
             self->client_conn_.reset();

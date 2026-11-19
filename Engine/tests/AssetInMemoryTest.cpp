@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -76,6 +78,25 @@ int main() {
         check(assets.sound_info(*sound)->frame_count == 1600, "failed replace leaves the sound alone");
     }
     check(!assets.replace_sound(*file, wav(10)).has_value(), "replace_sound on a file is a type error");
+
+    // The non-blocking sound load: file read on the IO lane, decode on the scheduler, the same asset as the blocking load.
+    {
+        const auto path = std::filesystem::temp_directory_path() / "sturdy_async_sound_test.wav";
+        {
+            const auto data = wav(2400);
+            std::ofstream out(path, std::ios::binary);
+            out.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+        }
+        auto first = assets.load_sound_async(path).wait();
+        check(first.has_value(), "load_sound_async loads a WAV file");
+        if (first) {
+            check(assets.sound_info(*first)->frame_count == 2400, "async-loaded sound has its frames");
+            auto again = assets.load_sound_async(path).wait();
+            check(again && again->id() == first->id(), "a second async load of the same path returns the same asset");
+        }
+        check(!assets.load_sound_async(path.string() + ".missing").wait().has_value(), "async load of a missing file fails cleanly");
+        std::filesystem::remove(path);
+    }
 
     if (failures == 0) std::cout << "OK\n";
     return failures == 0 ? 0 : 1;
