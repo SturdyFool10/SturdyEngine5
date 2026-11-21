@@ -1291,6 +1291,13 @@ namespace SFT::Runtime {
                 render_graph_.shadows().debug_view = kShadowDebugViews[std::min<usize>(
                     shadow_debug_result.selected_index, kShadowDebugViews.size() - 1)];
             }
+
+            {
+                // Every wireframe the demo draws (world axes, ground grid, the orbiting sphere and arrow, the capsule and cone).
+                draw_panel_text(ctx, "Debug Wireframes", kTweakPanelTextSecondary, 12);
+                tweak_toggle(ctx, "runtime-tweak-debug-wireframes-toggle", debug_wireframes_toggle_state_,
+                             static_cast<f32>(frame.delta_seconds), debug_wireframes_);
+            }
                 });
             } // panel_visible
         }
@@ -1468,12 +1475,18 @@ namespace SFT::Runtime {
         };
 
 
-        // Debug drawing demo: world axes, a ground grid, and a sphere circling the origin. STURDY_DEMO_DEBUG_DRAW=0 turns it off.
-        // Shapes live until the next update, so they are drawn once per engine tick, not once per rendered frame.
+        // Debug drawing demo: world axes, a ground grid, and a sphere circling the origin. The "Debug Wireframes" switch in the tweak
+        // panel turns it off while running; STURDY_DEMO_DEBUG_DRAW=0 starts with it off.
+        // Shapes live until the next update, so they are drawn once per engine tick, not once per rendered frame (and drawing nothing
+        // removes them from the next frame on).
+        if (!debug_wireframes_env_applied_) {
+            debug_wireframes_env_applied_ = true;
+            const char *initial = std::getenv("STURDY_DEMO_DEBUG_DRAW");
+            if (initial != nullptr && initial[0] == '0') debug_wireframes_ = false;
+        }
         if (const u64 tick = engine.frame_time().tick_index(); tick != last_debug_draw_tick_) {
             last_debug_draw_tick_ = tick;
-            const char *toggle = std::getenv("STURDY_DEMO_DEBUG_DRAW");
-            if (toggle == nullptr || toggle[0] != '0') {
+            if (debug_wireframes_) {
                 Engine::DebugDraw &debug = engine.debug_draw();
                 debug.set_width(2.0f);
                 debug.axes(glm::mat4{1.0f}, 2.0f);

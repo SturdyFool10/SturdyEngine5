@@ -251,6 +251,10 @@ namespace SFT::Runtime {
         bool tweak_panel_font_registered_ = false;
         /// The engine tick the debug shapes were last drawn for (they live until the next update, so once per tick is right).
         u64 last_debug_draw_tick_ = ~u64{0};
+        /// Whether the demo's debug wireframes (axes, grid, shapes) are drawn; the tweak panel's "Debug Wireframes" switch.
+        bool debug_wireframes_ = true;
+        bool debug_wireframes_env_applied_ = false;
+        UI::ToggleState debug_wireframes_toggle_state_{};
         /// `TextureHandle::value` of the demo's colour-grade LUT (STURDY_DEMO_GRADE=2), created on first use.
         u64 demo_grade_lut_ = 0;
     };
