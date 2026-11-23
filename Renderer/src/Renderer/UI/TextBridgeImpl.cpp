@@ -189,6 +189,20 @@ namespace SFT::UI {
         if (!shaped) {
             return nullptr;
         }
+        // Letter spacing: extra pixels after every glyph (glyph advances are in font units, run and line advances in ems).
+        if (style.letter_spacing != 0 && style.font_size != 0) {
+            const f32 spacing_em = static_cast<f32>(style.letter_spacing) / static_cast<f32>(style.font_size);
+            f32 line_advance_em = 0.0f;
+            for (Text::ShapedRun &run : shaped->runs) {
+                const f32 spacing_units = spacing_em * static_cast<f32>(std::max(run.units_per_em, 1u));
+                for (Text::PositionedGlyph &glyph : run.glyphs) {
+                    glyph.x_advance += spacing_units;
+                }
+                run.advance_em += spacing_em * static_cast<f32>(run.glyphs.size());
+                line_advance_em += run.advance_em;
+            }
+            shaped->advance_em = line_advance_em;
+        }
 
         const Text::Font &font = *entry->stack.primary;
         const u32 units_per_em = font.units_per_em();

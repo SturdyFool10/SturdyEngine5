@@ -1194,6 +1194,16 @@ namespace SFT::UI {
         return shape != nullptr ? glm::vec2{shape->width_px, shape->height_px} : glm::vec2{0.0f};
     }
 
+    f32 Context::text_ascent(const TextStyle &style) {
+        const Text::FontStack *stack = text_bridge_.font_stack(style.font_id);
+        if (stack == nullptr || stack->primary == nullptr) {
+            return 0.0f;
+        }
+        const Text::Font &font = *stack->primary;
+        const u32 units_per_em = font.units_per_em();
+        return units_per_em > 0 ? static_cast<f32>(font.ascender()) * static_cast<f32>(style.font_size) / static_cast<f32>(units_per_em) : 0.0f;
+    }
+
     usize Context::hit_test_text_byte_offset(const TextStyle &style, string_view utf8_content, f32 local_x) {
         if (utf8_content.empty()) {
             return 0;

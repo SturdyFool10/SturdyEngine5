@@ -7,6 +7,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -131,6 +132,18 @@ namespace SFT::UI {
         f32 font_size_scale = 1.0f;
         bool underline = false;
         bool strikethrough = false;
+        /// Raises (positive) or lowers (negative) the run relative to the line's baseline, as a fraction of the widget's font size:
+        /// superscript is about +0.35 with `font_size_scale` 0.7, subscript about -0.15.
+        f32 baseline_shift = 0.0f;
+        /// How the underline and strikethrough are drawn: solid, dashed, dotted or double; thickness in pixels (0 picks one from the
+        /// font size); and a colour, when `use_line_color` (else the run's text colour).
+        BorderLineStyle line_style = BorderLineStyle::Solid;
+        f32 line_thickness = 0.0f;
+        bool use_line_color = false;
+        Color line_color{1.0, 1.0, 1.0, 1.0};
+        /// Takes no room and draws nothing, but the characters stay in the text (and in the caret's reach): a live-preview editor
+        /// hides the markup (`**`, `#`) of the blocks the caret is not in.
+        bool hidden = false;
     };
 
 
@@ -163,11 +176,20 @@ namespace SFT::UI {
 
 
         Highlighter highlighter = nullptr;
+        /// Bump when `highlighter` starts returning different spans for the same text (see `TextEditState::highlighted_spans`).
+        u64 highlighter_revision = 0;
         TextEditFeatures features{};
         TextEditBindings bindings{};
 
 
         bool wrap_lines = false;
+        /// Extra pixels between characters.
+        u16 letter_spacing = 0;
+        /// Height of a line of text in pixels; 0 uses the font's own.
+        u16 line_height = 0;
+        /// The width to wrap to when the widget has not been laid out yet (its first frame): a host that knows its column width
+        /// avoids drawing the first frame unwrapped. 0 = unknown.
+        f32 wrap_width_hint = 0.0f;
     };
 
     namespace Detail {
@@ -387,7 +409,25 @@ namespace SFT::UI {
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] const vector<RichTextSpan> &highlighted_spans(const Highlighter &highlighter) const;
+        /// `revision` changes whenever the highlighter would return different spans for the same text (a hover colour, a new theme):
+        /// the cached spans are recomputed when it differs from the revision they were computed for.
+        [[nodiscard]] const vector<RichTextSpan> &highlighted_spans(const Highlighter &highlighter, u64 revision = 0) const;
+
+        /// How a wrapped paragraph was broken into visual lines the last time it was drawn: `line_starts` are scalar offsets local to
+        /// the paragraph (the first is 0) and `key` fingerprints the text, styles and width the breaks were computed for. Written by the
+        /// renderer, read by the renderer (to skip re-measuring) and by hit testing (to map a pointer to a character).
+        struct VisualLayout {
+            u64 key = 0;
+            vector<usize> line_starts;
+        };
+        void store_visual_layout(usize paragraph_start, VisualLayout layout) const;
+        [[nodiscard]] const VisualLayout *visual_layout(usize paragraph_start) const;
+        /// The renderer could not wrap a paragraph yet (the width it wraps to is known only after a frame has been laid out): set
+        /// while that is so, so the host draws one more frame. `take` reads and clears it.
+        void request_relayout() const noexcept { relayout_requested_ = true; }
+        [[nodiscard]] bool take_relayout_request() const noexcept {
+            return std::exchange(relayout_requested_, false);
+        }
 
       private:
         /// Performs the word boundary before operation for `TextEditState` using the supplied arguments.
@@ -420,7 +460,10 @@ namespace SFT::UI {
         glm::vec2 last_click_position_{0.0f};
 
         mutable UString highlight_cache_key_;
+        mutable u64 highlight_cache_revision_ = 0;
         mutable vector<RichTextSpan> highlight_cache_spans_;
+        mutable std::map<usize, VisualLayout> visual_layouts_;
+        mutable bool relayout_requested_ = false;
 
         /// Undo history. Consecutive typing coalesces into one step (broken by whitespace, a deletion, navigation, a
         /// paste or anything else), the usual text-editor granularity.
@@ -467,6 +510,9 @@ namespace SFT::UI {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString line_element_id(const UString &widget_id, usize line_scalar_offset);
 
+        /// The element of visual line `row` of the wrapped paragraph starting at `paragraph_offset`.
+        [[nodiscard]] UString visual_row_element_id(const UString &widget_id, usize paragraph_offset, usize row);
+
         /// Performs the span for run operation using the supplied arguments.
         ///
         /// @param spans `spans` value used by the operation.
@@ -512,6 +558,11 @@ namespace SFT::UI {
             usize scalar = 0;
             usize paragraph_start = 0;
             usize paragraph_length = 0;
+            /// The character (scalar offset in the whole text) the pointer is over, as opposed to `scalar`, the nearest caret position
+            /// (the boundary between two characters). Meaningful when `inside`.
+            usize char_under = 0;
+            /// The pointer is over the text of a row (not past its end or between rows).
+            bool inside = false;
         };
 
 
@@ -527,7 +578,8 @@ namespace SFT::UI {
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] std::optional<ParagraphHit>
         hit_test_paragraphs(Context &ctx, const TextEditStyle &style, const UString &text,
-                            const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer);
+                            const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer,
+                            const TextEditState *state = nullptr);
 
     } // namespace Detail
 

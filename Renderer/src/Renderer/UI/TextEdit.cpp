@@ -545,17 +545,27 @@ namespace SFT::UI {
     ///
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    const vector<RichTextSpan> &TextEditState::highlighted_spans(const Highlighter &highlighter) const {
+    const vector<RichTextSpan> &TextEditState::highlighted_spans(const Highlighter &highlighter, u64 revision) const {
         if (!highlighter) {
             highlight_cache_spans_.clear();
             highlight_cache_key_.clear();
             return highlight_cache_spans_;
         }
-        if (highlight_cache_key_ != text_) {
+        if (highlight_cache_key_ != text_ || highlight_cache_revision_ != revision) {
             highlight_cache_key_ = text_;
+            highlight_cache_revision_ = revision;
             highlight_cache_spans_ = highlighter(text_);
         }
         return highlight_cache_spans_;
+    }
+
+    void TextEditState::store_visual_layout(usize paragraph_start, VisualLayout layout) const {
+        visual_layouts_[paragraph_start] = std::move(layout);
+    }
+
+    const TextEditState::VisualLayout *TextEditState::visual_layout(usize paragraph_start) const {
+        const auto found = visual_layouts_.find(paragraph_start);
+        return found == visual_layouts_.end() ? nullptr : &found->second;
     }
 
     /// Performs the word boundary before operation for `UI` using the supplied arguments.
@@ -680,6 +690,193 @@ namespace SFT::UI::Detail {
         return nullptr;
     }
 
+    UString visual_row_element_id(const UString &widget_id, usize paragraph_offset, usize row) {
+        return UString{widget_id.cpp_string() + "#vl" + std::to_string(paragraph_offset) + "." + std::to_string(row)};
+    }
+
+    /// The font, size and colour a run draws with: the widget's own, overridden by the span covering it.
+    TextStyle run_text_style(const TextEditStyle &style, const RichTextSpan *span, TextWrapMode wrap) {
+        const f32 font_scale = span != nullptr ? span->font_size_scale : 1.0f;
+        TextStyle out{
+            .color = span != nullptr ? span->color : style.text_color,
+            .font_id = span != nullptr && span->use_font_id ? span->font_id : style.font_id,
+            .font_size = static_cast<u16>(std::clamp(std::round(static_cast<f32>(style.font_size) * std::max(font_scale, 0.1f)), 1.0f,
+                                                     static_cast<f32>(std::numeric_limits<u16>::max()))),
+            .letter_spacing = style.letter_spacing,
+            .line_height = style.line_height,
+            .wrap_mode = wrap,
+        };
+        if (span != nullptr && (span->underline || span->strikethrough)) {
+            TextDecorationLine lines = TextDecorationLine::None;
+            if (span->underline) {
+                lines = lines | TextDecorationLine::Underline;
+            }
+            if (span->strikethrough) {
+                lines = lines | TextDecorationLine::LineThrough;
+            }
+            out.decoration = TextDecoration{
+                .lines = lines,
+                .color = span->use_line_color ? std::optional<Color>{span->line_color} : std::nullopt,
+                .style = span->line_style,
+                .thickness = span->line_thickness,
+            };
+        }
+        return out;
+    }
+
+    /// Whether a scalar is where a wrapped line may break after.
+    bool is_break_space(char32_t scalar) {
+        return scalar == U' ' || scalar == U'\t' || scalar == 0x3000;
+    }
+
+    /// The scalars of `text` (decoded UTF-8; malformed bytes count as one scalar each).
+    vector<char32_t> decode_scalars(const std::string &text) {
+        vector<char32_t> scalars;
+        scalars.reserve(text.size());
+        for (usize i = 0; i < text.size();) {
+            const auto lead = static_cast<unsigned char>(text[i]);
+            usize length = 1;
+            char32_t value = lead;
+            if (lead >= 0xF0) {
+                length = 4;
+                value = lead & 0x07;
+            } else if (lead >= 0xE0) {
+                length = 3;
+                value = lead & 0x0F;
+            } else if (lead >= 0xC0) {
+                length = 2;
+                value = lead & 0x1F;
+            }
+            if (i + length > text.size()) {
+                length = 1;
+                value = lead;
+            }
+            for (usize k = 1; k < length; ++k) {
+                value = (value << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3F);
+            }
+            scalars.push_back(value);
+            i += length;
+        }
+        return scalars;
+    }
+
+    /// One span-style piece of a paragraph: a range drawn in one font, size and colour.
+    struct StylePiece {
+        usize start = 0;
+        usize end = 0;
+        const RichTextSpan *span = nullptr;
+        TextStyle text_style;
+    };
+
+    /// Where a paragraph breaks into visual lines for `available_width`: greedy, at the Unicode line-break opportunities (UAX #14, so
+    /// CJK text and hyphens break where they should, not only at spaces). A unit (the text between two opportunities) moves to the next
+    /// line when it no longer fits; its trailing spaces hang past the edge. A unit wider than a whole line is broken between
+    /// characters. Units keep together across a change of style. Offsets are local to the paragraph. A width of zero or less
+    /// means "unknown": no breaks.
+    vector<usize> break_lines(Context &ctx, const UString &paragraph, const vector<StylePiece> &pieces, f32 available_width) {
+        vector<usize> starts{0};
+        const usize length = paragraph.size();
+        if (available_width <= 0.0f || length == 0) {
+            return starts;
+        }
+        const vector<char32_t> scalars = decode_scalars(paragraph.cpp_string());
+        const auto width_of = [&](usize from, usize to) {
+            f32 total = 0.0f;
+            for (const StylePiece &piece : pieces) {
+                const usize a = std::max(from, piece.start);
+                const usize b = std::min(to, piece.end);
+                if (b > a && !(piece.span != nullptr && piece.span->hidden)) {
+                    const UString text = paragraph.substr(a, b - a);
+                    total += ctx.measure_text(piece.text_style, text.cpp_string_view()).x;
+                }
+            }
+            return total;
+        };
+        // Scalar offsets after which a line may break.
+        vector<usize> opportunities;
+        for (const Text::LineBreakOpportunity &opportunity : Text::line_break_opportunities(paragraph.as_ustr())) {
+            const usize scalar = paragraph.scalar_index_of_byte(opportunity.byte_index);
+            if (scalar > 0 && scalar < length && (opportunities.empty() || opportunities.back() < scalar)) {
+                opportunities.push_back(scalar);
+            }
+        }
+        opportunities.push_back(length);
+
+        f32 used = 0.0f;
+        bool line_has_text = false;
+        usize at = 0;
+        for (const usize unit_end : opportunities) {
+            if (unit_end <= at) {
+                continue;
+            }
+            usize word_end = unit_end;
+            while (word_end > at && word_end <= scalars.size() && is_break_space(scalars[word_end - 1])) {
+                --word_end;
+            }
+            const f32 word_width = width_of(at, word_end);
+            const f32 space_width = unit_end > word_end ? width_of(word_end, unit_end) : 0.0f;
+            if (line_has_text && used + word_width > available_width) {
+                starts.push_back(at);
+                used = 0.0f;
+                line_has_text = false;
+            }
+            if (!line_has_text && word_width > available_width) {
+                for (usize k = at; k < word_end; ++k) {
+                    const f32 glyph = width_of(k, k + 1);
+                    if (used + glyph > available_width && used > 0.0f) {
+                        starts.push_back(k);
+                        used = 0.0f;
+                    }
+                    used += glyph;
+                }
+                used += space_width;
+            } else {
+                used += word_width + space_width;
+            }
+            line_has_text = true;
+            at = unit_end;
+        }
+        return starts;
+    }
+
+    u64 layout_key(const UString &paragraph, const vector<StylePiece> &pieces, f32 available_width) {
+        const auto mix = [](u64 seed, u64 value) { return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2)); };
+        u64 key = std::hash<std::string>{}(paragraph.cpp_string());
+        key = mix(key, static_cast<u64>(std::llround(available_width * 2.0f)));
+        for (const StylePiece &piece : pieces) {
+            key = mix(key, piece.start);
+            key = mix(key, piece.end);
+            key = mix(key, piece.text_style.font_id);
+            key = mix(key, piece.text_style.font_size);
+        }
+        return key;
+    }
+
+    /// The pieces of one style that make up a paragraph (cut where the spans start and end).
+    vector<StylePiece> style_pieces(const TextEditStyle &style, const vector<RichTextSpan> &spans, usize paragraph_offset,
+                                    usize paragraph_length) {
+        set<usize> cuts{0, paragraph_length};
+        for (const RichTextSpan &span : spans) {
+            const isize local_start = static_cast<isize>(span.scalar_start) - static_cast<isize>(paragraph_offset);
+            const isize local_end = local_start + static_cast<isize>(span.scalar_length);
+            if (local_end <= 0 || local_start >= static_cast<isize>(paragraph_length)) {
+                continue;
+            }
+            cuts.insert(static_cast<usize>(std::clamp<isize>(local_start, 0, static_cast<isize>(paragraph_length))));
+            cuts.insert(static_cast<usize>(std::clamp<isize>(local_end, 0, static_cast<isize>(paragraph_length))));
+        }
+        const vector<usize> sorted(cuts.begin(), cuts.end());
+        vector<StylePiece> pieces;
+        for (usize i = 0; i + 1 < sorted.size(); ++i) {
+            if (sorted[i + 1] == sorted[i]) {
+                continue;
+            }
+            const RichTextSpan *span = span_for_run(spans, sorted[i] + paragraph_offset);
+            pieces.push_back(StylePiece{sorted[i], sorted[i + 1], span, run_text_style(style, span, TextWrapMode::None)});
+        }
+        return pieces;
+    }
+
     /// Renders line using the current rendering state.
     ///
     /// @param ctx `ctx` value used by the operation.
@@ -695,7 +892,7 @@ namespace SFT::UI::Detail {
                             const TextEditStyle &style, const TextEditState &state, const UString &widget_id,
                             const UString &placeholder) {
         const usize line_len = line_text.size();
-        const vector<RichTextSpan> &spans = state.highlighted_spans(style.highlighter);
+        const vector<RichTextSpan> &spans = state.highlighted_spans(style.highlighter, style.highlighter_revision);
 
         set<usize> cuts{0, line_len};
         for (const RichTextSpan &span : spans) {
@@ -792,6 +989,119 @@ namespace SFT::UI::Detail {
         const bool can_wrap = style.wrap_lines && single_run;
         const TextWrapMode run_wrap_mode = can_wrap ? TextWrapMode::Words : TextWrapMode::None;
 
+        // Wrapped text is laid out here, not by the text element: the engine can only wrap one run of one style, but a paragraph with
+        // bold, links, superscript or a caret/selection inside is several runs. The paragraph is broken into visual lines by measuring
+        // its words (once per text/style/width, see `VisualLayout`), each visual line is a row of runs aligned on their bottoms, and a
+        // run's `baseline_shift` lifts or lowers it inside that row. The width comes from the previous frame's layout of this
+        // paragraph; until there is one a plain single-style paragraph falls through to the text element's own wrapping.
+        if (style.wrap_lines && !style.mask_characters && line_len > 0) {
+            // The width to wrap to is the widget's viewport as of the previous frame (not the paragraph's own width: inside a scroll
+            // area that is as wide as its content). A widget that is not a scroll container (a text input) has no such metrics.
+            const Context::ScrollMetrics viewport = ctx.scroll_metrics(widget_id);
+            f32 available = viewport.found ? viewport.container_size.x : 0.0f;
+            if (available <= 0.0f) {
+                available = style.wrap_width_hint;
+            }
+            if (available <= 0.0f) {
+                if (const std::optional<ElementBounds> previous = ctx.element_bounds(line_element_id(widget_id, line_scalar_offset))) {
+                    available = previous->size.x;
+                }
+            }
+            const vector<StylePiece> pieces = style_pieces(style, spans, line_scalar_offset, line_len);
+            if (available > 0.0f || !(single_run && pieces.size() <= 1)) {
+                if (available <= 0.0f) {
+                    state.request_relayout();
+                }
+                const u64 key = layout_key(line_text, pieces, available);
+                const TextEditState::VisualLayout *cached = state.visual_layout(line_scalar_offset);
+                vector<usize> starts;
+                if (cached != nullptr && cached->key == key) {
+                    starts = cached->line_starts;
+                } else {
+                    starts = break_lines(ctx, line_text, pieces, available);
+                    state.store_visual_layout(line_scalar_offset, TextEditState::VisualLayout{key, starts});
+                }
+
+                auto paragraph_scope = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::grow(), SizingAxis::fit()},
+                    .direction = LayoutDirection::TopToBottom,
+                    .id = line_element_id(widget_id, line_scalar_offset),
+                });
+                (void)paragraph_scope;
+                for (usize k = 0; k < starts.size(); ++k) {
+                    const usize row_start = starts[k];
+                    const usize row_end = k + 1 < starts.size() ? starts[k + 1] : line_len;
+                    auto visual_row = ctx.element(ElementDecl{
+                        .sizing = {SizingAxis::grow(), SizingAxis::fit()},
+                        .id = visual_row_element_id(widget_id, line_scalar_offset, k),
+                    });
+                    (void)visual_row;
+                    {
+                        auto strut = ctx.element(ElementDecl{
+                            .sizing = {SizingAxis::fixed(0.0f),
+                                       SizingAxis::fixed(std::max(caret_height, static_cast<f32>(style.line_height)))},
+                        });
+                        (void)strut;
+                    }
+                    vector<usize> bounds{row_start};
+                    for (const usize cut : sorted_cuts) {
+                        if (cut > row_start && cut < row_end) {
+                            bounds.push_back(cut);
+                        }
+                    }
+                    bounds.push_back(row_end);
+
+                    // Runs sit on one baseline: each is pushed down from the top of the row by however much less than the highest
+                    // reach (its font's ascent plus its raise) it has. A run's baseline is the top of its box plus its ascent.
+                    struct RowRun {
+                        const RichTextSpan *span = nullptr;
+                        TextStyle style;
+                        f32 reach = 0.0f;
+                    };
+                    vector<RowRun> row_runs;
+                    f32 highest = 0.0f;
+                    for (usize i = 0; i + 1 < bounds.size(); ++i) {
+                        RowRun run;
+                        run.span = span_for_run(spans, bounds[i] + line_scalar_offset);
+                        run.style = run_text_style(style, run.span, TextWrapMode::None);
+                        const f32 lift = (run.span != nullptr ? run.span->baseline_shift : 0.0f) * static_cast<f32>(style.font_size);
+                        run.reach = ctx.text_ascent(run.style) + lift;
+                        if (!(run.span != nullptr && run.span->hidden)) {
+                            highest = std::max(highest, run.reach);
+                        }
+                        row_runs.push_back(run);
+                    }
+                    for (usize i = 0; i + 1 < bounds.size(); ++i) {
+                        const usize run_start = bounds[i];
+                        const usize run_end = bounds[i + 1];
+                        if (caret_on_this_line && run_start == static_cast<usize>(caret_local)) {
+                            emit_composition();
+                            emit_caret();
+                        }
+                        const RowRun &run = row_runs[i];
+                        if (run.span != nullptr && run.span->hidden) {
+                            continue;
+                        }
+                        const u16 drop = static_cast<u16>(std::clamp(std::round(highest - run.reach), 0.0f, 65535.0f));
+                        const bool run_selected = has_sel && run_start >= sel_min && run_end <= sel_max;
+                        auto lowered = ctx.element(ElementDecl{.padding = Padding{.top = drop}});
+                        (void)lowered;
+                        auto text_scope = ctx.element(ElementDecl{
+                            .background_color = run_selected ? style.selection_color : Color{0.0, 0.0, 0.0, 0.0},
+                        });
+                        (void)text_scope;
+                        const UString run_text = line_text.substr(run_start, run_end - run_start);
+                        ctx.text(run_text.as_ustr(), run.style);
+                    }
+                    if (caret_on_this_line && k + 1 == starts.size() && static_cast<usize>(caret_local) == line_len) {
+                        emit_composition();
+                        emit_caret();
+                    }
+                }
+                return;
+            }
+        }
+
         auto row = ctx.element(ElementDecl{
             .sizing = can_wrap ? Sizing{SizingAxis::grow(), SizingAxis::fit()} : Sizing{SizingAxis::fit(), SizingAxis::fit()},
             .id = line_element_id(widget_id, line_scalar_offset),
@@ -801,7 +1111,7 @@ namespace SFT::UI::Detail {
 
         {
             auto strut = ctx.element(ElementDecl{
-                .sizing = {SizingAxis::fixed(0.0f), SizingAxis::fixed(caret_height)},
+                .sizing = {SizingAxis::fixed(0.0f), SizingAxis::fixed(std::max(caret_height, static_cast<f32>(style.line_height)))},
             });
             (void)strut;
         }
@@ -817,41 +1127,11 @@ namespace SFT::UI::Detail {
                 continue;
             }
             const RichTextSpan *span = span_for_run(spans, run_start + line_scalar_offset);
-            const Color run_color = span != nullptr ? span->color : style.text_color;
-            const FontId run_font_id = span != nullptr && span->use_font_id ? span->font_id : style.font_id;
-            const f32 font_scale = span != nullptr ? span->font_size_scale : 1.0f;
-            const u16 run_font_size = static_cast<u16>(std::clamp(
-                std::round(static_cast<f32>(style.font_size) * std::max(font_scale, 0.1f)), 1.0f,
-                static_cast<f32>(std::numeric_limits<u16>::max())));
             const bool run_selected = has_sel && run_start >= sel_min && run_end <= sel_max;
             auto run_scope = ctx.element(ElementDecl{
                 .background_color = run_selected ? style.selection_color : Color{0.0, 0.0, 0.0, 0.0},
             });
             (void)run_scope;
-
-
-            const auto emit_decoration = [&](bool strikethrough) {
-                auto decoration = ctx.element(ElementDecl{
-                    .sizing = {SizingAxis::grow(), SizingAxis::fixed(1.0f)},
-                    .background_color = run_color,
-                    .floating = FloatingConfig{
-                        .attach_to = FloatingAttachTo::Parent,
-                        .element_attach_point = strikethrough ? FloatingAttachPoint::LeftCenter
-                                                              : FloatingAttachPoint::LeftBottom,
-                        .parent_attach_point = strikethrough ? FloatingAttachPoint::LeftCenter
-                                                             : FloatingAttachPoint::LeftBottom,
-                        .capture_pointer = false,
-                        .clip_to = FloatingClipTo::AttachedParent,
-                    },
-                });
-                (void)decoration;
-            };
-            if (span != nullptr && span->underline) {
-                emit_decoration(                  false);
-            }
-            if (span != nullptr && span->strikethrough) {
-                emit_decoration(                  true);
-            }
 
 
             UString run_text;
@@ -864,9 +1144,7 @@ namespace SFT::UI::Detail {
             } else {
                 run_text = line_text.substr(run_start, run_end - run_start);
             }
-            ctx.text(run_text.as_ustr(),
-                     TextStyle{.color = run_color, .font_id = run_font_id, .font_size = run_font_size,
-                               .wrap_mode = run_wrap_mode});
+            ctx.text(run_text.as_ustr(), run_text_style(style, span, run_wrap_mode));
         }
         if (caret_on_this_line && static_cast<usize>(caret_local) == line_len) {
             emit_composition();
@@ -927,35 +1205,96 @@ namespace SFT::UI::Detail {
     /// @note Normal inability to produce a value is represented by an empty optional.
     [[nodiscard]] std::optional<ParagraphHit>
     hit_test_paragraphs(Context &ctx, const TextEditStyle &style, const UString &text,
-                        const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer) {
-        std::optional<usize> best_index;
+                        const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer,
+                        const TextEditState *state) {
+        // A wrapped paragraph is several rows (see render_line): the nearest row of any paragraph wins.
+        struct Candidate {
+            usize paragraph = 0;
+            std::optional<usize> row;
+            ElementBounds bounds;
+        };
+        std::optional<Candidate> best;
         f32 best_distance = 0.0f;
-        for (usize i = 0; i < paragraphs.size(); ++i) {
-            const std::optional<ElementBounds> line_bounds = ctx.element_bounds(line_element_id(widget_id, paragraphs[i].first));
-            if (!line_bounds) {
-                continue;
-            }
-            const f32 center_y = line_bounds->position.y + line_bounds->size.y * 0.5f;
+        const auto consider = [&](usize paragraph, std::optional<usize> row, const ElementBounds &bounds) {
+            const f32 center_y = bounds.position.y + bounds.size.y * 0.5f;
             const f32 distance = std::abs(pointer.y - center_y);
-            if (!best_index || distance < best_distance) {
+            if (!best || distance < best_distance) {
                 best_distance = distance;
-                best_index = i;
+                best = Candidate{paragraph, row, bounds};
+            }
+        };
+        for (usize i = 0; i < paragraphs.size(); ++i) {
+            const usize pstart = paragraphs[i].first;
+            const TextEditState::VisualLayout *layout = state != nullptr ? state->visual_layout(pstart) : nullptr;
+            bool used_rows = false;
+            if (layout != nullptr) {
+                for (usize row = 0; row < layout->line_starts.size(); ++row) {
+                    if (const std::optional<ElementBounds> bounds = ctx.element_bounds(visual_row_element_id(widget_id, pstart, row))) {
+                        consider(i, row, *bounds);
+                        used_rows = true;
+                    }
+                }
+            }
+            if (!used_rows) {
+                if (const std::optional<ElementBounds> bounds = ctx.element_bounds(line_element_id(widget_id, pstart))) {
+                    consider(i, std::nullopt, *bounds);
+                }
             }
         }
-        if (!best_index) {
+        if (!best) {
             return std::nullopt;
         }
-        const auto &[pstart, plen] = paragraphs[*best_index];
-        const std::optional<ElementBounds> line_bounds = ctx.element_bounds(line_element_id(widget_id, pstart));
-        if (!line_bounds) {
-            return std::nullopt;
-        }
-        const f32 local_x = pointer.x - line_bounds->position.x;
+        const auto &[pstart, plen] = paragraphs[best->paragraph];
         const UString paragraph_text = text.substr(pstart, plen);
+        const f32 local_x = pointer.x - best->bounds.position.x;
+        usize scalar_in_paragraph = 0;
+        usize char_in_paragraph = 0;
+        bool inside = false;
+        const TextEditState::VisualLayout *layout = state != nullptr ? state->visual_layout(pstart) : nullptr;
+        if (best->row && layout != nullptr && state != nullptr) {
+            // Walk the runs of the row, in their own fonts and sizes, until the pointer's x falls inside one.
+            const usize row_start = layout->line_starts[*best->row];
+            const usize row_end = *best->row + 1 < layout->line_starts.size() ? layout->line_starts[*best->row + 1] : plen;
+            const vector<RichTextSpan> &spans = state->highlighted_spans(style.highlighter, style.highlighter_revision);
+            const vector<StylePiece> pieces = style_pieces(style, spans, pstart, plen);
+            f32 remaining = local_x;
+            scalar_in_paragraph = row_end;
+            char_in_paragraph = row_end > row_start ? row_end - 1 : row_start;
+            for (const StylePiece &piece : pieces) {
+                const usize a = std::max(row_start, piece.start);
+                const usize b = std::min(row_end, piece.end);
+                if (b <= a || (piece.span != nullptr && piece.span->hidden)) {
+                    continue;
+                }
+                const UString run_text = paragraph_text.substr(a, b - a);
+                const f32 run_width = ctx.measure_text(piece.text_style, run_text.cpp_string_view()).x;
+                if (remaining <= run_width || b == row_end) {
+                    const usize byte_offset = ctx.hit_test_text_byte_offset(piece.text_style, run_text.cpp_string_view(), remaining);
+                    const usize within = run_text.scalar_index_of_byte(byte_offset);
+                    scalar_in_paragraph = a + within;
+                    // The character the pointer is over: the boundary is the nearest one, so the character is the one before it when
+                    // the pointer is left of that boundary.
+                    const f32 boundary_x = within == 0 ? 0.0f
+                                                       : ctx.measure_text(piece.text_style, run_text.substr(0, within).cpp_string_view()).x;
+                    const usize character = (remaining < boundary_x && within > 0) ? within - 1 : within;
+                    char_in_paragraph = a + std::min(character, run_text.size() - 1);
+                    inside = remaining >= 0.0f && remaining <= run_width &&
+                             pointer.y >= best->bounds.position.y && pointer.y <= best->bounds.position.y + best->bounds.size.y;
+                    break;
+                }
+                remaining -= run_width;
+            }
+        } else {
+            scalar_in_paragraph = hit_test_line_scalar(ctx, style, paragraph_text, local_x);
+            char_in_paragraph = std::min(scalar_in_paragraph, plen > 0 ? plen - 1 : 0);
+            inside = local_x >= 0.0f && pointer.y >= best->bounds.position.y && pointer.y <= best->bounds.position.y + best->bounds.size.y;
+        }
         return ParagraphHit{
-            .scalar = pstart + hit_test_line_scalar(ctx, style, paragraph_text, local_x),
+            .scalar = pstart + std::min(scalar_in_paragraph, plen),
             .paragraph_start = pstart,
             .paragraph_length = plen,
+            .char_under = pstart + char_in_paragraph,
+            .inside = inside,
         };
     }
 

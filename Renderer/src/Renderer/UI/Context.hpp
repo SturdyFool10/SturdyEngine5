@@ -627,6 +627,10 @@ namespace SFT::UI {
         /// truncation and sizing decisions.
         [[nodiscard]] glm::vec2 measure_text(const TextStyle &style, string_view utf8_content);
 
+        /// Distance in pixels from the top of a line of text drawn with `style` to its baseline (the primary font's ascender at
+        /// the style's size). Zero when the font is not registered.
+        [[nodiscard]] f32 text_ascent(const TextStyle &style);
+
 
         /// Performs the svg operation for `Context` using the supplied arguments.
         ///

@@ -26,6 +26,9 @@ namespace SFT::UI {
                                                                                                         
                                              
         std::optional<ElementBounds> caret_bounds;
+        /// A wrapped paragraph could not be wrapped to its final width yet (that is known only once a frame has been laid out): draw
+        /// one more frame.
+        bool relayout = false;
     };
 
                                                                                           

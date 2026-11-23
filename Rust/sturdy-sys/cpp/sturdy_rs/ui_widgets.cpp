@@ -1,6 +1,8 @@
 #include "sturdy_rs/ui_widgets.hpp"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <exception>
 #include <source_location>
 #include <string>
@@ -102,6 +104,9 @@ namespace sturdy_rs::ui_widgets {
                 out.features.ime_enabled = false;
             }
             out.wrap_lines = s.wrap_lines;
+            out.letter_spacing = s.letter_spacing;
+            out.line_height = s.line_height;
+            out.wrap_width_hint = s.wrap_width_hint;
             return out;
         }
 
@@ -514,25 +519,41 @@ namespace sturdy_rs::ui_widgets {
         }
     }
 
-    RichTextOutcome ui_rich_text(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
-                                 const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
-                                 ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans) {
-        RichTextOutcome out{};
-        out.clicked_scalar = -1;
-        U::Context *ctx = ui::ui_session_context();
-        if (ctx == nullptr) {
-            return out;
-        }
-        try {
+    namespace {
+        /// The engine style of a rich text block: read-only text with the spans' colours, fonts, sizes, shifts and lines.
+        U::TextEditStyle make_rich_style(const TextEditStyleDesc &style, const rust::Vec<RichSpanDesc> &spans, bool editable = false) {
             U::TextEditStyle engine_style = to_engine(style);
-            // Read-only and wrapped: selectable and copyable text, not an editor.
-            engine_style.features.typing = false;
-            engine_style.features.deletion = false;
-            engine_style.features.submission = false;
-            engine_style.features.ime_enabled = false;
-            engine_style.wrap_lines = true;
+            // Read-only unless asked otherwise: selectable and copyable text, not an editor. Wrapping is the caller's choice (`wrap_lines`).
+            if (!editable) {
+                engine_style.features.typing = false;
+                engine_style.features.deletion = false;
+                engine_style.features.submission = false;
+                engine_style.features.ime_enabled = false;
+            }
+            engine_style.wrap_width_hint = style.wrap_width_hint;
+            engine_style.letter_spacing = style.letter_spacing;
+            engine_style.line_height = style.line_height;
             std::vector<U::RichTextSpan> rich;
             rich.reserve(spans.size());
+            // The engine caches the spans per text; a fingerprint of the spans tells it when they changed (a hover colour, a new theme).
+            std::uint64_t revision = 1469598103934665603ULL;
+            const auto mix = [&revision](std::uint64_t value) { revision = (revision ^ value) * 1099511628211ULL; };
+            for (const RichSpanDesc &span : spans) {
+                mix(span.start);
+                mix(span.length);
+                mix(span.has_color ? std::bit_cast<std::uint32_t>(span.color[0]) ^ (std::bit_cast<std::uint32_t>(span.color[1]) << 7) ^
+                                         (std::bit_cast<std::uint32_t>(span.color[2]) << 13) ^ (std::bit_cast<std::uint32_t>(span.color[3]) << 19)
+                                   : 0);
+                mix(span.has_font ? span.font_id : 0xFFFF);
+                mix(std::bit_cast<std::uint32_t>(span.size_scale));
+                mix(std::bit_cast<std::uint32_t>(span.baseline_shift));
+                mix(std::bit_cast<std::uint32_t>(span.line_thickness));
+                mix(static_cast<std::uint64_t>(span.underline) | (static_cast<std::uint64_t>(span.strikethrough) << 1) |
+                    (static_cast<std::uint64_t>(span.line_style) << 2) | (static_cast<std::uint64_t>(span.has_line_color) << 8));
+                mix(std::bit_cast<std::uint32_t>(span.line_color[0]) ^ std::bit_cast<std::uint32_t>(span.line_color[1]));
+                mix(span.hidden ? 1 : 0);
+            }
+            engine_style.highlighter_revision = revision;
             for (const RichSpanDesc &span : spans) {
                 U::RichTextSpan converted{};
                 converted.scalar_start = span.start;
@@ -547,18 +568,49 @@ namespace sturdy_rs::ui_widgets {
                 converted.font_size_scale = span.size_scale > 0.0f ? span.size_scale : 1.0f;
                 converted.underline = span.underline;
                 converted.strikethrough = span.strikethrough;
+                converted.baseline_shift = span.baseline_shift;
+                converted.line_style = static_cast<U::BorderLineStyle>(std::min<std::uint8_t>(span.line_style, 3));
+                converted.line_thickness = span.line_thickness;
+                converted.use_line_color = span.has_line_color;
+                converted.line_color = color_of(span.line_color);
+                converted.hidden = span.hidden;
                 rich.push_back(converted);
             }
             engine_style.highlighter = [rich = std::move(rich)](const SFT::UString &) { return rich; };
+            return engine_style;
+        }
+    } // namespace
 
+    RichTextOutcome ui_rich_text(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
+                                 const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
+                                 ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans) {
+        RichTextOutcome out{};
+        out.clicked_scalar = -1;
+        out.hovered_scalar = -1;
+        U::Context *ctx = ui::ui_session_context();
+        if (ctx == nullptr) {
+            return out;
+        }
+        try {
+            const U::TextEditStyle engine_style = make_rich_style(style, spans);
             const U::TextEditInput input = frame_input(engine);
             const U::TextAreaResult r = U::text_area(*ctx, ui::ui_session_element_decl(desc), engine_style, state, input,
                                                      static_cast<float>(delta_seconds(engine)), to_engine(scrollbar),
                                                      scroll_state, SFT::UString{}, true);
             out.ok = true;
             out.focused = r.focused;
-            if (ctx->clicked(ustring_of(rust::Str{desc.id.data(), desc.id.size()}))) {
+            out.relayout = r.relayout;
+            const SFT::UString widget_id = ustring_of(rust::Str{desc.id.data(), desc.id.size()});
+            if (ctx->clicked(widget_id)) {
                 out.clicked_scalar = static_cast<std::int64_t>(state.caret());
+            }
+            if (ctx->hovered(widget_id)) {
+                const std::vector<std::pair<SFT::usize, SFT::usize>> paragraphs = U::Detail::split_paragraphs(state.text());
+                const auto hit = U::Detail::hit_test_paragraphs(*ctx, engine_style, state.text(), paragraphs, widget_id,
+                                                                ctx->pointer_position(), &state);
+                if (hit && hit->inside) {
+                    out.hovered_scalar = static_cast<std::int64_t>(hit->char_under);
+                }
             }
         } catch (const std::exception &error) {
             SFT::Foundation::log_error("rich text area '{}': widget threw, nothing was drawn: {}", std::string{desc.id.data(), desc.id.size()}, error.what());
@@ -566,6 +618,59 @@ namespace sturdy_rs::ui_widgets {
             SFT::Foundation::log_error("rich text area '{}': widget threw a non-standard exception, nothing was drawn", std::string{desc.id.data(), desc.id.size()});
         }
         return out;
+    }
+
+    std::int64_t ui_rich_text_char_at(const EngineView &engine, rust::Str id, const TextEditStyleDesc &style,
+                                      const TextEditStateBox &state, const rust::Vec<RichSpanDesc> &spans, float x, float y, bool boundary) {
+        (void)engine;
+        U::Context *ctx = ui::ui_session_context();
+        if (ctx == nullptr) {
+            return -1;
+        }
+        try {
+            const U::TextEditStyle engine_style = make_rich_style(style, spans);
+            const std::vector<std::pair<SFT::usize, SFT::usize>> paragraphs = U::Detail::split_paragraphs(state.text());
+            const auto hit = U::Detail::hit_test_paragraphs(*ctx, engine_style, state.text(), paragraphs,
+                                                            ustring_of(id), glm::vec2{x, y}, &state);
+            if (!hit) {
+                return -1;
+            }
+            return static_cast<std::int64_t>(boundary ? hit->scalar : (hit->inside ? hit->char_under : hit->scalar));
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    rust::Vec<std::uint32_t> ui_rich_text_row_counts(const TextEditStateBox &state) {
+        rust::Vec<std::uint32_t> counts;
+        for (const auto &[start, length] : U::Detail::split_paragraphs(state.text())) {
+            (void)length;
+            const U::TextEditState::VisualLayout *layout = state.visual_layout(start);
+            counts.push_back(layout != nullptr ? static_cast<std::uint32_t>(std::max<std::size_t>(layout->line_starts.size(), 1)) : 1U);
+        }
+        return counts;
+    }
+
+    TextEditOutcome ui_rich_text_edit(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
+                                      const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
+                                      ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans,
+                                      rust::Str placeholder, bool enabled) {
+        U::Context *ctx = ui::ui_session_context();
+        if (ctx == nullptr) {
+            return TextEditOutcome{};
+        }
+        try {
+            const U::TextEditStyle engine_style = make_rich_style(style, spans, true);
+            const U::TextEditInput input = frame_input(engine);
+            const U::TextAreaResult r = U::text_area(*ctx, ui::ui_session_element_decl(desc), engine_style, state, input,
+                                                     static_cast<float>(delta_seconds(engine)), to_engine(scrollbar),
+                                                     scroll_state, ustring_of(placeholder), enabled);
+            forward_text_focus(engine, rust::Str{desc.id.data(), desc.id.size()}, desc, r.focused, r.caret_bounds);
+            return TextEditOutcome{true, r.changed, false, r.focused, r.relayout};
+        } catch (...) {
+            log_swallowed_exception();
+            return TextEditOutcome{};
+        }
     }
 
     ScrollAreaOutcome ui_scroll_area(EngineView &engine, rust::Str id, const UiElementDesc &desc,

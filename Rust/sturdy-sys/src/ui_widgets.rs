@@ -126,6 +126,12 @@ pub mod ffi {
         wrap_lines: bool,
         /// Selectable, copyable, not editable (typing, deletion, cut and paste off).
         read_only: bool,
+        /// Extra pixels between characters.
+        letter_spacing: u16,
+        /// Height of a line of text in pixels; 0 uses the font's own.
+        line_height: u16,
+        /// The width to wrap to before the widget has been laid out once; 0 = unknown.
+        wrap_width_hint: f32,
     }
 
     /// `SFT::UI::TextInputResult` / `TextAreaResult`.
@@ -135,6 +141,8 @@ pub mod ffi {
         changed: bool,
         submitted: bool,
         focused: bool,
+        /// A wrapped paragraph could not be wrapped to its final width yet; draw one more frame.
+        relayout: bool,
     }
 
     /// One styled run of a rich text block (`SFT::UI::RichTextSpan`). `start`/`length` count Unicode scalars.
@@ -149,6 +157,16 @@ pub mod ffi {
         size_scale: f32,
         underline: bool,
         strikethrough: bool,
+        /// Raises (positive) or lowers (negative) the run from the baseline, as a fraction of the block's font size.
+        baseline_shift: f32,
+        /// 0 solid, 1 dashed, 2 dotted, 3 double.
+        line_style: u8,
+        /// Thickness in pixels of the underline and strikethrough; 0 picks one from the font size.
+        line_thickness: f32,
+        has_line_color: bool,
+        line_color: [f32; 4],
+        /// Takes no room and draws nothing; the characters stay in the text.
+        hidden: bool,
     }
 
     /// What a `ui_rich_text` block did this frame.
@@ -158,6 +176,10 @@ pub mod ffi {
         focused: bool,
         /// Scalar index of the character a click landed on this frame; -1 when there was no click.
         clicked_scalar: i64,
+        /// The text could not be wrapped to its final width yet; draw one more frame.
+        relayout: bool,
+        /// Scalar index of the character the pointer is over; -1 when it is not over text of this block.
+        hovered_scalar: i64,
     }
 
     /// `SFT::UI::ScrollbarStyle`.
@@ -435,6 +457,35 @@ pub mod ffi {
             scroll_state: Pin<&mut ScrollAreaStateBox>,
             spans: &Vec<RichSpanDesc>,
         ) -> RichTextOutcome;
+        /// The character of a `ui_rich_text` block under the point (x, y) in layout coordinates, as of the last drawn frame; -1 when the
+        /// point is not over text. `boundary` asks for the caret position nearest the point (between two characters) instead of the character
+        /// under it. Works for any pointer position, whether or not the block is hovered (drag selection across blocks).
+        fn ui_rich_text_char_at(
+            engine: &EngineView,
+            id: &str,
+            style: &TextEditStyleDesc,
+            state: &TextEditStateBox,
+            spans: &Vec<RichSpanDesc>,
+            x: f32,
+            y: f32,
+            boundary: bool,
+        ) -> i64;
+        /// How many visual rows each paragraph of a `ui_rich_text` block occupied the last time it was drawn (1 for a paragraph that has
+        /// not been laid out); one entry per paragraph (line of text).
+        fn ui_rich_text_row_counts(state: &TextEditStateBox) -> Vec<u32>;
+        /// An editable text area whose text is drawn with `spans` (a live-preview editor: styled runs over the source text, with the
+        /// markup of the blocks being edited shown and the rest hidden).
+        fn ui_rich_text_edit(
+            engine: Pin<&mut EngineView>,
+            desc: &UiElementDesc,
+            style: &TextEditStyleDesc,
+            scrollbar: &ScrollbarStyleDesc,
+            state: Pin<&mut TextEditStateBox>,
+            scroll_state: Pin<&mut ScrollAreaStateBox>,
+            spans: &Vec<RichSpanDesc>,
+            placeholder: &str,
+            enabled: bool,
+        ) -> TextEditOutcome;
         fn ui_scroll_area(
             engine: Pin<&mut EngineView>,
             id: &str,

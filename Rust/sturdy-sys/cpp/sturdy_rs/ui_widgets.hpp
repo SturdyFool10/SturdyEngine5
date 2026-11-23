@@ -120,6 +120,13 @@ namespace sturdy_rs::ui_widgets {
     RichTextOutcome ui_rich_text(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
                                  const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
                                  ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans);
+    std::int64_t ui_rich_text_char_at(const EngineView &engine, rust::Str id, const TextEditStyleDesc &style,
+                                      const TextEditStateBox &state, const rust::Vec<RichSpanDesc> &spans, float x, float y, bool boundary);
+    rust::Vec<std::uint32_t> ui_rich_text_row_counts(const TextEditStateBox &state);
+    TextEditOutcome ui_rich_text_edit(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
+                                      const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
+                                      ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans,
+                                      rust::Str placeholder, bool enabled);
     ScrollAreaOutcome ui_scroll_area(EngineView &engine, rust::Str id, const UiElementDesc &desc,
                                      const ScrollbarStyleDesc &style, ScrollAreaStateBox &state, bool enabled,
                                      rust::Box<ScrollContent> content);

@@ -33,7 +33,7 @@ namespace SFT::UI {
 
 
             const std::optional<Detail::ParagraphHit> hit =
-                Detail::hit_test_paragraphs(ctx, style, state.text(), click_paragraphs, decl.id, ctx.pointer_position());
+                Detail::hit_test_paragraphs(ctx, style, state.text(), click_paragraphs, decl.id, ctx.pointer_position(), &state);
             if (hit) {
                 caret_scalar = hit->scalar;
             }
@@ -67,7 +67,7 @@ namespace SFT::UI {
                 ctx.release_pointer(decl.id);
             } else if (ctx.pointer_is_down()) {
                 if (const std::optional<Detail::ParagraphHit> drag_hit = Detail::hit_test_paragraphs(
-                        ctx, style, state.text(), click_paragraphs, decl.id, ctx.pointer_position())) {
+                        ctx, style, state.text(), click_paragraphs, decl.id, ctx.pointer_position(), &state)) {
                     state.set_caret_to(drag_hit->scalar,            true);
                 }
             }
@@ -157,6 +157,7 @@ namespace SFT::UI {
             .changed = apply_result.changed,
             .focused = state.focused(),
             .caret_bounds = state.focused() ? ctx.element_bounds(Detail::caret_element_id(decl.id)) : std::nullopt,
+            .relayout = state.take_relayout_request(),
         };
     }
 

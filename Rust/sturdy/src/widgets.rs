@@ -201,6 +201,13 @@ pub struct TextInputStyle {
     /// Show a bullet instead of each character (password fields).
     pub mask_characters: bool,
     pub wrap_lines: bool,
+    /// Extra pixels between characters.
+    pub letter_spacing: u16,
+    /// Height of a line of text in pixels; 0 uses the font's own.
+    pub line_height: u16,
+    /// The width to wrap to before the widget has been laid out once (its first frame); 0 = unknown. A host that knows its column width
+    /// avoids a first frame drawn unwrapped.
+    pub wrap_width_hint: f32,
     /// Selectable and copyable but not editable: drag-select, double-click a word, Ctrl+A/C. Use it for
     /// selectable labels (changelogs, log lines, error messages).
     pub read_only: bool,
@@ -225,6 +232,9 @@ impl Default for TextInputStyle {
             caret_blink_seconds: 0.53,
             mask_characters: false,
             wrap_lines: false,
+            letter_spacing: 0,
+            line_height: 0,
+            wrap_width_hint: 0.0,
             read_only: false,
         }
     }
@@ -250,6 +260,9 @@ impl TextInputStyle {
             mask_characters: self.mask_characters,
             wrap_lines: self.wrap_lines,
             read_only: self.read_only,
+            letter_spacing: self.letter_spacing,
+            line_height: self.line_height,
+            wrap_width_hint: self.wrap_width_hint,
         }
     }
 }
@@ -386,6 +399,29 @@ pub struct RichSpan {
     pub size_scale: f32,
     pub underline: bool,
     pub strikethrough: bool,
+    /// Raises (positive) or lowers (negative) the run from the line's baseline, as a fraction of the block's font size: superscript is
+    /// about `0.35` with `size_scale` 0.7, subscript about `-0.15`.
+    pub baseline_shift: f32,
+    /// How the underline and strikethrough are drawn.
+    pub line_style: LineStyle,
+    /// Thickness in pixels of the underline and strikethrough; 0 picks one from the font size.
+    pub line_thickness: f32,
+    /// Colour of the underline and strikethrough; `None` uses the run's own colour.
+    pub line_color: Option<Vec4>,
+    /// Takes no room and draws nothing, but the characters stay in the text (selection, caret and copy still see them): a live-preview editor
+    /// hides the markup (`**`, `#`) of the blocks the caret is not in.
+    pub hidden: bool,
+}
+
+/// How a text underline or strikethrough is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum LineStyle {
+    #[default]
+    Solid = 0,
+    Dashed = 1,
+    Dotted = 2,
+    Double = 3,
 }
 
 impl RichSpan {
@@ -400,6 +436,12 @@ impl RichSpan {
             size_scale: self.size_scale,
             underline: self.underline,
             strikethrough: self.strikethrough,
+            baseline_shift: self.baseline_shift,
+            line_style: self.line_style as u8,
+            line_thickness: self.line_thickness,
+            has_line_color: self.line_color.is_some(),
+            line_color: self.line_color.unwrap_or(Vec4::ONE).into(),
+            hidden: self.hidden,
         }
     }
 }
@@ -410,6 +452,9 @@ pub struct RichTextResult {
     pub focused: bool,
     /// The char index a click landed on this frame (find the link span containing it).
     pub clicked_char: Option<usize>,
+    /// The char index the pointer is over this frame (`None` when it is not over text of this block). Use it for link hover, hover colours and
+    /// tooltips.
+    pub hovered_char: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -910,10 +955,24 @@ impl Ui<'_> {
     }
 
     /// A block of rich text: the text held in `state` (set it with [`TextEditState::set_text`] when it changes),
-    /// drawn with `spans` over it, word-wrapped, selectable and copyable but not editable. `desc` gives it an id and
-    /// a width (`Sizing::Grow` in a column is typical). Returns which character a click landed on, so a caller can
-    /// resolve link spans. See [`crate::ui_kit::markdown`] for a Markdown renderer built on it.
+    /// drawn with `spans` over it, **word-wrapped** (whatever `style.wrap_lines` says: use [`Ui::rich_text_wrapping`] for text that
+    /// must stay on one line), selectable and copyable but not editable. `desc` gives it an id and a width (`Sizing::Grow` in a column is
+    /// typical). Returns which character a click landed on and which the pointer is over, so a caller can resolve link spans. See
+    /// [`crate::markdown`] for a Markdown renderer built on it.
     pub fn rich_text(
+        &mut self,
+        desc: &ElementDesc,
+        style: &TextInputStyle,
+        scrollbar: &ScrollbarStyle,
+        state: &mut TextEditState,
+        scroll_state: &mut ScrollAreaState,
+        spans: &[RichSpan],
+    ) -> RichTextResult {
+        self.rich_text_wrapping(desc, &TextInputStyle { wrap_lines: true, ..*style }, scrollbar, state, scroll_state, spans)
+    }
+
+    /// [`Ui::rich_text`] that honours `style.wrap_lines`: with it off a line stays on one row and a wide block scrolls sideways (code).
+    pub fn rich_text_wrapping(
         &mut self,
         desc: &ElementDesc,
         style: &TextInputStyle,
@@ -932,7 +991,58 @@ impl Ui<'_> {
             scroll_state.0.pin_mut(),
             &spans,
         );
-        RichTextResult { focused: o.focused, clicked_char: usize::try_from(o.clicked_scalar).ok() }
+        if o.relayout {
+            // The text wraps to the width of the previous frame's layout; one more frame settles it.
+            self.engine().request_redraw();
+        }
+        RichTextResult { focused: o.focused, clicked_char: usize::try_from(o.clicked_scalar).ok(), hovered_char: usize::try_from(o.hovered_scalar).ok() }
+    }
+
+    /// The char index of a [`Ui::rich_text`] block (the one with element id `id`, drawn with the same `style`, `state` and `spans`) under the
+    /// point `at`, in layout coordinates, as of the last drawn frame. Unlike [`RichTextResult::hovered_char`] it works for any point,
+    /// whether or not the block is hovered, which is what drag selection across several blocks needs. `None` when the block has not been drawn.
+    pub fn rich_text_char_at(&self, id: &str, style: &TextInputStyle, state: &TextEditState, spans: &[RichSpan], at: glam::Vec2, boundary: bool) -> Option<usize> {
+        let spans: Vec<ffi::RichSpanDesc> = spans.iter().map(RichSpan::to_ffi).collect();
+        usize::try_from(ffi::ui_rich_text_char_at(self.view_shared(), id, &style.to_ffi(), state.0.as_ref()?, &spans, at.x, at.y, boundary)).ok()
+    }
+
+    /// How many visual rows each paragraph (line of text) of a [`Ui::rich_text`] / [`Ui::rich_text_edit`] block took the last time it was
+    /// drawn: more than one for a line that wrapped. A line-number gutter uses it to stay in step with wrapped code.
+    pub fn rich_text_row_counts(&self, state: &TextEditState) -> Vec<u32> {
+        ffi::ui_rich_text_row_counts(&state.0)
+    }
+
+    /// An editable text area drawn with `spans`: a live-preview editor. The text is whatever `state` holds (edit it with the keyboard like
+    /// [`Ui::text_area`]); `spans` style ranges of it, and a span with [`RichSpan::hidden`] takes no room, so markup can disappear except
+    /// where the app wants it. Spans for the *next* frame come from the text this call returns in `state`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rich_text_edit(
+        &mut self,
+        desc: &ElementDesc,
+        style: &TextInputStyle,
+        scrollbar: &ScrollbarStyle,
+        state: &mut TextEditState,
+        scroll_state: &mut ScrollAreaState,
+        spans: &[RichSpan],
+        placeholder: &str,
+        enabled: bool,
+    ) -> TextInputResult {
+        let spans: Vec<ffi::RichSpanDesc> = spans.iter().map(RichSpan::to_ffi).collect();
+        let o = ffi::ui_rich_text_edit(
+            self.view_pin(),
+            &desc.to_ffi(),
+            &style.to_ffi(),
+            &scrollbar.to_ffi(),
+            state.0.pin_mut(),
+            scroll_state.0.pin_mut(),
+            &spans,
+            placeholder,
+            enabled,
+        );
+        if o.relayout {
+            self.engine().request_redraw();
+        }
+        TextInputResult { changed: o.changed, submitted: false, focused: o.focused }
     }
 
     /// A scrollable region: `content` builds the scrolled elements through the [`Ui`] it is given.

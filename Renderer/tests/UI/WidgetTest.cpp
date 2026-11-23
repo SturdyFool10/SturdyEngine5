@@ -1,5 +1,7 @@
 #include <Renderer/UI/UI.hpp>
 #include <Renderer/UI/TextBridge.hpp>
+#include <Renderer/Text/EmbeddedFont.hpp>
+#include <Renderer/Text/Font.hpp>
 
 #include <array>
 #include <cassert>
@@ -498,6 +500,250 @@ namespace {
         assert(state.caret() == 0);
     }
 
+
+
+    /// Rich text with several styled runs (and a caret inside) wraps between words, keeps raised and lowered runs in their line, and a
+    /// click on a wrapped row maps to a character of that row.
+    void rich_text_wraps_across_styled_runs_and_places_clicks_on_rows() {
+        auto font = Font::load(SFT::Text::embedded_default_font_bytes());
+        assert(font.has_value());
+        Context context = make_context();
+        context.register_font(0, *font);
+
+        const std::string words = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma";
+        TextEditState state;
+        state.set_text(UString{words});
+        // Bold-ish colour run, a superscript and a subscript in the middle: more than one style, so the text element alone could not wrap.
+        TextEditStyle style{};
+        style.wrap_lines = true;
+        style.font_size = 16;
+        style.highlighter = [](const UString &) {
+            SFT::UI::RichTextSpan sup;
+            sup.scalar_start = 6;
+            sup.scalar_length = 4;
+            sup.font_size_scale = 0.7f;
+            sup.baseline_shift = 0.35f;
+            SFT::UI::RichTextSpan sub = sup;
+            sub.scalar_start = 20;
+            sub.baseline_shift = -0.15f;
+            SFT::UI::RichTextSpan tint;
+            tint.scalar_start = 30;
+            tint.scalar_length = 12;
+            tint.color = Color{1.0, 0.5, 0.0, 1.0};
+            return std::vector<SFT::UI::RichTextSpan>{sup, sub, tint};
+        };
+        const ScrollbarStyle scrollbar_style{};
+        ScrollAreaState scroll_state;
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(220.0f), SizingAxis::fixed(300.0f)},
+            .id = UString{"rich-flow"},
+        };
+        const auto frame = [&](const PointerState &pointer) {
+            context.begin_layout({400.0f, 400.0f}, pointer, 0.016f);
+            (void)text_area(context, decl, style, state, TextEditInput{}, 0.016f, scrollbar_style, scroll_state, UString{}, true);
+            (void)context.finish_frame();
+        };
+        // The width to wrap to is known after the first frame; the second wraps.
+        frame(PointerState{});
+        frame(PointerState{});
+        frame(PointerState{});
+
+        const TextEditState::VisualLayout *layout = state.visual_layout(0);
+        assert(layout != nullptr);
+        assert(layout->line_starts.size() > 2);
+        assert(layout->line_starts.front() == 0);
+        for (usize i = 1; i < layout->line_starts.size(); ++i) {
+            assert(layout->line_starts[i] > layout->line_starts[i - 1]);
+            // Lines break after a space: the word before the break is whole.
+            assert(words[layout->line_starts[i] - 1] == ' ');
+        }
+        const f32 viewport = context.scroll_metrics(decl.id).container_size.x;
+        for (usize row = 0; row < layout->line_starts.size(); ++row) {
+            const auto bounds = context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, row));
+            assert(bounds.has_value());
+            assert(bounds->size.x <= viewport + 0.5f);
+            if (row > 0) {
+                const auto above = context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, row - 1));
+                assert(bounds->position.y > above->position.y);
+            }
+        }
+
+        // The caret in the middle of the text splits runs but must not unwrap it.
+        const usize breaks = layout->line_starts.size();
+        state.set_focused(true);
+        state.select_range(25, 25);
+        frame(PointerState{});
+        frame(PointerState{});
+        assert(state.visual_layout(0)->line_starts.size() == breaks);
+
+        // A pointer in the second row maps to a character of the second row.
+        const auto second = context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, 1));
+        assert(second.has_value());
+        const std::vector<std::pair<usize, usize>> paragraphs{{0, state.text().size()}};
+        const glm::vec2 pointer{second->position.x + 40.0f, second->position.y + second->size.y * 0.5f};
+        const auto hit = SFT::UI::Detail::hit_test_paragraphs(context, style, state.text(), paragraphs, decl.id, pointer, &state);
+        assert(hit.has_value());
+        const usize second_start = state.visual_layout(0)->line_starts[1];
+        const usize third_start = state.visual_layout(0)->line_starts[2];
+        assert(hit->scalar >= second_start && hit->scalar < third_start);
+    }
+
+
+
+    /// A hidden span takes no room (a live-preview editor hides its markup); runs of different sizes share a baseline.
+    void hidden_spans_take_no_room_and_runs_share_a_baseline() {
+        auto font = Font::load(SFT::Text::embedded_default_font_bytes());
+        assert(font.has_value());
+        Context context = make_context();
+        context.register_font(0, *font);
+        const std::string words = "**bold** word and **more** words here";
+        TextEditState state;
+        state.set_text(UString{words});
+        TextEditStyle style{};
+        style.wrap_lines = true;
+        style.font_size = 16;
+        bool hide = false;
+        style.highlighter = [&hide](const UString &) {
+            std::vector<SFT::UI::RichTextSpan> spans;
+            for (const usize start : {usize{0}, usize{6}, usize{19}, usize{25}}) {
+                SFT::UI::RichTextSpan marker;
+                marker.scalar_start = start;
+                marker.scalar_length = 2;
+                marker.hidden = hide;
+                spans.push_back(marker);
+            }
+            return spans;
+        };
+        const ScrollbarStyle scrollbar_style{};
+        ScrollAreaState scroll_state;
+        const ElementDecl decl{.sizing = {SizingAxis::fixed(180.0f), SizingAxis::fixed(300.0f)}, .id = UString{"hidden-runs"}};
+        const auto lay_out = [&]() {
+            style.highlighter_revision += 1;
+            for (int i = 0; i < 3; ++i) {
+                context.begin_layout({400.0f, 400.0f}, PointerState{}, 0.016f);
+                (void)text_area(context, decl, style, state, TextEditInput{}, 0.016f, scrollbar_style, scroll_state, UString{}, true);
+                (void)context.finish_frame();
+            }
+            return state.visual_layout(0)->line_starts;
+        };
+        const std::vector<usize> shown = lay_out();
+        hide = true;
+        const std::vector<usize> hidden = lay_out();
+        // Four pairs of `*` take 8 characters of room when shown; hiding them lets the text fit in fewer or equal rows, never more.
+        assert(hidden.size() <= shown.size());
+        assert(hidden.front() == 0);
+
+        // Runs of two sizes share one baseline: the rows' heights are those of the bigger text, not stacked.
+        TextEditState mixed;
+        mixed.set_text(UString{"big small big"});
+        TextEditStyle mixed_style{};
+        mixed_style.wrap_lines = true;
+        mixed_style.font_size = 24;
+        mixed_style.highlighter = [](const UString &) {
+            SFT::UI::RichTextSpan small;
+            small.scalar_start = 4;
+            small.scalar_length = 5;
+            small.font_size_scale = 0.5f;
+            return std::vector<SFT::UI::RichTextSpan>{small};
+        };
+        ScrollAreaState mixed_scroll;
+        const ElementDecl mixed_decl{.sizing = {SizingAxis::fixed(400.0f), SizingAxis::fixed(200.0f)}, .id = UString{"mixed"}};
+        for (int i = 0; i < 3; ++i) {
+            context.begin_layout({500.0f, 300.0f}, PointerState{}, 0.016f);
+            (void)text_area(context, mixed_decl, mixed_style, mixed, TextEditInput{}, 0.016f, scrollbar_style, mixed_scroll, UString{}, true);
+            (void)context.finish_frame();
+        }
+        const auto row = context.element_bounds(SFT::UI::Detail::visual_row_element_id(mixed_decl.id, 0, 0)).value();
+        const f32 big_height = context.measure_text(SFT::UI::TextStyle{.font_size = 24}, "big").y;
+        assert(row.size.y <= big_height * 1.2f + 0.5f);
+        // The ascent a run's baseline is measured from grows with the font size.
+        assert(context.text_ascent(SFT::UI::TextStyle{.font_size = 24}) > context.text_ascent(SFT::UI::TextStyle{.font_size = 12}));
+    }
+
+    /// The spans a highlighter returns are cached per text; a new revision recomputes them (hover colours, themes).
+    void highlighted_spans_follow_the_revision() {
+        TextEditState state;
+        state.set_text(UString{"hello"});
+        const auto make = [](Color color) {
+            return [color](const UString &) {
+                SFT::UI::RichTextSpan span;
+                span.scalar_length = 5;
+                span.color = color;
+                return std::vector<SFT::UI::RichTextSpan>{span};
+            };
+        };
+        const Color red{1.0, 0.0, 0.0, 1.0};
+        const Color green{0.0, 1.0, 0.0, 1.0};
+        assert(near(state.highlighted_spans(make(red), 1).front().color.r, 1.0));
+        assert(near(state.highlighted_spans(make(green), 1).front().color.r, 1.0)); // same text, same revision: cached
+        assert(near(state.highlighted_spans(make(green), 2).front().color.g, 1.0)); // new revision: recomputed
+    }
+
+    /// Letter spacing widens text, line height sets the row height, and hit testing reports the character under the pointer
+    /// (not just the nearest caret position) and whether the pointer is over text.
+    void rich_text_metrics_and_character_under_pointer() {
+        auto font = Font::load(SFT::Text::embedded_default_font_bytes());
+        assert(font.has_value());
+        Context context = make_context();
+        context.register_font(0, *font);
+        TextEditState state;
+        state.set_text(UString{"abcdefghij"});
+        TextEditStyle style{};
+        style.wrap_lines = true;
+        style.font_size = 16;
+        style.highlighter = [](const UString &) {
+            SFT::UI::RichTextSpan first;
+            first.scalar_length = 5;
+            SFT::UI::RichTextSpan second;
+            second.scalar_start = 5;
+            second.scalar_length = 5;
+            second.color = Color{1.0, 0.0, 0.0, 1.0};
+            return std::vector<SFT::UI::RichTextSpan>{first, second};
+        };
+        const ScrollbarStyle scrollbar_style{};
+        ScrollAreaState scroll_state;
+        const ElementDecl decl{.sizing = {SizingAxis::fixed(400.0f), SizingAxis::fixed(200.0f)}, .id = UString{"metrics"}};
+        const auto row_size = [&](u16 letter_spacing, u16 line_height) {
+            style.letter_spacing = letter_spacing;
+            style.line_height = line_height;
+            style.highlighter_revision += 1;
+            for (int i = 0; i < 3; ++i) {
+                context.begin_layout({500.0f, 300.0f}, PointerState{}, 0.016f);
+                (void)text_area(context, decl, style, state, TextEditInput{}, 0.016f, scrollbar_style, scroll_state, UString{}, true);
+                (void)context.finish_frame();
+            }
+            return context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, 0)).value().size;
+        };
+        const glm::vec2 plain = row_size(0, 0);
+        const f32 plain_width = context.measure_text(SFT::UI::TextStyle{.font_size = 16}, "abcde").x;
+        const f32 spaced_width = context.measure_text(SFT::UI::TextStyle{.font_size = 16, .letter_spacing = 6}, "abcde").x;
+        assert(near(spaced_width - plain_width, 30.0, 0.5)); // 6 px after each of 5 letters
+        const glm::vec2 tall = row_size(0, 40);
+        assert(tall.y >= 40.0f - 0.5f);
+        assert(tall.y > plain.y);
+
+        // Pointer over the 8th character ("h") of the second run.
+        const auto bounds = context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, 0)).value();
+        style.letter_spacing = 0;
+        style.line_height = 0;
+        style.highlighter_revision += 1;
+        for (int i = 0; i < 3; ++i) {
+            context.begin_layout({500.0f, 300.0f}, PointerState{}, 0.016f);
+            (void)text_area(context, decl, style, state, TextEditInput{}, 0.016f, scrollbar_style, scroll_state, UString{}, true);
+            (void)context.finish_frame();
+        }
+        const f32 x_of_h = bounds.position.x + context.measure_text(SFT::UI::TextStyle{.font_size = 16}, "abcdefg").x + 2.0f;
+        const std::vector<std::pair<usize, usize>> paragraphs{{0, 10}};
+        const auto row = context.element_bounds(SFT::UI::Detail::visual_row_element_id(decl.id, 0, 0)).value();
+        const glm::vec2 over_h{x_of_h, row.position.y + row.size.y * 0.5f};
+        const auto hit = SFT::UI::Detail::hit_test_paragraphs(context, style, state.text(), paragraphs, decl.id, over_h, &state);
+        assert(hit.has_value() && hit->inside);
+        assert(hit->char_under == 7);
+        // Far to the right of the text: not over a character.
+        const glm::vec2 past{row.position.x + 380.0f, row.position.y + row.size.y * 0.5f};
+        const auto beyond = SFT::UI::Detail::hit_test_paragraphs(context, style, state.text(), paragraphs, decl.id, past, &state);
+        assert(beyond.has_value() && !beyond->inside);
+    }
 
     /// Performs the outline cache key distinguishes font faces with shared low bits operation using the supplied arguments.
     ///
@@ -1297,6 +1543,10 @@ int main() {
     color_picker_component_sliders_follow_selected_space();
     text_caret_has_no_layout_footprint();
     text_area_line_heights_ignore_caret();
+    rich_text_wraps_across_styled_runs_and_places_clicks_on_rows();
+    highlighted_spans_follow_the_revision();
+    hidden_spans_take_no_room_and_runs_share_a_baseline();
+    rich_text_metrics_and_character_under_pointer();
     text_edit_state_click_streak_and_word_select();
     document_text_area_virtualizes_large_documents();
     text_edit_features_and_rebinding();

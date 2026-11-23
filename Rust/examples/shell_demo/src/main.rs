@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use glam::{Vec2, Vec4};
 use sturdy::app::FrameMode;
 use sturdy::device::{Adapter, Backend, DevicePreference, DeviceRequest, SwitchOutcome};
-use sturdy::markdown::{MarkdownEvent, MarkdownStyle, MarkdownView};
+use sturdy::markdown::{MarkdownEditor, MarkdownEvent, MarkdownImage, MarkdownResources, MarkdownStyle, MarkdownView};
 use sturdy::prelude::*;
 use sturdy::render::{FrameRateLimit, LinuxBlurProtocol, SurfaceHandle, WindowEffectKind, WindowEffectOptions, WindowEffectParams};
 use sturdy::ui::{
@@ -38,36 +38,8 @@ use sturdy::widgets::{
 use sturdy::window::{DropEvent, HitTestRegions, TaskbarProgress, WindowRect};
 use sturdy::{Key, MouseButton};
 
-const CHANGELOG: &str = "\
-# Shell Demo 0.1
-
-A reference immediate-mode app for **SE5**. Everything here is rebuilt every frame.
-
-## What is in it
-
-- Custom *title bar* with OS drag and resize
-- Virtualised lists (50 000 rows)
-- Live settings: ~~restart to apply~~ nothing needs a restart
-  1. Graphics API and GPU
-  2. Window blur and transparency
-  3. Fonts and text size
-
-> Select this text with the mouse and press Ctrl+C: Markdown blocks are selectable.
-
-| Setting | Applies |
-|---|---|
-| vsync | next frame |
-| frame limiter | next frame |
-| fonts | next frame |
-
-See [the engine repository](https://github.com/sturdyfool10/sturdyengine5) or `run_demo --help`.
-
-```rust
-fn main() {
-    println!(\"hello\");
-}
-```
-";
+/// The Home page's Markdown: a document that exercises every construct `sturdy::markdown` draws.
+const CHANGELOG: &str = include_str!("markdown_demo.md");
 
 #[derive(Clone, Copy)]
 struct Theme {
@@ -127,6 +99,11 @@ struct App {
 
     // Home
     changelog: MarkdownView,
+    /// The Notes tab: a live-preview Markdown editor.
+    notes: MarkdownEditor,
+    notes_live: bool,
+    /// Image URLs the Markdown asked for; this demo has no loader, so they all fail and show their alt text.
+    failed_images: Vec<String>,
     dropped: Vec<String>,
     tooltip: TooltipState,
     menu: PopupState,
@@ -181,6 +158,9 @@ impl App {
             font_size: 15,
             status: String::new(),
             changelog: MarkdownView::new(CHANGELOG),
+            notes: MarkdownEditor::new(include_str!("notes_demo.md")),
+            notes_live: true,
+            failed_images: Vec::new(),
             dropped: Vec::new(),
             tooltip: TooltipState::default(),
             menu: PopupState::default(),
@@ -287,7 +267,7 @@ impl App {
 
     fn shortcuts(&mut self, ui: &mut Ui<'_>) {
         let engine = ui.engine();
-        for (index, key) in [Key::Digit1, Key::Digit2, Key::Digit3, Key::Digit4].into_iter().enumerate() {
+        for (index, key) in [Key::Digit1, Key::Digit2, Key::Digit3, Key::Digit4, Key::Digit5].into_iter().enumerate() {
             if Shortcut::ctrl(key).triggered(&engine) {
                 self.tab = index;
             }
@@ -397,7 +377,7 @@ impl App {
             selected_text: theme.text,
             ..TabStyle::default()
         };
-        self.tab = ui_kit::tabs(ui, "sidebar-tabs", &["Home", "Library", "Settings", "About"], self.tab, true, &style);
+        self.tab = ui_kit::tabs(ui, "sidebar-tabs", &["Home", "Library", "Settings", "About", "Notes"], self.tab, true, &style);
     }
 
     fn content(&mut self, ui: &mut Ui<'_>, theme: &Theme, now: f64) {
@@ -414,6 +394,7 @@ impl App {
             0 => self.home(ui, theme, now),
             1 => self.library(ui, theme),
             2 => self.settings(ui, theme),
+            4 => self.notes(ui, theme),
             _ => self.about(ui, theme),
         }
         if !self.status.is_empty() {
@@ -509,10 +490,88 @@ impl App {
         let _scroll = ui.element(
             &ElementDesc::new().id("home-scroll".into()).width(Sizing::Grow).height(Sizing::Grow).clip(Clip::vertical()).direction(Direction::TopToBottom),
         );
-        let style = MarkdownStyle { text: theme.text, muted: theme.muted, link: theme.accent, font_size: self.font_size, ..MarkdownStyle::default() };
-        for event in self.changelog.show(ui, "changelog", &style) {
-            let MarkdownEvent::LinkClicked(url) = event;
-            self.status = format!("Link clicked: {url}");
+        // Everything opt-in is switched on so the page shows it; a chat app would pick what it needs.
+        let style = MarkdownStyle {
+            text: theme.text,
+            muted: theme.muted,
+            link: theme.accent,
+            task_accent: theme.accent,
+            font_size: self.font_size,
+            smart_punctuation: true,
+            underline_syntax: true,
+            highlight_code: true,
+            code_language_label: true,
+            code_copy_button: true,
+            code_max_height: Some(220.0),
+            table_zebra: Vec4::new(1.0, 1.0, 1.0, 0.03),
+            link_visited: Some(Vec4::new(0.7, 0.55, 0.9, 1.0)),
+            bullets: vec!["\u{2022}".into(), "\u{25e6}".into(), "\u{25aa}".into()],
+            heading_margin_top: Some(18),
+            link_hover: Some(Vec4::new(0.7, 0.85, 1.0, 1.0)),
+            link_pressed: Some(Vec4::new(1.0, 0.7, 0.4, 1.0)),
+            link_underline: sturdy::markdown::LinkUnderline::OnHover,
+            line_height: 22,
+            letter_spacing: 1,
+            code_wrap: false,
+            code_line_numbers: true,
+            ..MarkdownStyle::default()
+        };
+        // The demo has no image loader, so every image the document asks for is reported as failed and shows its alt text.
+        let resources = MarkdownResources {
+            images: self.failed_images.iter().map(|url| (url.clone(), MarkdownImage::Failed)).collect(),
+            scroll_container: Some("home-scroll".into()),
+            delta_seconds: 1.0 / 60.0,
+            ..MarkdownResources::default()
+        };
+        for event in self.changelog.show_with(ui, "changelog", &style, &resources) {
+            self.status = match event {
+                MarkdownEvent::LinkClicked(url) => format!("Link clicked: {url}"),
+                MarkdownEvent::WikiLinkClicked(page) => format!("Wiki link: {page}"),
+                MarkdownEvent::AnchorClicked(anchor) => format!("Jumped to {anchor}"),
+                MarkdownEvent::ImageRequested { url, .. } => {
+                    self.failed_images.push(url.clone());
+                    format!("Image requested: {url}")
+                }
+                MarkdownEvent::ImageClicked(url) => format!("Image clicked: {url}"),
+                MarkdownEvent::CopyCode(code) => {
+                    // A real app would hand `code` to the clipboard; the demo only reports it.
+                    format!("Copy button: {} bytes of code", code.len())
+                }
+                MarkdownEvent::BlockClicked { .. } => String::new(),
+                MarkdownEvent::LinkHovered(url) => format!("Hovering: {}", url.unwrap_or_else(|| "nothing".into())),
+                MarkdownEvent::LinkContext { url, x, y } => format!("Context menu for {url} at ({x}, {y})"),
+                MarkdownEvent::CopySelection(text) => format!("Copy selection: {} chars across blocks", text.chars().count()),
+                MarkdownEvent::TaskToggled { item, checked, .. } => {
+                    let range = self.changelog.task_source_range(item);
+                    format!("Task {item} is now {checked}; its `[ ]` is at source bytes {range:?}")
+                }
+            };
+        }
+    }
+
+    // -- Notes -----------------------------------------------------------------------------------------------------
+
+    fn notes(&mut self, ui: &mut Ui<'_>, theme: &Theme) {
+        ui.text("Notes", &self.text_style(theme, 1.5));
+        let style = MarkdownStyle { text: theme.text, muted: theme.muted, link: theme.accent, task_accent: theme.accent, font_size: self.font_size, ..MarkdownStyle::default() };
+        let mut resources = MarkdownResources::default();
+        if Shortcut::ctrl(Key::L).triggered(&ui.engine()) {
+            self.notes_live = !self.notes_live;
+        }
+        ui.text(
+            if self.notes_live { "Live preview (Ctrl+L for block mode): markup shows only in the block with the caret" } else { "Block mode (Ctrl+L for live preview)" },
+            &self.muted_style(theme),
+        );
+        let output = if self.notes_live {
+            self.notes.show_live(ui, "notes", &style)
+        } else {
+            self.notes.show(ui, "notes", &style, &mut resources)
+        };
+        if output.changed {
+            self.status = format!("Notes edited: {} bytes", self.notes.source().len());
+        }
+        if output.needs_redraw {
+            ui.engine().request_redraw();
         }
     }
 
