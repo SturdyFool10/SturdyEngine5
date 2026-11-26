@@ -1464,7 +1464,8 @@ namespace SFT::Engine {
         if (device == nullptr) {
             return describe_adapters(gpu_inventory_, std::nullopt, {});
         }
-        return describe_adapters(gpu_inventory_, device->backend_type(), device->adapter_info().physical_device_id);
+        return describe_adapters(gpu_inventory_, device->backend_type(), device->adapter_info().physical_device_id,
+                                 &device->adapter_info());
     }
 
     DeviceSwitchResult Engine::switch_device(const DeviceRequest &request) {

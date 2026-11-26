@@ -106,7 +106,8 @@ namespace SFT::Engine {
 
     vector<AdapterDescription> describe_adapters(const RHI::GpuInventory &inventory,
                                                  optional<RHI::BackendType> active_backend,
-                                                 string_view active_physical_device_id) {
+                                                 string_view active_physical_device_id,
+                                                 const RHI::AdapterInfo *active_adapter) {
         vector<AdapterDescription> out;
         out.reserve(inventory.gpus.size());
         for (const RHI::PhysicalGpu &gpu : inventory.gpus) {
@@ -125,7 +126,14 @@ namespace SFT::Engine {
                 offer.backend = api.adapter.backend;
                 offer.driver_version = api.adapter.driver_version;
                 offer.api_version = api.adapter.api_version;
-                offer.active = is_running_gpu && api.adapter.backend == *active_backend;
+                // WebGPU reports no physical device id (see WebGpuAdapter.cpp), so without one the running device
+                // is recognised by its backend, name and PCI ids.
+                const bool matches_by_identity =
+                    active_backend.has_value() && active_physical_device_id.empty() && active_adapter != nullptr &&
+                    api.adapter.backend == *active_backend && api.adapter.name == active_adapter->name &&
+                    api.adapter.vendor_id == active_adapter->vendor_id &&
+                    api.adapter.device_id == active_adapter->device_id;
+                offer.active = matches_by_identity || (is_running_gpu && api.adapter.backend == *active_backend);
                 if (offer.active) {
                     offer.presentable = AdapterPresentability::Yes;
                 }

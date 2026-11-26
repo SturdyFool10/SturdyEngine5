@@ -136,10 +136,13 @@ namespace SFT::Engine {
     [[nodiscard]] string adapter_stable_id(const RHI::PhysicalGpu &gpu);
 
     /// Lists `inventory` for a settings screen. `active_backend`/`active_physical_device_id` mark the running
-    /// device (`active_physical_device_id` empty = none), which is the one adapter known to present.
+    /// device (`active_physical_device_id` empty = none), which is the one adapter known to present. WebGPU has no
+    /// physical device id, so when `active_physical_device_id` is empty and `active_adapter` is given, the running
+    /// device is matched by backend, name, vendor id and device id instead.
     [[nodiscard]] vector<AdapterDescription> describe_adapters(const RHI::GpuInventory &inventory,
                                                                optional<RHI::BackendType> active_backend,
-                                                               string_view active_physical_device_id);
+                                                               string_view active_physical_device_id,
+                                                               const RHI::AdapterInfo *active_adapter = nullptr);
 
     /// Backends at least one GPU in `inventory` can be driven through, in `BackendType` order.
     [[nodiscard]] vector<RHI::BackendType> available_backends(const RHI::GpuInventory &inventory);
