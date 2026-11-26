@@ -1058,7 +1058,10 @@ namespace SFT::UI {
         unordered_map<string, ShapedClip> shaped_clip_cache_;
         [[nodiscard]] std::shared_ptr<const UiEffect> shaped_clip_effect(const ElementDecl &decl);
         /// An element that draws something of its own and has no children (an image, a custom shader element, strokes, a chart).
-        void record_leaf(const ElementDecl &decl);
+        void record_leaf(const ElementDecl &decl, const UiEffect *effect = nullptr);
+        /// The effect `decl` is drawn with (its declared one under its shaped clip), kept alive for the frame, or null when it has none or it is
+        /// invalid. Every element kind (containers, images, strokes, fills, custom shaders) goes through this, so an effect always applies.
+        [[nodiscard]] std::shared_ptr<const UiEffect> resolve_effect(const ElementDecl &decl);
         /// The text element just opened inside the current element.
         void record_text_hit();
         HitTestMode hit_test_mode_ = HitTestMode::Css;

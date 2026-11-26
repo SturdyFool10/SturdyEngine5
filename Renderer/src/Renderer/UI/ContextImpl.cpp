@@ -1124,22 +1124,8 @@ namespace SFT::UI {
                 declaration.clip.childOffset = SEClay_GetScrollOffset();
             }
         }
-        // A shaped clip (the element's own corners, or a path) is an effect that runs after the declared one.
-        std::shared_ptr<const UiEffect> effect = decl.effect;
-        if (decl.clip.follow_corners || decl.clip.path) {
-            effect = shaped_clip_effect(decl);
-        }
-        if (effect) {
-            if (const std::optional<UString> problem = validate_effect(*effect)) {
-                // A bad effect must not take the widget with it: draw it plainly and say why.
-                SFT_LOG_ERROR_THROTTLED(5000, "UI effect ignored, the element is drawn without it: {}", problem->cpp_string());
-            } else {
-                // SEClay keeps only this raw pointer until the layout ends; effect_storage_ keeps the object alive, and
-                // finish_frame() hands that to the snapshot.
-                effect_storage_.push_back(effect);
-                declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
-            }
-        }
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         if (decl.border_edges) {
             // The edges are read when the frame is finished; storage keeps them alive until then. The single colour only has to be visible so the
             // layout emits a Border command at all.
@@ -1278,10 +1264,12 @@ namespace SFT::UI {
         ImageRef *stored = &image_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back().z;
         SEClay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         declaration.image = SEClay_ImageElementConfig{.imageData = stored};
         SEClay__OpenElement();
         SEClay__ConfigureOpenElement(declaration);
-        record_leaf(decl);
+        record_leaf(decl, effect.get());
         SEClay__CloseElement();
     }
 
@@ -1312,10 +1300,12 @@ namespace SFT::UI {
         StrokePolylineData *stored = &stroke_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back().z;
         SEClay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         declaration.custom.customData = stored; // not `custom = {...}`: that would drop a declared effect
         SEClay__OpenElement();
         SEClay__ConfigureOpenElement(declaration);
-        record_leaf(decl);
+        record_leaf(decl, effect.get());
         SEClay__CloseElement();
     }
 
@@ -1349,10 +1339,12 @@ namespace SFT::UI {
         FillQuadListData *stored = &fill_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back().z;
         SEClay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         declaration.custom.customData = stored; // not `custom = {...}`: that would drop a declared effect
         SEClay__OpenElement();
         SEClay__ConfigureOpenElement(declaration);
-        record_leaf(decl);
+        record_leaf(decl, effect.get());
         SEClay__CloseElement();
     }
 
@@ -1374,10 +1366,12 @@ namespace SFT::UI {
         SectorListData *stored = &sector_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back().z;
         SEClay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         declaration.custom.customData = stored; // not `custom = {...}`: that would drop a declared effect
         SEClay__OpenElement();
         SEClay__ConfigureOpenElement(declaration);
-        record_leaf(decl);
+        record_leaf(decl, effect.get());
         SEClay__CloseElement();
     }
 
@@ -1406,10 +1400,12 @@ namespace SFT::UI {
         CustomStrokeElementData *stored = &custom_stroke_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back().z;
         SEClay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         declaration.custom.customData = stored; // not `custom = {...}`: that would drop a declared effect
         SEClay__OpenElement();
         SEClay__ConfigureOpenElement(declaration);
-        record_leaf(decl);
+        record_leaf(decl, effect.get());
         SEClay__CloseElement();
     }
 
@@ -1444,8 +1440,10 @@ namespace SFT::UI {
             declaration.border.edgeData = decl.border_edges.get();
             declaration.border.color = SEClay_Color{255.0f, 255.0f, 255.0f, 255.0f};
         }
+        const std::shared_ptr<const UiEffect> effect = resolve_effect(decl);
+        declaration.custom.effectData = const_cast<UiEffect *>(effect.get());
         SEClay__ConfigureOpenElement(declaration);
-        record_hit(decl, decl.effect.get());
+        record_hit(decl, effect.get());
         return ElementScope{context_, &z_stack_};
     }
 
@@ -1455,13 +1453,13 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void Context::record_leaf(const ElementDecl &decl) {
+    void Context::record_leaf(const ElementDecl &decl, const UiEffect *effect) {
         const i32 index = static_cast<i32>(hit_records_.size());
         hit_records_.push_back(HitRecord{.clay_id = SEClay__GetOpenLayoutElement()->id,
                                          .parent = z_stack_.back().record,
                                          .z = decl.z != 0 ? decl.z : z_stack_.back().z,
                                          .solid = true,
-                                         .effect = nullptr});
+                                         .effect = effect});
         if (!decl.id.empty()) {
             hit_record_by_id_.insert_or_assign(decl.id.cpp_string(), index);
         }
@@ -1477,6 +1475,26 @@ namespace SFT::UI {
             return;
         }
         hit_records_.push_back(HitRecord{.clay_id = text->id, .parent = z_stack_.back().record, .z = z_stack_.back().z, .solid = true, .effect = nullptr});
+    }
+
+    std::shared_ptr<const UiEffect> Context::resolve_effect(const ElementDecl &decl) {
+        // A shaped clip (the element's own corners, or a path) is an effect that runs after the declared one.
+        std::shared_ptr<const UiEffect> effect = decl.effect;
+        if (decl.clip.follow_corners || decl.clip.path) {
+            effect = shaped_clip_effect(decl);
+        }
+        if (!effect) {
+            return nullptr;
+        }
+        if (const std::optional<UString> problem = validate_effect(*effect)) {
+            // A bad effect must not take the widget with it: draw it plainly and say why.
+            SFT_LOG_ERROR_THROTTLED(5000, "UI effect ignored, the element is drawn without it: {}", problem->cpp_string());
+            return nullptr;
+        }
+        // SEClay keeps only a raw pointer until the layout ends; effect_storage_ keeps the object alive, and finish_frame() hands that to
+        // the snapshot.
+        effect_storage_.push_back(effect);
+        return effect;
     }
 
     std::shared_ptr<const UiEffect> Context::shaped_clip_effect(const ElementDecl &decl) {
