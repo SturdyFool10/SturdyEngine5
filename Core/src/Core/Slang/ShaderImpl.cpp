@@ -941,7 +941,11 @@ namespace SFT::Core::Slang {
             // `query_image_format` is false only on the discovery path (see ShaderCompiler::reflect()),
             // true everywhere else; restricting to MutableTexture on top of that avoids calling into
             // this API for any range kind the RHI binding path never reads it for anyway.
-            if (query_image_format && range.type == ShaderBindingType::MutableTexture) {
+            // Slang's implementation dereferences the range's leaf variable without a null check, and a
+            // storage texture that is itself a top-level shader parameter (a bare `WTexture2D outputLut;`)
+            // has none, so asking for its format segfaults on the WebGPU path. Skip it in that case.
+            if (query_image_format && range.type == ShaderBindingType::MutableTexture &&
+                type_layout->getBindingRangeLeafVariable(range_index) != nullptr) {
                 range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
             }
 
